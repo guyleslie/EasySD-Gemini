@@ -1,0 +1,415 @@
+; PETSCII displayer plugin for IRQHack64V2
+; 05/08/2018 - Istanbul
+; I.R.on
+
+.enc "screen"
+
+; DEBUG mode - defined from command line (-D DEBUG=1 or -D DEBUG=0)
+; Load DEBUG macros BEFORE first use
+.include "../../Loader/DebugMacros.s"
+
+	*=$C000
+	JMP MAIN
+	
+MAIN	
+	JSR SAVESTATE		; Save VIC/$01 state for clean menu return
+	JSR INIT		;Clears screen, disables interrupts.	
+;	JSR DISPLAYPICTURE	
+;-	
+;	JMP -
+
+	DELAYFRAMES 100
+	PRINTSTATUSANDWAIT INITTEXT, 100	
+	DELAYFRAMES 250
+	
+ALTENTRY	
+
+;Lets try to open a file
+	PRINTSTATUSANDWAIT OPENINGFILE, 100
+	JSR IRQ_DisableDisplay		
+	LDX #<CASSETTEBUFFER	
+	LDY #>CASSETTEBUFFER
+	LDA #31
+	JSR IRQ_SetName
+	LDX #01		; Flags=read
+	JSR IRQ_OpenFile
+	BCC OPENINGCONT
+	JMP ERROR_OPENING_FILE
+OPENINGCONT	
+	JSR IRQ_EnableDisplay
+	
+	PRINTSTATUSANDWAIT OPENINGSUCCESS, 200
+	;JMP FILEREAD
+
+	PRINTSTATUSANDWAIT READINGFILE, 200
+
+	; --- Size-based load (replaces fixed IRQ_DATA_LENGTH pages) ---
+	; 1) Get FAT info for file into READBUFFER (256 bytes)
+	LDA #<READBUFFER
+	STA ZP_IRQ_DATA_LOW
+	LDA #>READBUFFER
+	STA ZP_IRQ_DATA_HIGH
+
+	JSR IRQ_DisableDisplay
+	JSR IRQ_GetInfoForFile
+	BCC +
+	JMP ERRORREADING
++	JSR IRQ_EnableDisplay
+
+	; Extract file size (FAT entry bytes 28..31)
+	LDA READBUFFER + 28
+	STA ZP_LF_SIZE0
+	LDA READBUFFER + 29
+	STA ZP_LF_SIZE1
+	LDA READBUFFER + 30
+	STA ZP_LF_SIZE2
+	LDA READBUFFER + 31
+	STA ZP_LF_SIZE3
+
+	; Validate: must fit into 2048 bytes buffer (8 pages) and be at least 2002 bytes
+	LDA ZP_LF_SIZE2
+	ORA ZP_LF_SIZE3
+	BEQ +
+	JMP ERROR_BADSIZE
++	LDA ZP_LF_SIZE1
+	CMP #>$0800
+	BCC SIZE_OK
+	BNE ERROR_BADSIZE
+	LDA ZP_LF_SIZE0
+	BEQ SIZE_OK
+	JMP ERROR_BADSIZE
+
+SIZE_OK
+	; Optional minimum size check (expects: 2 + 1000 + 1000 = 2002 bytes)
+	LDA ZP_LF_SIZE1
+	CMP #>$07D2
+	BCC ERROR_BADSIZE
+	BNE +
+	LDA ZP_LF_SIZE0
+	CMP #<$07D2
+	BCC ERROR_BADSIZE
++	; No header skip for PETSCII screen dumps
+	LDA #0
+	STA ZP_LF_SKIP_LO
+	STA ZP_LF_SKIP_HI
+
+	; Load payload into READBUFFER
+	LDA #<READBUFFER
+	STA ZP_IRQ_DATA_LOW
+	LDA #>READBUFFER
+	STA ZP_IRQ_DATA_HIGH
+
+	JSR IRQ_DisableDisplay
+	JSR LoadFileBySize
+	BCC +
+	JMP ERRORREADING
++
+ERRORREADING	
+	JSR IRQ_EnableDisplay
+	PRINTSTATUSANDWAIT READINGFAILED, 200		
+	JMP EXITFAIL
+	
+ERROR_OPENING_FILE	
+	JSR IRQ_EnableDisplay
+	PRINTSTATUSANDWAIT OPENINGFILEFAILED, 200		
+	JMP EXITFAIL	
+	
+
+ERROR_BADSIZE
+	JSR IRQ_EnableDisplay
+	PRINTSTATUSANDWAIT BADSIZE, 250
+	JMP EXITFAIL
+
+FILEREAD
+	NOP
+	JSR IRQ_EnableDisplay
+
+	
+	JSR DISPLAYPICTURE
+	
+	PRINTSTATUSANDWAIT CLOSINGFILE, 250	
+	PRINTSTATUSANDWAIT CLOSINGFILE, 250	
+	JSR IRQ_CloseFile
+	BCS ERRORCLOSING
+	
+	PRINTSTATUSANDWAIT FILECLOSED, 200	
+	JMP INPUT_GET
+ERRORCLOSING
+	STA $0628
+	JSR IRQ_EnableDisplay
+	PRINTSTATUSANDWAIT ERRORCLOSINGFILE, 100		
+	JMP EXITFAIL
+INPUT_GET
+	JSR SCNKEY		; Call kernal's key scan routine
+ 	JSR GETIN		; Get the pressed key by the kernal routine
+  	BEQ INPUT_GET		; If zero then no key is pressed so repeat
+	
+EXITFAIL	
+	JSR RESTORESTATE		; Restore VIC/$01 state for clean menu return
+	JSR IRQ_DisableDisplay
+	JSR IRQ_ExitToMenu
+
+	JMP *
+DISPLAYPICTURE
+	LDA READBUFFER
+	STA $D020
+	LDA READBUFFER+1
+	STA $D021
+
+	LDA #<READBUFFER+2
+	STA $FB
+	LDA #>READBUFFER+2
+	STA $FC
+
+	LDA #00
+	STA $FD
+	LDA #04
+	STA $FE
+	
+	LDX #$04
+	LDY #$00
+-	
+	LDA ($FB), Y
+	STA ($FD),Y
+	INY
+	BNE -
+	INC $FC	
+	INC $FE
+	DEX	
+	BNE -
+	
+	
+	LDA #<(READBUFFER+1002)
+	STA $FB
+	LDA #>(READBUFFER+1002)
+	STA $FC
+
+	LDA #00
+	STA $FD
+	LDA #$D8
+	STA $FE
+	
+	LDX #$04
+	LDY #$00
+-	
+	LDA ($FB), Y
+	STA ($FD),Y
+	INY
+	BNE -
+	INC $FC	
+	INC $FE
+	DEX	
+	BNE -	
+	RTS
+	
+INIT		; Input : None, Changed : A
+	CLD
+	LDA #$93
+	JSR CHROUT
+	LDA #$00 
+	STA $D020
+	LDA #$0B
+	STA $D021
+	JSR INITPC
+		
+	JSR DISABLEINTERRUPTS		
+	JSR KILLCIA
+		
+	RTS
+
+INITPC
+	LDX #$00
+	LDA #$0F
+CBL
+	STA $D800,X
+	STA $D900,X
+	STA $DA00,X
+	STA $DB00,X	
+	INX
+	BNE CBL
+	RTS
+	
+KILLCIA
+	;LDA #$00
+	;STA ISMUSICPLAYING
+	LDY #$7f    ; $7f = %01111111 
+    STY $dc0d   ; Turn off CIAs Timer interrupts 
+    STY $dd0d   ; Turn off CIAs Timer interrupts 
+    LDA $dc0d   ; cancel all CIA-IRQs in queue/unprocessed 
+    LDA $dd0d   ; cancel all CIA-IRQs in queue/unprocessed 
+	RTS	
+
+DISABLEINTERRUPTS
+    LDY #$7f    				; $7f = %01111111 
+    STY $dc0d   				; Turn off CIAs Timer interrupts 
+    STY $dd0d  				; Turn off CIAs Timer interrupts 
+    LDA $dc0d  				; cancel all CIA-IRQs in queue/unprocessed 
+    LDA $dd0d   				; cancel all CIA-IRQs in queue/unprocessed 
+	
+					
+; 	Change interrupt routines
+	ASL $D019
+	LDA #$00
+	STA $D01A
+	RTS
+
+DISABLEDISPLAY
+	LDA #$0B				;%00001011 ; Disable VIC display until the end of transfer
+	STA $D011	
+	RTS
+	
+ENABLEDISPLAY
+	LDA #$3B				
+	STA $D011	
+	RTS	
+
+WAITFRAMES
+FD
+	LDY #$90
+-	
+	CPY $D012
+	BNE -
+	LDY #50
+-	
+	DEY
+	BNE - 
+	
+	DEX
+	BNE FD
+	RTS
+	
+	
+;GetFileNameParameter:	
+;	LDA $01
+;	PHA
+;	LDA #$35
+;	STA $01
+;
+;	LDY #0
+;-	
+;	LDA FILENAMESHADOW, Y
+;	STA CASSETTEBUFFER, Y
+;
+;	INY
+;	CPY #MAXFILENAMELENGTH
+;	BNE -
+;	
+;	LDA CURRENTDIRINDEXSHADOW
+;	STA CURRENTDIRINDEX  
+;	
+;; Copy dirstack
+;	LDY #0
+;-	
+;	LDA DIRSTACKTEMP, Y
+;	STA DIRSTACK, Y
+;	LDA DIRSTACKTEMP+$100, Y
+;	STA DIRSTACK+$100, Y
+;	LDA DIRSTACKTEMP+$200, Y
+;	STA DIRSTACK+$200, Y
+;	INY
+;	BNE - 	
+;	
+;	PLA
+;	STA $01
+;	
+;	RTS		
+	
+	
+INITTEXT
+	.TEXT "IRQHACK64V2 PETSCII PLUGIN"
+	.BYTE 0	
+	
+;-----------------------------------------------
+; Plugin-specific label aliases for compatibility
+;-----------------------------------------------
+SENDSTARTTALKING = STARTTALKING
+STARTEDTALKING = TALKINGSTARTED
+OPENINGFILEFAILED = OPENINGFAILED
+FILECLOSED = CLOSINGSUCCESS
+ERRORCLOSINGFILE = CLOSINGFAILED
+
+FORCEIO
+	LDA $01
+	ORA #$04			; Ensure I/O visible ($D000-$DFFF)
+	STA $01
+	RTS
+
+SAVESTATE
+	LDA $01
+	STA SAVED_01
+	LDA $DD00
+	STA SAVED_DD00
+	LDA $D011
+	STA SAVED_D011
+	LDA $D016
+	STA SAVED_D016
+	LDA $D018
+	STA SAVED_D018
+	LDA $D020
+	STA SAVED_D020
+	LDA $D021
+	STA SAVED_D021
+	LDA $D022
+	STA SAVED_D022
+	LDA $D023
+	STA SAVED_D023
+	RTS
+
+RESTORESTATE
+	JSR FORCEIO
+	LDA SAVED_01
+	STA $01
+	LDA SAVED_DD00
+	STA $DD00
+	LDA SAVED_D018
+	STA $D018
+	LDA SAVED_D016
+	STA $D016
+	LDA SAVED_D011
+	STA $D011
+	LDA SAVED_D020
+	STA $D020
+	LDA SAVED_D021
+	STA $D021
+	LDA SAVED_D022
+	STA $D022
+	LDA SAVED_D023
+	STA $D023
+	RTS
+
+SAVED_01:	.byte 0
+SAVED_DD00:	.byte 0
+SAVED_D011:	.byte 0
+SAVED_D016:	.byte 0
+SAVED_D018:	.byte 0
+SAVED_D020:	.byte 0
+SAVED_D021:	.byte 0
+SAVED_D022:	.byte 0
+SAVED_D023:	.byte 0
+
+BADSIZE
+	.TEXT "BAD FILE SIZE"
+	.BYTE 0
+
+.include "../../Loader/CartLibStream.s"
+.include "../../Loader/DebugStrings.s"
+
+;DIRECTORIESMAXDEPTH	= 10	
+;MAXFILENAMELENGTH = 32
+
+;-       = DIRSTACK + range(0, MAXFILENAMELENGTH * DIRECTORIESMAXDEPTH, MAXFILENAMELENGTH)
+;DIRNAMESLO   .byte <(-)
+;DIRNAMESHI   .byte >(-)
+
+
+;PARENTDIR
+;	.TEXT ".."
+;	.FILL 30,0
+
+; Library on the arduino doesn't support opening parent directories, so we need to go to root and then 
+; traverse the path to the current path's parent.
+;DIRSTACK
+;	.FILL 32 * DIRECTORIESMAXDEPTH
+
+READBUFFER
+ ;	.binary "unclenash.petg"

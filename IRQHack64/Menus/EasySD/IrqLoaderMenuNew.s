@@ -1,0 +1,1794 @@
+; Plugin supporting menu program for IrqHack64
+; 31/07/2018 - Istanbul
+
+;.enc ascii
+; How menu works
+; Micro sends this menu when user presses the button on the cartridge.
+; Different from previous version, this version uses cartridge api for the low level work.
+; It will employ plugins to react to different type of programs. (Video playing, wav playing so on.)
+
+
+; --- Menu Constants ---
+COMMANDENTERMASK = $00
+COMMANDNEXTPAGE  = $40
+COMMANDPREVPAGE  = $41
+PATH_MAX         = 96
+PATHBUF_SIZE     = 160
+
+; --- Menu Zero Page Variables (User range $FB-$FE) ---
+NAMELOW          = $FB
+NAMEHIGH         = $FC
+COLLOW           = $FD
+COLHIGH          = $FE
+
+; --- Menu RAM Variables ---
+PATHBUFFER       = $033C ; Cassette buffer
+FILENAMESHADOW   = $0200 
+DIRSTACKTEMP     = $FD00 
+
+; --- External Routine Aliases ---
+SIDPLAY          = $E003 ; SIDLOAD + 3 (SIDLOAD is from System.inc)
+
+;CURRENTDIRINDEX is a variable (see variables section)
+;CURRENTDIRINDEXSHADOW is a variable (see variables section)
+
+; DEBUG mode flag - defined from command line (-D DEBUG=1 or -D DEBUG=0)
+; Default production builds should define DEBUG=0 explicitly
+
+
+	
+DELAYFRAMES	.macro
+	LDX #\1
+	JSR WAITFRAMES
+	.endm
+
+; ROM Timing Control Macros
+; Enable cartridge ROM access before reading from cartridge
+CART_ROM_ENABLE .macro
+	LDA #$37		; BASIC+KERNAL+I/O+Cartridge enabled
+	STA $01
+	.endm
+
+; Restore normal configuration after cartridge access
+CART_ROM_RESTORE .macro
+	LDA #$35		; BASIC+KERNAL+I/O enabled (standard)
+	STA $01
+	.endm
+
+
+
+
+	*=$080E
+	LDX #$FB
+	TXS
+;	LDA MODULATION_ADDRESS
+;	DELAYFRAMES	10
+;	LDA #PP_CONFIG_RAM_ON_BASIC
+;	STA PROCESSOR_PORT
+	JSR PREINIT
+
+.if DEBUG = 1
+	JSR DEBUG_Init		; Initialize DEBUG dump area ($CF00)
+.endif
+
+	JSR DISPLAYPETGRAPHICS
+	DELAYFRAMES 75
+
+	JSR IRQ_DisableDisplay	
+	JSR DISPLAYSCREENGRAPHICS
+	;JSR POSTINIT		;Clears screen, disables interrupts, copies sid to $C000 and inits it.	
+	;JMP INPUT_GET
+.if DEBUG = 0 
+	JSR IRQ_StartTalking
+.else
+	NOP
+	NOP
+	NOP
+.endif		
+	LDA #<DIRLOAD
+	STA ZP_IRQ_DATA_LOW
+	LDA #>DIRLOAD
+	STA ZP_IRQ_DATA_HIGH
+	LDA #$03		;Max 256*3 bytes of data
+	STA ZP_IRQ_DATA_LENGTH	
+	LDA #<(DIRREAD-1)
+	STA ZP_IRQ_CALLBACK_LO
+	LDA #>(DIRREAD-1)
+	STA ZP_IRQ_CALLBACK_HI	
+
+	TSX
+	STX $C000
+	
+	LDY #$00		
+	LDX #MAXDIRITEMS
+	LDA CURPAGEINDEX
+	
+.if DEBUG = 0 
+	JSR IRQ_ReadDirectory	
+.else
+	JSR SETDIR1
+	JSR DIRREAD
+.endif		
+		
+	; Do error handling if directory can't be read (carry is set)
+
+		
+;Start of main loop	
+INPUT_GET
+	LDA ISMUSICPLAYING	;Decide to play music or not (ISMUSICPLAYING is just a hardcoded constant)
+	BEQ SKIPMUSIC
+	LDA #$A1	
+
+;Waits until a certain raster line is reached to call the sid's play routine	
+WAITPLAYRASTER			
+	CMP $D012
+	BNE WAITPLAYRASTER
+	STA BORDER
+	JSR SIDPLAY
+	LDX #$00
+	LDY $D012
+	INY
+	INY
+WAITPLAYRASTEREND	
+	CPY $D012
+	BNE WAITPLAYRASTEREND
+	
+	STX BORDER
+
+SKIPMUSIC	
+	JSR SCNKEY		; Call kernal's key scan routine
+ 	JSR GETIN		; Get the pressed key by the kernal routine
+  	BEQ INPUT_GET		; If zero then no key is pressed so repeat
+  	CMP #$2E		; IF it's a > character 
+  	BEQ NEXTPAGE		; Then continue to request next page from micro
+  	CMP #$2C		; IF it's a < character
+  	BEQ PREVPAGE 		; Then continue to request previous page from micro
+  	CMP #$2B		; IF it's a + character
+  	BEQ UP			; Then continue iterate up in the menu
+  	CMP #$2D		; IF it's a - character
+  	BEQ DOWN 		; Then continue iterate down in the menu
+  	CMP #$0D		; IF it's ENTER character
+  	BEQ ENTER		; Then launch the selected item
+	JMP INPUT_GET		; If other key then leave control to the main loop
+		  	
+UP	
+	LDX #COMMANDENTERMASK
+	STX COMMANDBYTE
+	JSR GETCURRENTROW
+	JSR CLEARARROW
+	TXA
+	BNE NORMALUP
+	LDX CURPAGEITEMS
+NORMALUP	
+	DEX
+	JSR SETCURRENTROWHEAD 	
+	JSR SETARROW
+	JMP INPUT_GET
+
+DOWN
+	LDX #COMMANDENTERMASK
+	STX COMMANDBYTE	
+	JSR GETCURRENTROW	
+	JSR CLEARARROW
+	INX
+	CPX CURPAGEITEMS
+	BNE ROLLINGDOWN
+	LDX #$00
+ROLLINGDOWN	
+	JSR SETCURRENTROWHEAD 
+	JSR SETARROW
+	JMP INPUT_GET	
+
+; Below routine fills the COMMANDBYTE to the relevant action taken by the user.
+; With the start of the ENTER control byte is sent to micro by modulating raster interrupts
+
+
+NEXTPAGE
+	LDX CURPAGEINDEX
+	INX
+	CPX PAGECOUNT
+	BCC EXECNEXT	; FIX: Use standard BCC (Branch if Carry Clear) instead of BLT
+	JMP INPUT_GET
+EXECNEXT
+	INC CURPAGEINDEX	
+	LDX #COMMANDNEXTPAGE
+	STX COMMANDBYTE
+	JSR IRQ_DisableDisplay
+	JMP DOREADDIRECTORY
+	
+SPLAY 	
+	LDX #$45
+	STX COMMANDBYTE
+	CLV
+	BVC ENTER
+	
+PREVPAGE  	  	  	
+  	LDX CURPAGEINDEX
+  	BNE EXECPREV
+  	JMP INPUT_GET 
+EXECPREV
+	DEC CURPAGEINDEX
+	LDX #COMMANDPREVPAGE
+	STX COMMANDBYTE	
+	JSR IRQ_DisableDisplay	
+	JMP DOREADDIRECTORY
+	
+ENTER  	  
+
+	JSR IRQ_DisableDisplay
+	;Decide if it's a file selection or special command (previous / next)
+	LDA COMMANDBYTE
+	AND #$40
+	BNE SPECIALCMD
+	JSR GETCURRENTROW
+	JSR ISDIRECTORY	
+	BNE NODIRECTORY	
+
+	JSR ISPREVIOUSDIRECTORY
+	BCS NOPREV
+.if DEBUG = 1
+	; Prevent DIRLEVEL underflow
+	LDA DIRLEVEL
+	BEQ +
+	DEC DIRLEVEL
++
+.endif
+	JSR POPDIRNAME
+	JSR GOBACK
+	;JMP NEWCONTENT
+	JMP DOREADDIRECTORY
+	
+NOPREV	
+	JSR PUSHDIRNAME
+	
+	; Enter directory
+	JMP ENTERDIR
+; ------------------------------------------------------------
+; IRQ_SetNameZ
+;   Input : X=lo, Y=hi pointer to 0-terminated string
+;   Output: calls IRQ_SetName with computed length (max PATH_MAX)
+;   Carry : set on error (unterminated/too long), clear on success
+; ------------------------------------------------------------
+IRQ_SetNameZ
+	STX $06
+	STY $07
+	LDY #0
+_isnz_loop
+	LDA ($06), Y
+	BEQ _isnz_done
+	INY
+	CPY #PATH_MAX
+	BNE _isnz_loop
+	SEC
+	RTS
+_isnz_done
+	TYA			; A = length
+	PHA
+	LDX $06
+	LDY $07
+	PLA
+	JSR IRQ_SetName
+	CLC
+	RTS
+
+
+; ------------------------------------------------------------
+; BuildAbsolutePathFromPtr
+;   Input : $06/$07 = pointer to selected basename (0-terminated)
+;   Output: PATHBUFFER filled with "/dir1/dir2/file.ext" (0-term)
+;           A = length (excluding terminator)
+;           C = 0 success, C = 1 path too long
+;   Uses  : A,X,Y,$08,$09,$0A
+; Notes  : Uses CURRENTDIRINDEX + DIRSTACK entries as path stack.
+; ------------------------------------------------------------
+BuildAbsolutePathFromPtr
+	; start with '/'
+	LDX #0
+	LDA #$2F			; '/'
+	STA PATHBUFFER, X
+	INX
+	STX PATHLEN
+
+	LDX #0			; dir index
+_bap_dir_loop
+	CPX CURRENTDIRINDEX
+	BEQ _bap_copy_file
+
+	; $08/$09 = pointer to DIRSTACK[X]
+	LDA DIRNAMESLO, X
+	STA $08
+	LDA DIRNAMESHI, X
+	STA $09
+	STX $0A			; save dir index
+
+	LDY #0
+_bap_copy_dir
+	LDX PATHLEN
+	LDA ($08), Y
+	BEQ _bap_end_dir
+	CPX #PATH_MAX
+	BCS _bap_too_long
+	STA PATHBUFFER, X
+	INX
+	STX PATHLEN
+	INY
+	BNE _bap_copy_dir
+
+_bap_end_dir
+	LDX PATHLEN
+	CPX #PATH_MAX
+	BCS _bap_too_long
+	LDA #$2F
+	STA PATHBUFFER, X
+	INX
+	STX PATHLEN
+
+	LDX $0A
+	INX
+	JMP _bap_dir_loop
+
+_bap_copy_file
+	LDY #0
+_bap_copy_file_loop
+	LDX PATHLEN
+	LDA ($06), Y
+	BEQ _bap_finish
+	CPX #PATH_MAX
+	BCS _bap_too_long
+	STA PATHBUFFER, X
+	INX
+	STX PATHLEN
+	INY
+	BNE _bap_copy_file_loop
+
+_bap_finish
+	LDX PATHLEN
+	LDA #0
+	STA PATHBUFFER, X
+	TXA			; length in A
+	CLC
+	RTS
+
+_bap_too_long
+	SEC
+	RTS
+
+
+ENTERDIR
+.if DEBUG = 0
+	JSR IRQ_ChangeDirectory
+	BCS CHANGEDIRFAIL	
+.else
+	INC DIRLEVEL
+	; DEBUG mock supports DIRLEVEL 0..2 only (DIR1..DIR3)
+	LDA DIRLEVEL
+	CMP #3
+	BCC +
+	LDA #2
+	STA DIRLEVEL
++
+
+.endif	
+
+	
+	DELAYFRAMES 2
+	; Read directory
+DOREADDIRECTORY	
+	LDA #<DIRLOAD
+	STA ZP_IRQ_DATA_LOW
+	LDA #>DIRLOAD
+	STA ZP_IRQ_DATA_HIGH
+	LDA #$03		;Max 256*3 bytes of data
+	STA ZP_IRQ_DATA_LENGTH	
+	
+	LDY #$00		
+	LDX #20			;Max 20 directory items
+	LDA CURPAGEINDEX
+.if DEBUG = 0
+	JSR IRQ_ReadDirectoryNC
+.else
+	LDA DIRLEVEL
+	CMP #00
+	BNE +
+	JSR SETDIR1
+	JMP OUTDIRSET
++	
+	CMP #01
+	BNE +
+	JSR SETDIR2
+	JMP OUTDIRSET	
++	
+	CMP #02
+	BNE +
+	JSR SETDIR3
+OUTDIRSET	
+.endif
+	
+	JMP NEWCONTENT
+	
+	
+CHANGEDIRFAIL
+	LDA #$07
+	STA BORDER
+	JMP *
+	; Do an error text
+NODIRECTORY	
+	;JMP INVOKEPETG
+	JSR GETCURRENTROW				; We have current row in X
+	
+	LDA NAMESLO, X
+	TAY
+	LDA NAMESHI, X
+	TAX
+	TYA
+
+	JSR CHECKFILENAME
+	JSR ISPRG
+	BCC PROGRAM
+	CMP #TYPE_PROGRAM
+	BEQ PROGRAM
+	CMP #TYPE_CHECK_PLUGIN
+	BEQ PLUGIN
+	
+	; ERROR
+-	
+	INC $D020
+	JMP - 
+PLUGIN	
+	JSR BUILDPLUGINNAME_BIN
+	LDX #<PLUGINNAME
+	LDY #>PLUGINNAME
+	JSR IRQ_SetNameZ			
+	
+	LDX #01		; Flags=read
+	JSR IRQ_OpenFile
+	BCC BINPLUGINEXISTS
+	
+	DELAYFRAMES 1
+	
+	JSR BUILDPLUGINNAME_PRG
+	LDX #<PLUGINNAME
+	LDY #>PLUGINNAME
+	JSR IRQ_SetNameZ			
+	LDX #01		; Flags=read
+	JSR IRQ_OpenFile
+	BCC PRGPLUGINEXISTS
+	JMP PROGRAM
+	
+
+	
+BINPLUGINEXISTS
+	DELAYFRAMES	20
+
+		; ------------------------------------------------------------
+		; BIN Plugin loader (plugin file is PRG-format)
+		;
+		; FIXES:
+		;  1) Remove hardcoded page count (LDA #15)
+		;  2) Do NOT lose bytes 2..255 of PRG payload
+		;  3) Load exact payload size using IRQ_GetInfoForFile + LoadFileBySize
+		;
+		; Algorithm:
+		;   - Read first 256 bytes to PLUGIN_HEADER to get load address
+		;   - Query file size, copy size into IRQ_FILE_SIZE_* ($80-$83)
+		;   - Seek to offset 2 (skip PRG header) and load full payload to load address
+		; ------------------------------------------------------------
+
+		; Step 1: Read first page (contains PRG load address)
+	LDA #<PLUGIN_HEADER
+	STA ZP_IRQ_DATA_LOW
+	LDA #>PLUGIN_HEADER
+	STA ZP_IRQ_DATA_HIGH
+	LDA #1			; Read 1 page (256 bytes) for header
+	STA ZP_IRQ_DATA_LENGTH
+
+	JSR IRQ_DisableDisplay
+
+	; Enable cartridge ROM access before reading
+	CART_ROM_ENABLE
+
+		LDY #$00
+	JSR IRQ_ReadFileNoCallback
+
+	; Restore normal configuration
+	CART_ROM_RESTORE
+
+		; Step 2: Parse PRG load address (first 2 bytes)
+	LDA PLUGIN_HEADER
+	STA PLUGIN_LOAD_ADDR_LO
+		STA ZP_IRQ_DATA_LOW		; Target load address for payload
+	LDA PLUGIN_HEADER+1
+	STA PLUGIN_LOAD_ADDR_HI
+	STA ZP_IRQ_DATA_HIGH
+
+		; Step 3: Get file size (FAT directory entry) so we can load exact bytes
+		; Reuse PLUGIN_HEADER buffer to receive the 256-byte info block.
+		LDA #<PLUGIN_HEADER
+		STA ZP_IRQ_DATA_LOW
+		LDA #>PLUGIN_HEADER
+		STA ZP_IRQ_DATA_HIGH
+		LDY #$00
+		CART_ROM_ENABLE
+		JSR IRQ_GetInfoForFile
+		CART_ROM_RESTORE
+		BCS BINPLUGIN_LOAD_ERROR_INFO	; If GetInfo failed, abort
+
+		; Extract 32-bit file size (offset 28..31 in first 32 bytes of dir entry)
+		LDA PLUGIN_HEADER+28
+		STA ZP_LF_SIZE0		; $80
+		LDA PLUGIN_HEADER+29
+		STA ZP_LF_SIZE1		; $81
+		LDA PLUGIN_HEADER+30
+		STA ZP_LF_SIZE2		; $82
+		LDA PLUGIN_HEADER+31
+		STA ZP_LF_SIZE3		; $83
+
+		; Step 4: Load full PRG payload (skip 2-byte header) to PLUGIN_LOAD_ADDR
+		LDA #$02
+		STA ZP_LF_SKIP_LO		; $84
+		LDA #$00
+		STA ZP_LF_SKIP_HI		; $85
+
+		CART_ROM_ENABLE
+		JSR LoadFileBySize
+		CART_ROM_RESTORE
+		BCS BINPLUGIN_LOAD_ERROR_LOAD	; If load failed, abort
+
+	
+; ------------------------------------------------------------
+; BIN Plugin load error handlers
+; ------------------------------------------------------------
+BINPLUGIN_LOAD_ERROR_INFO:
+.if DEBUG = 1
+	LDA #$02				; Error code 2 = IRQ_GetInfoForFile failed
+	JSR DEBUG_SetError
+	JSR DEBUG_Break
+.endif
+	JSR IRQ_CloseFile
+	JSR IRQ_EnableDisplay
+	JMP INPUT_GET
+
+BINPLUGIN_LOAD_ERROR_LOAD:
+.if DEBUG = 1
+	LDA #$03				; Error code 3 = payload load failed (LoadFileBySize sets 1 internally too)
+	JSR DEBUG_SetError
+	JSR DEBUG_Break
+.endif
+	JSR IRQ_CloseFile
+	JSR IRQ_EnableDisplay
+	JMP INPUT_GET
+
+LDA #1
+	STA $D020
+
+	;JSR IRQ_EnableDisplay
+
+PETGLPLUGINREAD
+
+	DELAYFRAMES	1
+	JSR IRQ_CloseFile
+
+	JSR IRQ_EnableDisplay
+
+	JSR GETCURRENTROW
+
+	JSR PrepareFileNameParameter
+
+	; Jump to plugin entry point (indirect jump using load address)
+	JMP (PLUGIN_LOAD_ADDR_LO)	
+
+		
+PRGPLUGINEXISTS	
+	DELAYFRAMES	1	
+	JSR IRQ_CloseFile	
+	
+	JSR GETCURRENTROW	
+	JSR PrepareFileNameParameter
+
+	JSR IRQ_InvokeWithName
+
+	JMP *
+
+PROGRAM	
+	LDA #$02 
+	STA BORDER
+	JSR GETCURRENTROW	
+	;Setting name of the file
+	JSR SETFILENAME	
+	; If it's a .tap, offer choice: Convert+Run (default) or Save only.
+	JSR IS_TAP_SELECTED
+	BEQ +
+	; --- TAP path ---
+	JSR TAP_CHOICE
+	; X now holds flags for IRQ_InvokeWithName (bit0=autorun)
+	JSR IRQ_InvokeWithName
+	BCC TAP_INVOKE_OK
+	; Error: A holds error code
+	JSR TAP_SHOW_ERROR
+	JSR IRQ_EnableDisplay
+	JMP INPUT_GET
+TAP_INVOKE_OK
+	; If save-only (bit0=0), stay in menu and show success.
+	TXA
+	AND #$01
+	BNE TAP_AUTORUN
+	LDX #<MSG_TAP_SAVED
+	LDY #>MSG_TAP_SAVED
+	JSR STATUS_LINE
+	JSR IRQ_EnableDisplay
+	JMP INPUT_GET
+TAP_AUTORUN
+	; Auto-run path: the micro will reset C64 and load the converted PRG.
+	JMP *
+
+	; --- Non-TAP default path ---
++	;Invoking with name
+	LDX #$01		; flags: autorun
+	JSR IRQ_InvokeWithName
+	BCC SUCCEEDINVOKE
+	JSR IRQ_EnableDisplay
+SUCCEEDINVOKE	
+	JMP *
+
+
+; ------------------------------------------------------------
+; TAP helpers
+; ------------------------------------------------------------
+
+; Returns Z=1 if selected filename ends with .tap (case-insensitive PETSCII)
+IS_TAP_SELECTED
+	JSR GETCURRENTROW
+	LDA NAMESLO, X
+	STA NAMELOW
+	LDA NAMESHI, X
+	STA NAMEHIGH
+	; find last non-zero char within 31 bytes
+	LDY #$1E			; start from 30
+TAP_SCAN_LOOP
+	LDA (NAMELOW), Y
+	BEQ TAP_SCAN_DEC
+	JMP TAP_SCAN_CHECK
+TAP_SCAN_DEC
+	DEY
+	BPL TAP_SCAN_LOOP
+	LDA #$00
+	RTS
+TAP_SCAN_CHECK
+	; need at least 4 chars: . t a p
+	CPY #$03
+	BCC TAP_SCAN_NO
+	; dot
+	LDA (NAMELOW), Y
+	AND #$DF
+	CMP #$50			; 'P'
+	BNE TAP_SCAN_NO
+	DEY
+	LDA (NAMELOW), Y
+	AND #$DF
+	CMP #$41			; 'A'
+	BNE TAP_SCAN_NO
+	DEY
+	LDA (NAMELOW), Y
+	AND #$DF
+	CMP #$54			; 'T'
+	BNE TAP_SCAN_NO
+	DEY
+	LDA (NAMELOW), Y
+	CMP #$2E			; '.'
+	BNE TAP_SCAN_NO
+	LDA #$01
+	RTS
+TAP_SCAN_NO
+	LDA #$00
+	RTS
+
+
+; Waits for user choice. Returns X flags for IRQ_InvokeWithName.
+; Default: Convert+Run (X=$01). Save-only: X=$00.
+TAP_CHOICE
+	LDX #<MSG_TAP_PROMPT
+	LDY #>MSG_TAP_PROMPT
+	JSR STATUS_LINE
+	JSR IRQ_EnableDisplay
+TAP_CHOICE_WAIT
+	JSR SCNKEY
+	JSR GETIN
+	BEQ TAP_CHOICE_WAIT
+	CMP #$53			; 'S'
+	BEQ TAP_SAVE
+	CMP #$73			; 's'
+	BEQ TAP_SAVE
+	CMP #$0D			; RETURN -> autorun
+	BEQ TAP_RUN
+	CMP #$43			; 'C'
+	BEQ TAP_RUN
+	CMP #$63			; 'c'
+	BEQ TAP_RUN
+	JMP TAP_CHOICE_WAIT
+TAP_SAVE
+	LDX #$00
+	RTS
+TAP_RUN
+	LDX #$01
+	RTS
+
+
+; A contains error code from IRQ_InvokeWithName (carry set)
+TAP_SHOW_ERROR
+	CMP #$12			; TAP_UNSUPPORTED
+	BEQ _uns
+	CMP #$13			; TAP_BAD_TAP
+	BEQ _bad
+	CMP #$14			; TAP_WRITE_FAILED
+	BEQ _wr
+	LDX #<MSG_TAP_FAIL
+	LDY #>MSG_TAP_FAIL
+	JMP STATUS_LINE
+_uns
+	LDX #<MSG_TAP_UNSUPPORTED
+	LDY #>MSG_TAP_UNSUPPORTED
+	JMP STATUS_LINE
+_bad
+	LDX #<MSG_TAP_BAD
+	LDY #>MSG_TAP_BAD
+	JMP STATUS_LINE
+_wr
+	LDX #<MSG_TAP_WRITE
+	LDY #>MSG_TAP_WRITE
+	JMP STATUS_LINE
+
+
+; Prints a 0-terminated string (X=lo, Y=hi) to bottom status line (row 24)
+STATUS_LINE
+	STX $06
+	STY $07
+	LDY #$00
+_copy
+	LDA ($06), Y
+	BEQ _pad
+	STA $07C0, Y
+	INY
+	CPY #$28			; 40
+	BNE _copy
+	RTS
+_pad
+	LDA #$20
+_padloop
+	STA $07C0, Y
+	INY
+	CPY #$28
+	BNE _padloop
+	RTS
+	
+SPECIALCMD		
+
+	; INVOKE PLUGIN
+
+	
+GOBACK
+	; Go to root.. Traverse stack starting from root... Change directories
+	; Change directory to root
+	LDA #>PARENTDIR
+	TAY
+	LDA #<PARENTDIR
+	TAX
+	JSR IRQ_SetNameZ			
+.if DEBUG = 0	
+	JSR IRQ_ChangeDirectory
+.else
+	LDA #00
+	STA	DIRLEVEL
+.endif
+	DELAYFRAMES 2
+	
+	; From 0 to CURRENTDIRINDEX change dirs (current dir will be popped of stack beforehand)
+	LDY CURRENTDIRINDEX
+	BEQ _RestoreLoopDone
+	LDY #00
+-		
+	TYA
+	PHA
+	LDA DIRNAMESLO, Y
+	TAX
+	LDA DIRNAMESHI, Y
+	TAY
+	JSR IRQ_SetNameZ
+.if DEBUG = 0
+	JSR IRQ_ChangeDirectory
++	; Alignment label for consistent forward jump target
+.else
++	; Alignment label for consistent forward jump target
+	INC DIRLEVEL
+	; DEBUG mock supports DIRLEVEL 0..2 only (DIR1..DIR3)
+	LDA DIRLEVEL
+	CMP #3
+	BCC ++	; Double forward jump to skip clamp
+	LDA #2
+	STA DIRLEVEL
++	; Clamp skip target
+.endif
+	DELAYFRAMES 2
+	PLA
+	TAY
+	INY
+	CPY CURRENTDIRINDEX
+	BNE -
+
+_RestoreLoopDone
+	RTS
+	
+	
+ISPREVIOUSDIRECTORY
+	LDY #$00
+	LDA (NAMELOW), Y
+	CMP #$2E
+	BNE +
+	INY
+	LDA (NAMELOW), Y
+	CMP #$2E
+	BNE +
+	CLC
+	RTS
++
+	SEC
+	RTS
+	
+NEWCONTENT
+; Update the screen with the new content got from micro		
+	INC BORDER
+
+	JSR IRQ_EnableDisplay	
+	JSR GETCURRENTROW	
+	JSR CLEARARROW	
+	JSR PRINTPAGE
+	LDX #00
+	JSR SETCURRENTROWHEAD 
+	JSR SETARROW
+
+	CLI
+	JMP INPUT_GET
+  	
+	RTS	
+
+DIRREAD		
+;	LDA #$02
+;	STA BORDER
+
+;	DELAYFRAMES 10
+	JSR IRQ_EnableDisplay	
+		
+	;JSR PRINTTITLE		
+
+
+	;Call it elsewhere
+	JSR PRINTPAGE		;Prints the initial filenames that's added to the program by the micro.
+	LDX #$00		;Puts the selector 
+	JSR SETCURRENTROWHEAD	;to the first entry in the
+	JSR SETARROW		;list
+	CLC
+	RTS
+
+.if DEBUG = 1
+; ------------------------------------------------------------
+; DEBUG MODE: Mock directory data copy routines
+; ------------------------------------------------------------
+; In DEBUG mode, these routines copy mock directory listings
+; from DIR1/DIR2/DIR3 to DIRLOAD area for testing without SD card.
+;
+; IMPORTANT: Must use X register (forward copy) instead of Y register
+; (backward copy) to avoid memory corruption issues.
+; ------------------------------------------------------------
+
+SETDIR1
+	LDA #$02        ; BORDER = RED (visual indicator: SETDIR1 started)
+	STA $D020
+
+	; Copy DIR1 mock data to DIRLOAD using forward loop (X register)
+	; This copies root directory mock listing (5 entries)
+	LDX #$00
+-
+	LDA DIR1, X
+	STA DIRLOAD, X
+	INX
+	CPX #(DIR2-DIR1)  ; Copy all bytes from DIR1 to DIR2
+	BNE -
+
+	LDA #$05        ; BORDER = GREEN (visual indicator: SETDIR1 finished)
+	STA $D020
+	RTS
+
+SETDIR2
+	; Copy DIR2 mock data to DIRLOAD using forward loop
+	; This copies first subdirectory level (6 entries)
+	LDX #$00
+-
+	LDA DIR2, X
+	STA DIRLOAD, X
+	INX
+	CPX #(DIR3-DIR2)  ; Copy all bytes from DIR2 to DIR3
+	BNE -
+	RTS
+
+SETDIR3
+	; Copy DIR3 mock data to DIRLOAD using forward loop
+	; This copies second subdirectory level (6 entries)
+	LDX #$00
+-
+	LDA DIR3, X
+	STA DIRLOAD, X
+	INX
+	CPX #(DIR3END-DIR3)  ; Copy all bytes from DIR3 to DIR3END
+	BNE -
+	RTS
+.endif
+
+	
+WAITFRAMES
+FD
+	LDY #$90
+-	
+	CPY $D012
+	BNE -
+	LDY #50
+-	
+	DEY
+	BNE - 
+	
+	DEX
+	BNE FD
+	RTS
+	
+SETFILENAME
+	JSR GETCURRENTROW
+
+.if DEBUG = 1
+	; DEBUG: Set $06/$07 and dump filename
+	LDA NAMESLO, X
+	STA $06
+	LDA NAMESHI, X
+	STA $07
+	JSR DEBUG_DumpFilename
+.endif
+
+	; $06/$07 -> selected basename
+	LDA NAMESLO, X
+	STA $06
+	LDA NAMESHI, X
+	STA $07
+
+	JSR BuildAbsolutePathFromPtr
+	BCS _sf_path_too_long
+
+	; A = length, PATHBUFFER contains 0-terminated absolute path
+	PHA			; save length
+	LDX #<PATHBUFFER
+	LDY #>PATHBUFFER
+	PLA			; A = length
+	JSR IRQ_SetName
+	RTS
+
+_sf_path_too_long
+	LDX #<MSG_PATH_TOO_LONG
+	LDY #>MSG_PATH_TOO_LONG
+	JSR STATUS_LINE
+	SEC
+	RTS
+
+ISDIRECTORY
+	LDA NAMESLO, X
+	STA NAMELOW
+	LDA NAMESHI, X
+	STA NAMEHIGH
+	LDY #31
+	LDA (NAMELOW), Y	
+	CMP #$04
+	RTS
+			
+SETARROW 	; Input : X (current row), Changed : A, Y 
+	LDY #$00
+	LDA #$3E	; > sign
+	STA (COLLOW),Y
+	RTS
+
+CLEARARROW	; Input : X (current row), Changed : A, Y 
+	LDY #$00
+	LDA #$20	; Space
+	STA (COLLOW),Y
+	RTS
+	
+SETCURRENTROW	; Input : X (current row), Changed : None
+	PHA
+	STX CURRENTROW
+	TXA
+	PHA
+	ASL
+	TAX
+	LDA COLS+2,X
+	STA COLLOW
+	INX
+	LDA COLS+2,X
+	STA COLHIGH	
+	PLA
+	TAX
+	PLA
+	RTS
+	
+SETCURRENTROWHEAD ; Input : X (current row), Changed : None
+	PHA
+	STX CURRENTROW
+	TXA
+	PHA
+	ASL
+	TAX
+	LDA COLS+2,X
+	CLC
+	SBC #01
+	STA COLLOW
+	INX
+	LDA COLS+2,X
+	STA COLHIGH	
+	PLA
+	TAX
+	PLA
+	RTS
+		
+GETCURRENTROW	; Input : None, Output : X (current row)
+	LDX CURRENTROW
+	RTS	
+	
+PRINTFILENAME	; Input : None, Changed: Y, A
+	; Converts PETSCII to screen code (for DEBUG mock data)
+	LDY #$00
+FILENAMEPRINT
+	LDA (NAMELOW), Y
+	BEQ PRINTSPACE       ; If null terminator, print space
+	; PETSCII to screen code conversion
+	CMP #$41             ; 'A'
+	BCC PRINTCHAR        ; < $41: numbers/symbols, no conversion
+	CMP #$5B             ; Check if A-Z ($41-$5A)
+	BCC UPPERCASE
+	CMP #$61             ; Check if a-z ($61-$7A)
+	BCC PRINTCHAR
+	CMP #$7B
+	BCS PRINTCHAR
+	; Lowercase a-z ($61-$7A) → screen code $01-$1A
+	SEC
+	SBC #$60
+	JMP PRINTCHAR
+UPPERCASE
+	; Uppercase A-Z ($41-$5A) → screen code $01-$1A
+	SEC
+	SBC #$40
+	JMP PRINTCHAR
+PRINTSPACE
+	LDA #$20
+PRINTCHAR
+	STA (COLLOW), Y
+	INY
+	CPY #$20
+	BNE FILENAMEPRINT
+	RTS
+	
+FROMASCII
+	CMP #$5B
+	BMI +
+	CMP #$7F
+	BPL +	
+	EOR #$20
+	JMP ENDFROMASCII	
++
+	CMP #$41
+	BMI +
+	CMP #$5A
+	BPL +
+	ORA #$80
++
+ENDFROMASCII
+	RTS
+	
+; ------------------------------------------------------------
+; PRINTASCIIFILENAME - ASCII to screen code filename printer
+; ------------------------------------------------------------
+; Converts ASCII encoded filenames to C64 screen codes and displays them.
+;
+; Process:
+; 1. Read ASCII character from (NAMELOW), Y
+; 2. Convert to PETSCII using FROMASCII routine
+; 3. Convert PETSCII to screen code (subtract $3F)
+; 4. Write to screen memory at (COLLOW), Y
+;
+; Used by both DEBUG and release modes since:
+; - DIR1/DIR2/DIR3 mock data uses .TEXT directive (ASCII by default)
+; - SD card returns filenames in ASCII format
+;
+; Input:  NAMELOW/HIGH = pointer to ASCII filename
+;         COLLOW/HIGH = pointer to screen memory position
+; Output: None
+; Changes: A, Y
+; ------------------------------------------------------------
+PRINTASCIIFILENAME
+	LDY #$00
+FILENAMEPRINT_A
+	LDA (NAMELOW), Y    ; Read ASCII character
+	BNE NOTEND_A        ; If not null terminator, continue
+	LDA #$20            ; Replace null with space
+NOTEND_A
+	JSR FROMASCII       ; Convert ASCII to PETSCII
+	CMP #$3F            ; Check if >= $3F
+	BMI SYMBOL_A        ; If less, it's a symbol, don't subtract
+	CLC
+	SBC #$3F            ; Convert PETSCII to screen code
+SYMBOL_A
+	STA (COLLOW), Y     ; Write to screen memory
+	INY
+	CPY #$20            ; Print 32 characters (full line)
+	BNE FILENAMEPRINT_A
+	RTS	
+
+CLEARLINE	; Input : None, Changed: Y, A
+	LDY #$00
+	LDA #$20	
+ICLEARLINE		
+	STA (COLLOW), Y
+	INY
+	CPY #$20
+	BNE ICLEARLINE
+	RTS
+	
+	
+FREQ    = 19704
+
+
+PREINIT		; Input : None, Changed : A
+	LDA #00
+	STA CURRENTDIRINDEX  
+	JSR DISABLEINTERRUPTS	
+	JSR KILLCIA
+	JSR STARTMUSIC
+		
+	RTS
+
+
+POSTINIT		; Input : None, Changed : A
+	CLD
+	LDA #$93
+	JSR CHROUT
+	LDA #$00 
+	STA $D020
+	LDA #$0B
+	STA $D021
+	JSR INITPC					
+	RTS
+
+INITPC
+	LDX #$00
+	LDA #$0F
+CBL
+	STA $D800,X
+	STA $D900,X
+	STA $DA00,X
+	STA $DB00,X	
+	INX
+	BNE CBL
+		
+	RTS
+	
+
+STARTMUSIC
+	;JSR COPYMUSIC
+	;LDA #$00
+	;JSR SIDINIT	
+	RTS	
+
+
+KILLCIA
+	LDY #$7f    ; $7f = %01111111 
+    STY $dc0d   ; Turn off CIAs Timer interrupts 
+    STY $dd0d   ; Turn off CIAs Timer interrupts 
+    LDA $dc0d   ; cancel all CIA-IRQs in queue/unprocessed 
+    LDA $dd0d   ; cancel all CIA-IRQs in queue/unprocessed 
+	RTS	
+
+DISABLEINTERRUPTS
+	LDY #$7f    ; $7f = %01111111 
+    STY $dc0d   ; Turn off CIAs Timer interrupts 
+    STY $dd0d   ; Turn off CIAs Timer interrupts 
+    LDA $dc0d   ; cancel all CIA-IRQs in queue/unprocessed 
+    LDA $dd0d   ; cancel all CIA-IRQs in queue/unprocessed 
+	
+; 	Change interrupt routines
+	ASL $D019
+	LDA #$00
+	STA $D01A
+	RTS
+
+DISABLEDISPLAY
+	LDA #$0B				;%00001011 ; Disable VIC display until the end of transfer
+	STA $D011	
+	RTS
+ENABLEDISPLAY
+	LDA #$1B				;%00001011 ; Disable VIC display until the end of transfer
+	STA $D011	
+	RTS	
+	
+SIDREG = $d400
+
+		
+	
+COPYMUSIC
+	LDX #$10		; Copy 16 blocks
+	;Set source
+	LDA #<SID
+	STA $FB
+	LDA #>SID
+	STA $FC
+	
+	;Set target
+	LDA #<SIDLOAD
+	STA $FD
+	LDA #>SIDLOAD
+	STA $FE
+	
+	LDY #$00
+COPYBLOCK	
+	LDA ($FB), Y
+	STA ($FD), Y
+	INY
+	BNE COPYBLOCK
+	INC $FC
+	INC $FE
+	DEX
+	BNE COPYBLOCK	
+	RTS
+	
+
+PRINTTITLE	; Input : None, Changed : A, X
+	LDX #$00
+NEXTCHAR	
+	LDA TITLE, X
+	BEQ OUTTITLEPRINT
+	CMP #$3F
+	BMI NOTSPACE
+	CLC
+	SBC #$3f
+NOTSPACE	
+	STA $040C, X
+	INX
+	BNE NEXTCHAR
+OUTTITLEPRINT
+	RTS
+	
+	
+PRINTPAGE	; Input : None, Changed : A, X, Y
+	LDA CURPAGENAMELOW
+	STA NAMELOW
+	LDA CURPAGENAMEHIGH
+	STA NAMEHIGH
+
+	LDX #$00
+SETCOL
+	JSR SETCURRENTROW
+
+	; Print filename using ASCII to screen code conversion
+	; Works for both DEBUG (mock data) and release (SD card data) modes
+	; because both use ASCII encoding (.TEXT directive in 64tass)
+	JSR PRINTASCIIFILENAME
+	
+	INX
+	CPX CURPAGEITEMS
+	BEQ FINISH	
+	LDA NAMELOW
+	CLC
+	ADC #$20
+	STA NAMELOW
+	BCC NEXTFILE
+	INC NAMEHIGH
+NEXTFILE
+	JMP SETCOL	
+FINISH
+	CPX #$14
+	BEQ ACTUALFINISH
+	JSR SETCURRENTROW
+	JSR CLEARLINE
+	INX 
+	CLV
+	BVC FINISH
+	
+ACTUALFINISH	
+	LDX #COMMANDENTERMASK
+	STX COMMANDBYTE	
+	RTS
+	
+	
+PrepareFileNameParameter:
+	; We have current row in X
+	LDA NAMESLO, X
+	STA $06
+	LDA NAMESHI, X
+	STA $07
+
+	; Build absolute path into PATHBUFFER ($033C)
+	JSR BuildAbsolutePathFromPtr
+	BCS PATH_TOO_LONG_HANDLER
+
+	; Copy full buffer to shadow (PATHBUF_SIZE bytes)
+	LDY #0
+COPY_PATH_TO_SHADOW
+	LDA PATHBUFFER, Y
+	STA FILENAMESHADOW, Y
+	INY
+	CPY #PATHBUF_SIZE
+	BNE COPY_PATH_TO_SHADOW
+
+.if DEBUG = 1
+	JSR DEBUG_DumpFilename		; optional
+.endif
+
+	LDA CURRENTDIRINDEX
+	STA CURRENTDIRINDEXSHADOW
+
+	; Copy dirstack to temp (320 bytes)
+	; Copy first page (256 bytes)
+	LDY #0
+-	
+	LDA DIRSTACK, Y
+	STA DIRSTACKTEMP, Y
+	INY
+	BNE - 
+
+	; Copy remaining 64 bytes of the second page
+	LDY #0
+-	
+	LDA DIRSTACK+$100, Y
+	STA DIRSTACKTEMP+$100, Y
+	INY
+	CPY #64
+	BNE -
+
+	RTS
+
+PATH_TOO_LONG_HANDLER
+	LDX #<MSG_PATH_TOO_LONG
+	LDY #>MSG_PATH_TOO_LONG
+	JSR STATUS_LINE
+	RTS
+
+PUSHDIRNAME:	
+	; We have current row in X
+	LDA NAMESLO, X	
+	STA $06
+	LDA NAMESHI, X
+	STA $07	
+	
+COPYDIRNAME	
+	LDX CURRENTDIRINDEX
+	LDA DIRNAMESLO, X	
+	STA $08
+	LDA DIRNAMESHI, X
+	STA $09	
+
+	
+	LDY #0
+-	
+	LDA ($06) , Y
+	STA ($08) , Y
+	STA CASSETTEBUFFER, Y
+	STA FILENAMESHADOW, Y
+	INY
+	CPY #MAXFILENAMELENGTH
+	BNE -
+	
+	INX
+	STX CURRENTDIRINDEX
+	RTS		
+
+POPDIRNAME:		
+	LDY CURRENTDIRINDEX
+	BEQ +
+	DEY 
+	STY CURRENTDIRINDEX
++	
+	RTS
+	
+DISPLAYPETGRAPHICS
+	; set to 25 line text mode and turn on the screen
+	lda #$1B
+	sta $D011
+
+	LDA CHARDATA
+	STA $D020
+	LDA CHARDATA+1
+	STA $D021
+
+	LDA #<CHARDATA+2
+	STA $FB
+	LDA #>CHARDATA+2
+	STA $FC
+
+	LDA #00
+	STA $FD
+	LDA #04
+	STA $FE
+	
+	LDX #$04
+	LDY #$00
+-	
+	LDA ($FB), Y
+	STA ($FD),Y
+	INY
+	BNE -
+	INC $FC	
+	INC $FE
+	DEX	
+	BNE -
+	
+	
+	LDA #<(CHARDATA+1002)
+	STA $FB
+	LDA #>(CHARDATA+1002)
+	STA $FC
+
+	LDA #00
+	STA $FD
+	LDA #$D8
+	STA $FE
+	
+	LDX #$04
+	LDY #$00
+-	
+	LDA ($FB), Y
+	STA ($FD),Y
+	INY
+	BNE -
+	INC $FC	
+	INC $FE
+	DEX	
+	BNE -	
+	RTS
+	
+DISPLAYSCREENGRAPHICS
+	; set to 25 line text mode and turn on the screen
+
+	LDA PRGSCREENDATA
+	STA $D020
+	LDA PRGSCREENDATA+1
+	STA $D021
+
+	LDA #<PRGSCREENDATA+2
+	STA $FB
+	LDA #>PRGSCREENDATA+2
+	STA $FC
+
+	LDA #00
+	STA $FD
+	LDA #04
+	STA $FE
+	
+	LDX #$04
+	LDY #$00
+-	
+	LDA ($FB), Y
+	STA ($FD),Y
+	INY
+	BNE -
+	INC $FC	
+	INC $FE
+	DEX	
+	BNE -
+	
+	
+	LDA #<(PRGSCREENDATA+1002)
+	STA $FB
+	LDA #>(PRGSCREENDATA+1002)
+	STA $FC
+
+	LDA #00
+	STA $FD
+	LDA #$D8
+	STA $FE
+	
+	LDX #$04
+	LDY #$00
+-	
+	LDA ($FB), Y
+	STA ($FD),Y
+	INY
+	BNE -
+	INC $FC	
+	INC $FE
+	DEX	
+	BNE -	
+	RTS	
+
+	
+	
+COMMANDBYTE	.BYTE 0
+COMMANDARG  .BYTE 0, 0, 0, 0
+CURRENTROW	.BYTE 0
+CURRENTDIRINDEX	.BYTE 0
+CURRENTDIRINDEXSHADOW	.BYTE 0
+PATHLEN	.BYTE 0
+CURPAGENAMELOW	.BYTE <GAMELIST
+CURPAGENAMEHIGH .BYTE >GAMELIST
+BITPOS		.BYTE 0
+ISMUSICPLAYING	.BYTE 0
+
+
+COLS	
+	.WORD $042C, $0454, $047C, $04A4, $04CC, $04F4, $051C, $0544, $056C , $0594
+	.WORD $05BC, $05E4, $060C, $0634, $065C, $0684, $06AC, $06D4, $06FC , $0724
+	.WORD $074C, $0774, $079C, $07C4, $0804
+
+;	.WORD $0404, $042C, $0454, $047C, $04A4, $04CC, $04F4, $051C, $0544, $056C 
+;	.WORD $0594, $05BC, $05E4, $060C, $0634, $065C, $0684, $06AC, $06D4, $06FC
+;	.WORD $0724, $074C, $0774, $079C, $07C4
+	
+MAXFILENAMELENGTH = 32	
+MAXDIRITEMS = 20	
+-       = GAMELIST + range(0, MAXDIRITEMS * MAXFILENAMELENGTH, MAXFILENAMELENGTH)
+NAMESLO   .byte <(-)
+NAMESHI   .byte >(-)
+
+DIRECTORIESMAXDEPTH	= 10	
+
+-       = DIRSTACK + range(0, MAXFILENAMELENGTH * DIRECTORIESMAXDEPTH, MAXFILENAMELENGTH)
+DIRNAMESLO   .byte <(-)
+DIRNAMESHI   .byte >(-)
+
+	
+TITLE	
+	.TEXT "EASYSD V2"
+	.BYTE 0
+
+PARENTDIR
+	.TEXT ".."
+	.FILL 30,0
+
+; Library on the arduino doesn't support opening parent directories, so we need to go to root and then 
+; traverse the path to the current path's parent.
+DIRSTACK
+	.FILL 32 * DIRECTORIESMAXDEPTH
+
+	
+;	*=$0E00
+
+SID	
+; 	.binary "SidFile.bin"
+
+;.include "PatternMatch.s"
+.include "../../Loader/CartLibStream.s"
+;.include "../../Loader/FakeCartLib.s"
+;.include "../../Loader/FakeCartLibHi.s"
+.include "Filename.s"		
+	
+
+; File name storage area
+;	*=$1BEF
+;	.BYTE 64
+;DATAAREA 
+
+;CURPAGEITEMS	= $1BFE
+;PAGECOUNT	= $1BFF
+;CURPAGEINDEX	= $1BF2
+;GAMELIST	 = $1C00
+;IRQBUFFER 	 = $1F00
+
+;DIRLOAD = GAMELIST - 2
+
+
+
+;	.BYTE 64
+;DATAAREA 
+
+; character data
+;*=$2800
+PRGSCREENDATA
+ 	.binary "screen"
+
+CURPAGEINDEX	.BYTE 0
+
+; Directory metadata and entries buffer
+; IMPORTANT: CURPAGEITEMS and PAGECOUNT must be immediately before GAMELIST
+; because DIRLOAD = GAMELIST - 2 points to CURPAGEITEMS
+CURPAGEITEMS	.BYTE 5
+PAGECOUNT		.BYTE 1
+GAMELIST
+DIRLOAD = GAMELIST - 2
+; Reserve space for 20 directory entries (20 * 32 bytes = 640 bytes)
+; In DEBUG mode: SETDIR1/2/3 copies DIR1/2/3 data here
+; In release mode: IRQ_ReadDirectory fills this from SD card
+	.FILL (20 * 32), 0
+
+
+CHARDATA
+	.BYTE $0C, $00
+
+	.BYTE	$A0, $A0, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $C2, $A0, $D1, $A0, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $C2, $A0
+	.BYTE	$A0, $A0, $A0, $A0, $C2, $A0, $69, $5F, $A0, $A0, $CA, $C9, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $D5, $C0, $C0, $F3, $A0, $C2, $A0, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $D5, $CB, $A0
+	.BYTE	$A0, $A0, $A0, $A0, $C2, $69, $20, $20, $5F, $A0, $D7, $EB, $C3, $C3, $C3, $D1, $C3, $C3, $C3, $C3, $F2, $CB, $D7, $A0, $C2, $A0, $CA, $C3, $C3, $C3, $F3, $A0, $D7, $A0, $A0, $A0, $A0, $C2, $D7, $A0
+	.BYTE	$A0, $A0, $69, $20, $20, $20, $E9, $DF, $20, $20, $20, $20, $20, $20, $5F, $E0, $69, $20, $20, $20, $20, $20, $20, $20, $20, $20, $5F, $D7, $A0, $69, $20, $20, $20, $20, $C3, $D1, $C3, $F1, $C3, $C3
+	.BYTE	$A0, $A0, $20, $E9, $E3, $E3, $E3, $A0, $20, $A0, $A0, $A0, $A0, $DF, $20, $20, $20, $E9, $A0, $A0, $A0, $DF, $5F, $A0, $A0, $DF, $20, $5F, $69, $20, $E9, $A0, $A0, $20, $A0, $C2, $A0, $A0, $A0, $A0
+	.BYTE	$C3, $C3, $20, $A0, $A0, $A0, $A0, $69, $20, $76, $A0, $A0, $A0, $A0, $DF, $20, $20, $A0, $A0, $A0, $A0, $A0, $DF, $5F, $A0, $A0, $DF, $20, $20, $E9, $A0, $A0, $69, $20, $C3, $F1, $C3, $C3, $C3, $C3
+	.BYTE	$A0, $69, $20, $A0, $A0, $20, $20, $20, $20, $76, $A0, $A0, $5F, $A0, $A0, $DF, $20, $5F, $A0, $A0, $DF, $20, $20, $20, $5F, $A0, $A0, $DF, $E9, $A0, $A0, $69, $20, $E9, $A0, $A0, $A0, $A0, $A0, $A0
+	.BYTE	$69, $20, $20, $A0, $A0, $A0, $A0, $A0, $A0, $76, $A0, $A0, $20, $5F, $A0, $A0, $DF, $20, $5F, $A0, $A0, $DF, $20, $20, $20, $5F, $A0, $A0, $A0, $A0, $69, $20, $E9, $A0, $A0, $A0, $A0, $A0, $A0, $C2
+	.BYTE	$20, $E9, $20, $A0, $A0, $A0, $A0, $A0, $20, $76, $A0, $A0, $A0, $DF, $5F, $A0, $A0, $DF, $20, $5F, $A0, $A0, $DF, $20, $20, $20, $5F, $A0, $A0, $69, $20, $20, $20, $20, $20, $20, $A0, $5F, $D7, $C2
+	.BYTE	$20, $5F, $20, $A0, $A0, $A0, $A0, $A0, $20, $76, $A0, $A0, $A0, $A0, $DF, $5F, $A0, $A0, $DF, $20, $5F, $A0, $A0, $DF, $20, $20, $20, $A0, $A0, $20, $E9, $A0, $69, $76, $A0, $A0, $DF, $A0, $5F, $CA
+	.BYTE	$DF, $20, $20, $A0, $A0, $20, $20, $20, $20, $76, $A0, $A0, $20, $20, $20, $20, $5F, $A0, $A0, $DF, $20, $5F, $A0, $A0, $DF, $20, $20, $A0, $69, $E9, $A0, $69, $20, $76, $A0, $20, $5F, $DF, $20, $5F
+	.BYTE	$A0, $DF, $20, $A0, $A0, $20, $20, $5F, $A0, $76, $A0, $A0, $76, $A0, $A0, $A0, $DF, $5F, $A0, $A0, $DF, $5F, $A0, $A0, $A0, $76, $75, $69, $E9, $A0, $69, $E9, $A0, $76, $A0, $E1, $DF, $5F, $DF, $20
+	.BYTE	$C3, $C3, $20, $A0, $A0, $A0, $A0, $DF, $5F, $76, $A0, $A0, $76, $A0, $A0, $A0, $A0, $DF, $5F, $A0, $A0, $DF, $5F, $A0, $A0, $76, $75, $DF, $5F, $A0, $DF, $5F, $A0, $76, $A0, $E1, $A0, $20, $A0, $20
+	.BYTE	$A0, $A0, $20, $E4, $E4, $E4, $E4, $A0, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $20, $A0, $20, $20, $20, $A0, $DF, $5F, $A0, $DF, $20, $76, $A0, $20, $20, $20, $A0, $20
+	.BYTE	$A0, $A0, $DF, $20, $20, $20, $5F, $69, $20, $20, $20, $E9, $C2, $E0, $E0, $E0, $A0, $C2, $A0, $A0, $D7, $A0, $A0, $C2, $A0, $DF, $20, $5F, $A0, $20, $5F, $A0, $DF, $76, $A0, $20, $20, $E9, $69, $20
+	.BYTE	$A0, $A0, $A0, $C2, $A0, $DF, $20, $20, $E9, $A0, $A0, $E0, $C2, $E0, $E0, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $D5, $F3, $A0, $A0, $DF, $20, $20, $20, $E9, $A0, $69, $76, $A0, $A0, $A0, $69, $A0, $E9
+	.BYTE	$A0, $A0, $A0, $C2, $A0, $A0, $DF, $E9, $A0, $A0, $A0, $E0, $CA, $C0, $C0, $C9, $A0, $C2, $A0, $A0, $A0, $A0, $D1, $C2, $A0, $A0, $A0, $69, $20, $E9, $A0, $69, $20, $20, $20, $20, $20, $20, $E9, $A0
+	.BYTE	$A0, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $E0, $A0, $A0, $A0, $A0, $C2, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $EB, $D1, $A0, $69, $20, $E9, $A0, $69, $A0, $E9, $A0, $C2, $A0, $A0, $A0, $A0, $A0
+	.BYTE	$A0, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $D7, $A0, $A0, $D1, $C3, $C3, $C3, $DB, $C3, $CB, $A0, $A0, $A0, $A0, $A0, $C2, $A0, $69, $20, $E9, $A0, $69, $20, $E9, $A0, $A0, $C2, $A0, $A0, $A0, $D5, $C3
+	.BYTE	$A0, $A0, $A0, $CA, $C0, $F2, $C3, $C3, $C9, $A0, $A0, $A0, $A0, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $D1, $C3, $F3, $69, $20, $20, $20, $20, $20, $E9, $A0, $A0, $A0, $C2, $A0, $A0, $A0, $C2, $A0
+	.BYTE	$20, $C3, $C9, $A0, $A0, $C2, $20, $49, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $D1, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $C2, $A0, $A0, $A0, $C2, $A0
+	.BYTE	$A0, $A0, $C2, $A0, $A0, $C2, $4A, $20, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $C2, $A0, $A0, $D7, $A0, $A0, $A0, $A0, $D1, $A0, $A0, $A0, $20, $20, $20, $A0, $A0, $20, $20, $20, $20, $20, $20, $20, $A0
+	.BYTE	$A0, $A0, $C2, $A0, $A0, $C2, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $CA, $C0, $C0, $C0, $C0, $C0, $C0, $C0, $C0, $C0, $C0, $A0, $02, $19, $20, $C0, $20, $09, $2E, $12, $2E, $0F, $0E, $20, $C0
+	.BYTE	$C3, $C3, $D1, $C3, $C3, $CB, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $20, $20, $20, $A0, $A0, $20, $20, $20, $20, $20, $20, $20, $A0
+	.BYTE	$87, $86, $98, $D7, $86, $85, $92, $8F, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $A0, $C2, $A0, $A0, $A0, $A0, $A0, $A0, $A0
+
+COLORDATA
+
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0F, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0F, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0F, $0C, $0C, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0E, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C
+	.BYTE	$0B, $0B, $0B, $0E, $0E, $0E, $06, $03, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0C, $0C, $0C, $0C, $0C, $0E, $0E, $0C, $0E, $0C, $0C, $0C, $0C, $0C, $0C
+	.BYTE	$0F, $0C, $0E, $03, $03, $03, $03, $03, $0E, $03, $03, $03, $03, $03, $0C, $0C, $0E, $03, $03, $03, $03, $03, $03, $03, $03, $03, $0C, $0C, $0C, $0C, $03, $03, $03, $0E, $0C, $0C, $0C, $0C, $0C, $0C
+	.BYTE	$0C, $0C, $0E, $0D, $0D, $0D, $0D, $0D, $0E, $0D, $0D, $0D, $0D, $0D, $0D, $0E, $0E, $0D, $0D, $0D, $0D, $0D, $0D, $0D, $0D, $0D, $0D, $0C, $0C, $0D, $0D, $0D, $0D, $0E, $0C, $0C, $0C, $0C, $0C, $0C
+	.BYTE	$0C, $0C, $0E, $07, $07, $0E, $0E, $0E, $0E, $07, $07, $07, $07, $07, $07, $07, $0E, $07, $07, $07, $07, $0E, $0E, $0E, $07, $07, $07, $07, $07, $07, $07, $07, $0E, $0B, $0B, $0B, $0B, $0B, $0B, $0B
+	.BYTE	$0C, $0E, $0B, $0F, $0F, $00, $00, $00, $00, $0F, $0F, $0F, $0E, $0F, $0F, $0F, $0F, $0E, $0F, $0F, $0F, $0F, $0E, $0E, $0E, $0F, $0F, $0F, $0F, $0F, $0F, $0E, $0C, $0C, $0F, $0C, $0B, $0C, $0F, $0C
+	.BYTE	$0C, $0C, $0B, $01, $01, $01, $01, $01, $0E, $01, $01, $01, $01, $01, $01, $01, $01, $01, $0E, $01, $01, $01, $01, $0E, $0E, $0E, $01, $01, $01, $01, $01, $0E, $0E, $0E, $0E, $0E, $00, $0C, $0C, $0C
+	.BYTE	$0C, $0B, $0B, $0A, $0A, $0A, $0A, $0A, $0E, $0A, $0A, $0A, $0A, $0A, $0A, $0A, $0A, $0A, $0A, $0E, $0A, $0A, $0A, $0A, $0E, $06, $06, $0A, $0A, $01, $01, $01, $01, $01, $01, $01, $01, $00, $0C, $0C
+	.BYTE	$0C, $0E, $0B, $02, $02, $0E, $0E, $0E, $0E, $02, $02, $02, $0E, $0E, $0E, $0E, $02, $02, $02, $02, $0E, $02, $02, $02, $02, $0E, $06, $02, $02, $01, $01, $01, $01, $01, $01, $01, $01, $01, $01, $0C
+	.BYTE	$0C, $0C, $0E, $04, $04, $0E, $0E, $0C, $0C, $04, $04, $04, $0C, $0C, $0C, $0C, $0C, $04, $04, $04, $04, $04, $04, $04, $04, $0C, $0C, $04, $01, $01, $01, $0C, $0C, $01, $01, $0C, $0C, $01, $01, $0C
+	.BYTE	$0C, $0C, $0E, $0E, $0E, $0E, $0E, $0E, $0B, $0E, $0E, $0E, $0B, $0B, $0B, $0B, $0B, $0B, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0B, $0B, $0E, $03, $03, $03, $0B, $0B, $03, $03, $0B, $0B, $0B, $03, $0C
+	.BYTE	$0C, $0C, $0E, $06, $06, $06, $06, $06, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $00, $0E, $06, $06, $06, $06, $0E, $0E, $0E, $01, $0E, $0E, $01, $01, $01, $0E, $0C
+	.BYTE	$0C, $0C, $0C, $0E, $0E, $0E, $0B, $06, $0E, $0E, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0E, $06, $06, $01, $0E, $0E, $0E, $0E, $0E, $01, $01, $0E, $0E, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $01, $01, $01, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $0E, $00, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0E, $0E, $0E, $01, $01, $01, $01, $01, $01, $0C, $0C
+	.BYTE	$0B, $0B, $0B, $0C, $0B, $0B, $0B, $0B, $0B, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $06, $06, $06, $00, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $06, $06, $06, $0E, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0E, $0E, $0E, $0E, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0F, $0C, $0B, $0C, $0C, $0F, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0F, $0C, $0F, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $00, $0C, $0C, $0C, $0C, $00, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0B, $0B, $0B, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $00, $01, $01, $0C, $0C, $0C, $01, $01, $01, $01, $01, $01, $0C, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0F, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $00, $0C, $0C, $0C, $0C, $00, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C
+	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C
+
+.if DEBUG = 1
+; ------------------------------------------------------------
+; DEBUG MODE: Mock directory data structures
+; ------------------------------------------------------------
+; These structures simulate directory listings for testing
+; without an SD card. Format matches what SD card would return.
+;
+; Structure per directory listing:
+;   Byte 0:    CURPAGEITEMS (number of entries)
+;   Byte 1:    PAGECOUNT (always 1 in mock data)
+;   Byte 2+:   Directory entries (32 bytes each):
+;              - Bytes 0-N:  Filename in ASCII (.TEXT directive)
+;              - Bytes N+1-30: Zero padding (.FILL)
+;              - Byte 31:    Entry type flag
+;                           $04 = Directory (using .enc "screen" + .TEXT "D" trick)
+;                           $00 = File (implied by missing flag)
+;
+; IMPORTANT: Filenames use ASCII encoding (64tass .TEXT default).
+; They are converted to screen codes by PRINTASCIIFILENAME routine.
+; ------------------------------------------------------------
+
+DIRLEVEL	.BYTE 0
+
+; Root directory (DIRLEVEL = 0) - 5 entries
+DIR1
+	.BYTE 5             ; CURPAGEITEMS
+	.BYTE 1             ; PAGECOUNT
+	.TEXT "merhaba"    ; 7 chars
+	.FILL 24, 0         ; Pad to 31 bytes total
+.enc "screen"
+	.TEXT "D"           ; Directory flag ($04 in screen encoding)
+.enc "none"
+	.TEXT "televole"   ; 8 chars
+	.FILL 24, 0         ; Pad to 31 bytes total (no explicit flag = file)
+	.TEXT "hello.prg"  ; 9 chars
+	.FILL 23, 0         ; Pad to 31 bytes total (no explicit flag = file)
+	.TEXT "africa.koa" ; 10 chars
+	.FILL 22, 0         ; Pad to 31 bytes total (no explicit flag = file)
+	.TEXT "guzel.petg" ; 10 chars
+	.FILL 22, 0         ; Pad to 31 bytes total (no explicit flag = file)
+
+; Subdirectory level 1 (DIRLEVEL = 1) - 6 entries
+DIR2
+	.BYTE 6             ; CURPAGEITEMS
+	.BYTE 1             ; PAGECOUNT
+	.TEXT ".."         ; Parent directory marker (2 chars)
+	.FILL 29, 0         ; Pad to 31 bytes total
+.enc "screen"
+	.TEXT "D"           ; Directory flag ($04)
+.enc "none"
+	.TEXT "deneme1"    ; 7 chars
+	.FILL 24, 0
+.enc "screen"
+	.TEXT "D"           ; Directory flag ($04)
+.enc "none"
+	.TEXT "deneme2"    ; 7 chars
+	.FILL 24, 0
+.enc "screen"
+	.TEXT "D"           ; Directory flag ($04)
+.enc "none"
+	.TEXT "firzt.prg"  ; 9 chars (file, no flag)
+	.FILL 23, 0
+	.TEXT "latina.koa" ; 10 chars (file, no flag)
+	.FILL 22, 0
+	.TEXT "spell.petg" ; 10 chars (file, no flag)
+	.FILL 22, 0
+
+; Subdirectory level 2 (DIRLEVEL = 2) - 6 entries
+DIR3
+	.BYTE 6             ; CURPAGEITEMS
+	.BYTE 1             ; PAGECOUNT
+	.TEXT ".."         ; Parent directory marker (2 chars)
+	.FILL 29, 0
+.enc "screen"
+	.TEXT "D"           ; Directory flag ($04)
+.enc "none"
+	.TEXT "kubakuba"   ; 8 chars
+	.FILL 23, 0
+.enc "screen"
+	.TEXT "D"           ; Directory flag ($04)
+.enc "none"
+	.TEXT "firzt.prg"  ; 9 chars (file, no flag)
+	.FILL 23, 0
+	.TEXT "latiya.koa" ; 10 chars (file, no flag)
+	.FILL 22, 0
+	.TEXT "spelz.petg" ; 10 chars (file, no flag)
+	.FILL 22, 0
+	.TEXT "son.prg"    ; 7 chars (file, no flag)
+	.FILL 25, 0
+
+.endif
+
+DIR3END
+
+
+; ------------------------------------------------------------
+; TAP UI strings (0-terminated)
+; ------------------------------------------------------------
+MSG_TAP_PROMPT
+	.TEXT "TAP: C=CONVERT+RUN  S=SAVE PRG"
+	.BYTE 0
+
+MSG_PATH_TOO_LONG
+	.TEXT "PATH TOO LONG"
+	.BYTE 0
+
+MSG_TAP_SAVED
+	.TEXT "TAP CONVERT OK: PRG SAVED"
+	.BYTE 0
+
+MSG_TAP_UNSUPPORTED
+	.TEXT "UNSUPPORTED TAP (TURBO/NONSTD)"
+	.BYTE 0
+
+MSG_TAP_BAD
+	.TEXT "BAD TAP (INVALID/SHORT)"
+	.BYTE 0
+
+MSG_TAP_WRITE
+	.TEXT "SD WRITE FAILED"
+	.BYTE 0
+
+MSG_TAP_FAIL
+	.TEXT "TAP CONVERT FAILED"
+	.BYTE 0
+
+; Plugin load address parsing support
+PLUGIN_LOAD_ADDR_LO
+	.BYTE 0
+PLUGIN_LOAD_ADDR_HI
+	.BYTE 0
+PLUGIN_HEADER
+	.FILL 256	; Buffer for reading plugin header (first 256 bytes including load address)
+
+	

@@ -1,0 +1,90 @@
+═══════════════════════════════════════════════════════════════════════════
+SPRINT 1 DIRECTORY NAVIGATION - GYORS TESZTELÉSI ÚTMUTATÓ
+═══════════════════════════════════════════════════════════════════════════
+
+1. SERIAL MONITOR MEGNYITÁSA:
+   cd "C:\EasySD Gemini\Tools"
+   py arduino_build_upload.py monitor COM4
+
+2. ELVÁRT KEZDETI KIMENET:
+   SD OK
+   === IrqHack64 SPRINT 1 ===
+   d=nav r=reset p=status
+   Free RAM: 427
+   DIR: ROOT
+   DIR: Prep / n=17
+
+═══════════════════════════════════════════════════════════════════════════
+TESZT PARANCSOK:
+═══════════════════════════════════════════════════════════════════════════
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ TESZT 1: Print Status                                                    │
+└─────────────────────────────────────────────────────────────────────────┘
+Gépeld be: p
+Elvárt:
+  Path: /
+  Depth: 0
+  Count: 17
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ TESZT 2: Enter Directory (példa: GAMES könyvtár)                        │
+└─────────────────────────────────────────────────────────────────────────┘
+Gépeld be: d
+A program kérdezi: Enter dir name:
+Gépeld be: GAMES  (vagy bármely könyvtár neve az SD kártyáról!)
+Elvárt:
+  Navigate: GAMES
+  OK
+  Path: /GAMES/
+  Items: <szám>
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ TESZT 3: Go Back (..)                                                    │
+└─────────────────────────────────────────────────────────────────────────┘
+Gépeld be: d
+A program kérdezi: Enter dir name:
+Gépeld be: ..
+Elvárt:
+  Navigate: ..
+  OK
+  Path: /
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ TESZT 4: Reset to Root                                                   │
+└─────────────────────────────────────────────────────────────────────────┘
+Gépeld be: r
+Elvárt:
+  Path: /
+  Count: 17
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│ TESZT 5: Invalid Directory (hiba kezelés)                               │
+└─────────────────────────────────────────────────────────────────────────┘
+Gépeld be: d
+A program kérdezi: Enter dir name:
+Gépeld be: NOTEXIST123
+Elvárt:
+  Navigate: NOTEXIST123
+  FAIL
+
+═══════════════════════════════════════════════════════════════════════════
+GYORS TESZT SZEKVENCIA:
+═══════════════════════════════════════════════════════════════════════════
+
+p               → Path: /
+d → GAMES       → Path: /GAMES/
+p               → Depth: 1
+d → ..          → Path: /
+r               → Path: /
+p               → Depth: 0
+
+═══════════════════════════════════════════════════════════════════════════
+MEGJEGYZÉSEK:
+═══════════════════════════════════════════════════════════════════════════
+
+- A könyvtár neveket az SD KÁRTYÁDON lévő valós nevekkel helyettesítsd!
+- 8.3 formátum (pl. GAMES, MUSIC, DATA stb.)
+- Ctrl+C a serial monitor bezárásához
+
+Ha minden teszt PASS → Sprint 1 COMPLETE! ✅

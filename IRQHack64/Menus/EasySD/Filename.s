@@ -1,0 +1,173 @@
+TYPE_PROGRAM = 0
+TYPE_CHECK_PLUGIN	= 1
+
+; ------------------------------------------------------------
+; Filename / plugin-name helpers
+;
+; Goal (2025-12): plugins live in /PLUGINS/ and are opened using
+; absolute paths. Extension-based dispatch becomes deterministic:
+;   /PLUGINS/<EXT>PLUGIN.PRG  (fallback .BIN optionally)
+;
+; CHECKFILENAME extracts 1..3 char extension (after last '.')
+; into EXTBUF and sets EXT_LEN. If no valid extension -> TYPE_PROGRAM.
+; ------------------------------------------------------------
+
+PERIOD_POSITION
+	.BYTE 0
+FILENAME_ACTUAL_LENGTH
+	.BYTE 0
+EXT_LEN
+	.BYTE 0
+
+EXTBUF
+	.FILL 3, 0
+
+; Send low in A , high in X
+CHECKFILENAME
+	STA $06
+	STX $07
+
+	LDA #$00
+	STA PERIOD_POSITION
+	STA EXT_LEN
+
+	LDY #0
+_find_last_dot
+	LDA ($06), Y
+	BEQ _end_scan
+	CMP #$2E
+	BNE _next
+	STY PERIOD_POSITION
+_next
+	INY
+	BNE _find_last_dot
+
+_end_scan
+	STY FILENAME_ACTUAL_LENGTH
+	LDA PERIOD_POSITION
+	BEQ _no_extension
+
+	; dot must not be last char
+	CLC
+	ADC #1
+	CMP FILENAME_ACTUAL_LENGTH
+	BEQ _no_extension
+
+	; copy up to 3 chars extension into EXTBUF
+	LDY PERIOD_POSITION
+	INY
+	LDX #0
+_copy_ext
+	LDA ($06), Y
+	BEQ _have_ext
+	STA EXTBUF, X
+	INX
+	INY
+	CPX #3
+	BNE _copy_ext
+
+_have_ext
+	STX EXT_LEN
+	LDA #TYPE_CHECK_PLUGIN
+	RTS
+
+_no_extension
+	LDA #TYPE_PROGRAM
+	RTS
+
+
+; Build "/PLUGINS/<EXT>PLUGIN.PRG" into PLUGINNAME (0-terminated).
+BUILDPLUGINNAME_PRG
+	LDX #0
+_copy_prefix_prg
+	LDA PLUGIN_PREFIX, X
+	BEQ _prefix_done_prg
+	STA PLUGINNAME, X
+	INX
+	BNE _copy_prefix_prg
+_prefix_done_prg
+	LDY #0
+_copy_ext_prg
+	CPY EXT_LEN
+	BEQ _ext_done_prg
+	LDA EXTBUF, Y
+	STA PLUGINNAME, X
+	INX
+	INY
+	BNE _copy_ext_prg
+_ext_done_prg
+	LDY #0
+_copy_suffix_prg
+	LDA PLUGIN_PRG, Y
+	STA PLUGINNAME, X
+	BEQ _done_prg
+	INX
+	INY
+	BNE _copy_suffix_prg
+_done_prg
+	RTS
+
+
+; Build "/PLUGINS/<EXT>PLUGIN.BIN" into PLUGINNAME (0-terminated).
+BUILDPLUGINNAME_BIN
+	LDX #0
+_copy_prefix_bin
+	LDA PLUGIN_PREFIX, X
+	BEQ _prefix_done_bin
+	STA PLUGINNAME, X
+	INX
+	BNE _copy_prefix_bin
+_prefix_done_bin
+	LDY #0
+_copy_ext_bin
+	CPY EXT_LEN
+	BEQ _ext_done_bin
+	LDA EXTBUF, Y
+	STA PLUGINNAME, X
+	INX
+	INY
+	BNE _copy_ext_bin
+_ext_done_bin
+	LDY #0
+_copy_suffix_bin
+	LDA PLUGIN_BIN, Y
+	STA PLUGINNAME, X
+	BEQ _done_bin
+	INX
+	INY
+	BNE _copy_suffix_bin
+_done_bin
+	RTS
+
+
+ISPRG
+	LDX EXTBUF
+	CPX #$70			; 'p'
+	BNE +
+	LDX EXTBUF+1
+	CPX #$72			; 'r'
+	BNE +
+	LDX EXTBUF+2
+	CPX #$67			; 'g'
+	BNE +
+	CLC
+	RTS
++
+	SEC
+	RTS
+
+
+PLUGINNAME
+	.FILL 64, 0
+
+PLUGIN_PREFIX
+	.TEXT "/PLUGINS/"
+	.BYTE 0
+
+PLUGIN_PRG
+	.TEXT "PLUGIN.PRG"
+	.BYTE 0
+
+PLUGIN_BIN
+	.TEXT "PLUGIN.BIN"
+	.BYTE 0

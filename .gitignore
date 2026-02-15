@@ -1,0 +1,28 @@
+# Build artifacts
+IRQHack64/build/
+Arduino/IRQHack64/build/
+
+# Generated Arduino headers (copied from build/artifacts/)
+Arduino/IRQHack64/FlashLib.h
+Arduino/IRQHack64/BuildConfig.h
+
+# Visual Studio user files
+*.csproj.user
+*.suo
+*.user
+obj/
+bin/
+
+# IDE
+.vscode/
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Backup archives
+*.zip
+
+# Old backup files
+*.old
+.claude/

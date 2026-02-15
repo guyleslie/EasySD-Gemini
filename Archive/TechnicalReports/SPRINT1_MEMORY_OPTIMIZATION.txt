@@ -1,0 +1,156 @@
+================================================================================
+SPRINT 1 - ARDUINO NANO MEMÓRIA OPTIMALIZÁLÁS ÖSSZEFOGLALÓ
+================================================================================
+Dátum: 2025-12-25
+Platform: Arduino Nano (ATmega328P)
+Cél: SD kártya inicializálás javítása
+
+PROBLÉMA:
+---------
+SD FAIL hibák → Oka: Kritikus RAM hiány (200 byte szabad)
+
+MEMÓRIA TRAJECTORY:
+-------------------
+
+Initial State:
+┌─────────────────────────────────────┐
+│ Flash:  29400/30720 (95%) [KRITIKUS]│
+│ RAM:     1848/2048 (90%) [KRITIKUS] │
+│ Szabad:   200 bytes     [INSTABIL]  │
+│ Status: SD FAIL - Stack Overflow    │
+└─────────────────────────────────────┘
+           │
+           ├─► [1] SdFat Library Upgrade
+           │    (v20150324 → v20150718)
+           │    + Hardware SPI (Software SPI → HW SPI)
+           │    + LFN kikapcsolva (USE_LONG_FILE_NAMES: 1→0)
+           │    + Stream kikapcsolva (ARDUINO_FILE_USES_STREAM: 1→0)
+           ▼
+After SdFat Optimization:
+┌─────────────────────────────────────┐
+│ Flash:  25608/30720 (83%)     [JÓ] │ ◄── -3792 bytes (-12%)
+│ RAM:     1814/2048 (88%)  [KRITIKUS]│ ◄── -34 bytes
+│ Szabad:   234 bytes  [MÉG KRITIKUS] │ ◄── +34 bytes
+│ Status: SD FAIL - Még kevés RAM     │
+└─────────────────────────────────────┘
+           │
+           ├─► [2] Buffer Size Reduction (Sprint 1)
+           │    DOUBLE_BUFFER_SIZE: 256→64 (-384 bytes)
+           │    NON_INTERRUPTED_BUFFER_SIZE: 256→64 (-192 bytes)
+           │    (Sprint 1 nem használ streaming-et)
+           ▼
+Final State (Sprint 1 Ready):
+┌─────────────────────────────────────┐
+│ Flash:  25608/30720 (83%)     [JÓ] │
+│ RAM:     1430/2048 (69%)      [JÓ] │ ◄── -384 bytes (-21%)
+│ Szabad:   618 bytes    [EGÉSZSÉGES] │ ◄── +384 bytes (+163%)
+│ Status: READY FOR SD TESTING ✓      │
+└─────────────────────────────────────┘
+
+ÖSSZESÍTETT EREDMÉNY:
+---------------------
+Flash megtakarítás:  -3792 bytes (-12%)
+RAM megtakarítás:    -418 bytes (-22%)
+Szabad RAM növelés:  +418 bytes (+209%)
+
+RAM FOGLALÁS BREAKDOWN (Final):
+-------------------------------
+1430 bytes globális változók:
+  - SdFat objektum:          ~250-300 bytes
+  - DirFunction objektum:    ~100 bytes
+  - CartApi objektum:        ~400 bytes
+    ├─ streamingBuffer1[64]:  64 bytes
+    ├─ streamingBuffer2[64]:  64 bytes
+    └─ Arguments[130]:       130 bytes
+  - CartInterface objektum:  ~100 bytes
+  - Egyéb változók:          ~500 bytes
+
+618 bytes szabad RAM:
+  - Stack használat:         ~300-400 bytes (SD műveletek)
+  - Maradvány biztonság:     ~200-300 bytes ✓
+
+OPTIMALIZÁCIÓS TECHNIKÁK:
+-------------------------
+1. ✓ Modern SdFat library (2015-07-18)
+2. ✓ Hardware SPI (gyorsabb + kevesebb RAM)
+3. ✓ Long File Names kikapcsolva (8.3 formátum)
+4. ✓ Stream funkciók kikapcsolva
+5. ✓ Buffer méretek csökkentése (Sprint 1 specifikáció alapján)
+
+KÖVETKEZŐ SPRINT FIGYELMEZTETÉS:
+--------------------------------
+⚠ Sprint 2 előtt vissza kell állítani:
+   - DOUBLE_BUFFER_SIZE: 64 → min 128 bytes
+   - NON_INTERRUPTED_BUFFER_SIZE: 64 → min 128 bytes
+
+   Vagy alternatív megoldás kell:
+   - PetitFatFs migráció (Sprint 3-4)
+   - Streaming algoritmus optimalizálás
+   - Single buffer + interrupt kezelés
+
+HARDVER SETUP:
+--------------
+Arduino Nano ──┬─ D10 (CS)   ─→ SD Module CS
+               ├─ D11 (MOSI) ─→ SD Module MOSI  ⚠ NE CSERÉLD FEL!
+               ├─ D12 (MISO) ─→ SD Module MISO  ⚠ NE CSERÉLD FEL!
+               ├─ D13 (SCK)  ─→ SD Module SCK
+               ├─ 5V         ─→ SD Module VCC
+               └─ GND        ─→ SD Module GND
+
+⚠ KRITIKUS: D11=MOSI, D12=MISO (NE FORDÍTVA!)
+
+KÓD VALIDÁLÁS:
+--------------
+✓ IRQHack64.ino használja a Hardware SPI-t (#include <SPI.h>)
+✓ MOSI/MISO/SCK automatikusan beállítva (hardver SPI controller)
+✓ CS pin explicit definiálva: chipSelect = 10
+✓ SPI inicializálás: sd.begin(chipSelect, SPI_HALF_SPEED)
+
+PIN FUNKCIÓK (ATmega328P):
+---------------------------
+D11 (PINB3/MOSI): Arduino → SD adatküldés
+D12 (PINB4/MISO): SD → Arduino adatfogadás
+D13 (PINB5/SCK):  Clock jel szinkronizáció
+D10 (SS/CS):      Chip Select (eszköz választás)
+
+SD KÁRTYA KÖVETELMÉNYEK:
+------------------------
+- Formátum: FAT32 (32KB allocation unit)
+- Méret: Max 32GB
+- Típus: SD/microSD (nem SDHC exFAT)
+- 8.3 fájlnevek (rövid nevek)
+
+TESZTELÉSI PARANCSOK (Sprint 1):
+---------------------------------
+Serial Monitor @ 57600 baud:
+- 'd' = Directory navigation
+- 'r' = Reset to root
+- 'p' = Print current path/status
+
+ARDUINO BUILD & UPLOAD OPCIÓK:
+-------------------------------
+
+OPCIÓ A - Arduino IDE (hagyományos):
+  1. python Tools\build.py debug-arduino
+  2. Arduino IDE: File → Open → Arduino\IRQHack64\IRQHack64.ino
+  3. Tools → Board → Arduino Nano
+  4. Tools → Processor → ATmega328P (Old Bootloader)
+  5. Sketch → Upload (Ctrl+U)
+
+OPCIÓ B - arduino-cli (automatikus, ajánlott):
+  1. python Tools\arduino_build_upload.py setup  (első használat)
+  2. python Tools\arduino_build_upload.py upload COM3
+
+  ELŐNYÖK:
+    ✓ Egy parancs = build + upload
+    ✓ Garantált fájl szinkronizálás (projekt mappából dolgozik)
+    ✓ Gyorsabb (nincs IDE overhead)
+    ✓ IDE nélkül működik
+    ✓ Scriptelhető / automatizálható
+
+  KÖVETELMÉNY:
+    - arduino-cli telepítése (lásd: Tools/ARDUINO_CLI_SETUP.md)
+    - Telepítés: winget install Arduino.ArduinoCLI
+
+STÁTUSZ: ✓ OPTIMALIZÁLVA ÉS TESZTRE KÉSZ
+================================================================================

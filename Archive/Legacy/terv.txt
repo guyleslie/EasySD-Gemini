@@ -1,0 +1,179 @@
+Alább egy **konkrét, EasySD-hez illeszkedő terv**, hogy a kódban  megvalósuljon:
+
+* **stabilabb könyvtárkezelés** (C64 + Arduino oldalon is),
+* **PRG vs RAW betöltés éles szétválasztása** (pluginoknál se keveredjen),
+* és hogy **mely internetes projekteket** érdemes felhasználni **pont erre** (Nano/ProMini + PetitFatFs).
+
+---
+
+## 1) A jelenlegi kódban miért instabil a könyvtárkezelés?
+
+A fájlban most két világ van összekeverve:
+
+1. **C64 oldali “state”**: `DIRSTACK`, `CURRENTDIRINDEX`, `PUSHDIRNAME/POPDIRNAME`, `GOBACK`, `BuildAbsolutePathFromPtr` stb. 
+2. **Arduino oldali “state”**: `IRQ_ChangeDirectory`, `IRQ_ReadDirectoryNC` (valós FS állapot) 
+
+Ha a kettő bármikor eltér (pl. egy hibakód/timeout után, vagy egy edge case-nél), akkor jönnek a tipikus tünetek: “színváltás”, belépés nem működik, pár belépés után fagyás.
+
+**Megoldás**: *a könyvtár “igazság” legyen egy helyen* → **Arduino/firmware oldalon**, a C64 menü csak UI.
+
+---
+
+## 2) PetitFatFs mellett mi a “helyes” könyvtármodell?
+
+PetitFatFs-nél eleve nagyon erős a kényszer:
+
+* **egyszerre csak egy fájl** (és tipikusan egy “dir bejárás”) legyen aktív ([onlinedocs.microchip.com][1])
+* directory listázás **szekvenciális**: `pf_readdir()` ismételt hívással adja sorban az elemeket ([elm-chan.org][2])
+
+Ez tökéletesen passzol a menühöz, csak az API-t kell ehhez igazítani.
+
+### Javasolt fogalom/definíció
+
+* **DIR session**: egy könyvtár listázása “BEGIN → NEXT* → END”
+* **CWD**: a firmware-ben tárolt *aktuális könyvtár* (canonical path)
+* **RAW stream**: byte-pontos fájl adat (0 skip)
+* **PRG stream**: PRG (első 2 byte = load address, payload = skip 2)
+
+---
+
+## 3) Mit kell megváltoztatni a C64 menükódban (IrqLoaderMenuNew.s)
+
+### A) Dobd ki a C64 oldali dirstack “igazságot”
+
+Ezeket a részeket *nem* érdemes tovább foltozni:
+
+* `DIRSTACK`, `CURRENTDIRINDEX`, `PUSHDIRNAME`, `POPDIRNAME`, `GOBACK` 
+* `BuildAbsolutePathFromPtr` + a teljes absolute path építés 
+
+**Új elv**: a C64 menü **soha nem épít abszolút path-ot**. Csak *basename*-t küld (pl. `GAMES`, `INTRO.SID`, `HELLO.PRG`).
+
+### B) Könyvtárba belépés / kilépés: firmware kezeli
+
+A kódban most:
+
+* ha `..`, akkor `POPDIRNAME` + `GOBACK` (rootra vissza, majd újra lelépked) 
+* ha directory, akkor `PUSHDIRNAME` + `IRQ_ChangeDirectory` 
+
+**Ezt cseréld le erre:**
+
+#### Új menü logika
+
+* `ENTER` és kiválasztott elem directory:
+
+  * ha név `".."` → `IRQ_ChangeDirectory("..")`
+  * különben → `IRQ_ChangeDirectory(<selected basename>)`
+* utána mindig → `IRQ_ReadDirectoryNC` (vagy az új “DIR session” API, lásd lent)
+
+**Fontos**: a firmware oldalon kell megoldani a parent-et (PetitFatFs nem “szereti” a klasszikus cwd-t), de ezt a firmware tudja: canonical path + “rootból traverse”.
+
+Ezzel **megszűnik** a C64<->firmware state szétcsúszás, ami a fagyások fő oka.
+
+---
+
+## 4) PRG vs RAW szétválasztás (hogy a pluginok ne “skip 2”-zzenek véletlen)
+
+A te észrevételed a kritikus: *pluginok adatfájlra ne hívjanak PRG logikát*.
+
+### A) Nevek és szerződések (javasolt)
+
+Vezess be 3 tiszta műveletet a CartLib/firmware API-ba:
+
+1. **DIR** (menühöz)
+
+* `ES_DIR_BEGIN(path?)` (opcionális)
+* `ES_DIR_NEXT()` (entry)
+* `ES_DIR_END()`
+
+2. **RAW FILE** (plugin adatolvasásra)
+
+* `ES_FILE_OPEN(name, flags=READ)`
+* `ES_FILE_READ_RAW(dst, len)`
+* `ES_FILE_SKIP(n)` (ha kell)
+* `ES_FILE_CLOSE()`
+
+3. **PRG LOAD/RUN** (csak PRG)
+
+* `ES_PRG_RUN(name, flags)` **vagy**
+* `ES_PRG_LOAD(name)` + `JMP loadaddr`
+
+**Kőszabály**
+
+* RAW API soha nem hagy ki semmit.
+* PRG API *mindig* PRG-ként kezeli (load address).
+
+### B) Hogyan illeszd ezt a mostani menükódhoz?
+
+A menükód már most is csinál PRG-specifikus dolgokat:
+
+* pl. BIN plugin betöltésnél külön olvas 256 byte header-t és `ZP_LF_SKIP=2`-t állít 
+
+Ezt tartsd meg, csak **fogalmilag** tisztítsd:
+
+* A BIN plugin loader rész legyen explicit “PRG loader” (jó, hogy skip=2), **de** ezt csak plugin-PRG-re használd.
+* Minden más adatfájlra (SID/MUS/KOA/PETG stb.) a pluginok **RAW** olvasást kapjanak.
+
+**Menü oldalon** a legegyszerűbb:
+
+* `PROGRAM:` ágban (`IRQ_InvokeWithName`) maradhat PRG futtatásra 
+* a pluginoknak átadott “fájlnév paraméter” *ne abszolút path legyen*, hanem basename (vagy relatív), és a plugin dönti el: RAW vagy PRG API-t hív.
+
+> Tehát a `PrepareFileNameParameter` jelenlegi absolute path + dirstack mentése helyett egy “SelectedNameParameter”-t csinálj, ami csak a kiválasztott név (max 32). 
+
+---
+
+## 5) Firmware oldali “kell hozzá” (PetitFatFs-es implementáció)
+
+A firmware-ben érdemes ezt a modellt felvenni:
+
+### A) Canonical CWD string
+
+* `cwd` mint canonical abszolút út (pl. `/PLUGINS/MUS/`)
+* `cd(name)`:
+
+  * ha `name == ".."` → cwd parent
+  * ha `name` normál → cwd + name + `/`
+  * majd **rootból traverse** a target dir-ig
+
+### B) DIR session PetitFatFs-szel
+
+* `pf_opendir(&dir, cwd)` (vagy PetitFatFs megfelelő)
+* `pf_readdir()` ismételve: adja az entry-ket sorban ([elm-chan.org][2])
+* `END`: rewind/close/reset (PetitFatFs-nél a “rewind null paraméterrel” is ismert minta) ([elm-chan.org][2])
+
+### C) Egyszerre csak 1 aktív fájl
+
+PetitFatFs limitáció: **only one file can be accessed at a time** ([onlinedocs.microchip.com][1])
+Ezért kell a protokollba a fegyelem: `OPEN → READ/SKIP* → CLOSE` és kész.
+
+---
+
+## 6) Mely projekteket érdemes felhasználni, és hogyan?
+
+### 1) Elm-Chan PetitFatFs (kötelező alap)
+
+* Directory bejárás szekvenciális mintája: `pf_readdir()` ([elm-chan.org][2])
+* Disk I/O réteg: `disk_readp()` minimal “partial sector read” szemlélet ([elm-chan.org][3])
+
+**Hogyan használd?**
+
+* A firmware FS rétegét erre építsd.
+* A C64 protokollt a “session” modellhez igazítsd (nem random seek + sok handle).
+
+### 2) Minimal FatFs konfiguráció (opcionális “később”)
+
+Ha később kell LFN vagy több funkció: FatFs ffconf opciókkal lehet minimalizálni ([doc.indel.ch][4])
+De első körben PetitFatFs stabilabb és kisebb.
+
+### 3) SdFat csak mint referencia (nem feltétlen kell)
+
+Az AVR-es SD-s világban fontos tanulság: **512 byte block cache** jelleg, RAM-határ ([Arduino Forum][5])
+Ezt nem muszáj átvenni, csak irányelv: “blokkokkal gondolkodj”.
+
+---
+
+[1]: https://onlinedocs.microchip.com/oxy/GUID-E90E2050-E439-483D-9393-75279A086094-en-US-3/GUID-D879BDDA-E208-459B-A8BA-77408038F0CD.html?utm_source=chatgpt.com "3 Petit FatFs Limitations - Microchip Online Docs"
+[2]: https://elm-chan.org/fsw/ff/pf/readdir.html?utm_source=chatgpt.com "Petit FatFs - pf_readdir"
+[3]: https://elm-chan.org/fsw/ff/00index_p.html?utm_source=chatgpt.com "Petit FAT File System Module"
+[4]: https://doc.indel.ch/doxygen/inos/fatfs/doc/config.html?utm_source=chatgpt.com "FatFs - Configuration Options"
+[5]: https://forum.arduino.cc/t/sdfat-ram-usage-on-atmega328/258908?utm_source=chatgpt.com "SdFat RAM usage on ATMega328 - Storage"
