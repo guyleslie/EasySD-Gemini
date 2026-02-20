@@ -368,3 +368,9 @@ void DirFunction::ForceReset() {
   Serial.print(F(" n=")); Serial.println(count);
   #endif
 }
+
+void DirFunction::CloseDirHandle() {
+  if (m_dirFile.isOpen()) {
+    m_dirFile.close();
+  }
+}

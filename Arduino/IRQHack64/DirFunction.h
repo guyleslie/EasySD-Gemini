@@ -49,6 +49,7 @@ class DirFunction  {
     bool ChangeDirectoryBasename(const char* basename);
     const char* GetCurrentPath() const;
     void ForceReset();
+    void CloseDirHandle();
     StringPrint CurrentFileName;  
     int  IsDirectory;
     int IsFinished;
