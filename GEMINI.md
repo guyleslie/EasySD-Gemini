@@ -90,17 +90,30 @@ For time-critical continuous data streaming (e.g., audio).
 1. **strtok()** - Static buffer corruption in multi-threaded parsing
    - Use manual token parsing instead (see DirFunction.cpp:130-175)
 2. **Unbounded strcpy()** - Always validate buffer sizes first
-3. **Stack-heavy functions** - Limit local arrays to 32-64 bytes max
+3. **Arduino `String` class** - Costs ~1700 bytes of flash. Use `char[]` instead.
+4. **Stack-heavy functions** - Limit local arrays to 32-64 bytes max
 
 **Memory Constraints (ATmega328P):**
-- Flash: 32KB (29KB used after v2.0.5)
-- SRAM: 2KB (1.6KB used, 437 bytes free after boot in v2.0.5)
+- Flash: 30720 bytes max (old bootloader). Debug build: ~30658 (99.8%)
+- SRAM: 2KB (1633 used, ~415 bytes free after boot)
 - Stack: Monitor with `FreeStack()` - aim for 300+ bytes minimum
 
-**Memory Improvements (v2.0.4 → v2.0.5):**
-- Boot Free RAM: 425 → 437 bytes (+12 bytes, +2.8%)
-- Root RAM: 341 → 345 bytes (+4 bytes)
-- Navigation: Consistent +4 bytes improvement across all metrics
+### SD Card Error Handling & Recovery
+**SdFat error codes encountered:**
+- `0x21` = `SD_CARD_ERROR_WRITE_TIMEOUT` — Flash programming timeout
+- `0x19` = `SD_CARD_ERROR_READ_TOKEN` — Bad read data token (SPI signal issue)
+
+**Critical rule:** Write errors corrupt SdFat internal state. All subsequent operations (including reads and directory listings) will fail until recovery.
+
+**Recovery pattern (see `recoverSD()` in IRQHack64.ino):**
+```cpp
+dirFunc.CloseDirHandle();   // Close open dir handle first
+delay(50);                  // Let card settle
+sd.begin(chipSelect, SPI_QUARTER_SPEED);  // Reinitialize
+dirFunc.ForceReset();       // Resync directory state
+```
+
+**SPI speed:** Use `SPI_QUARTER_SPEED` for reliable operation. `SPI_HALF_SPEED` causes intermittent errors on breadboard setups. Add `delay(50-100)` between rapid SD operations.
 
 ### DirFunction.cpp Best Practices
 **Correct Navigation Pattern (v2.0.4):**
@@ -117,25 +130,30 @@ sd.chdir("UTILS2"); // Next level
 - Use `sd.open(currentPath)` for directory handles
 
 ### Build System
-**Primary tool**: `Tools/arduino_build_upload.py`
+**Primary tool**: `Tools/build.py` (unified build system v2.2.0)
 ```bash
-# First-time setup (install libraries)
-python Tools/arduino_build_upload.py setup
+# Arduino compile (release / debug)
+python Tools/build.py arduino-compile
+python Tools/build.py arduino-compile --debug
 
-# Build only
-python Tools/arduino_build_upload.py build
+# Compile + Upload
+python Tools/build.py arduino-upload COM4
+python Tools/build.py arduino-upload COM4 --debug
 
-# Upload to auto-detected port
-python Tools/arduino_build_upload.py upload
+# Serial monitor
+python Tools/build.py arduino-monitor COM4
+```
 
-# Upload to specific port
-python Tools/arduino_build_upload.py upload COM4
+### Testing Tools
+```bash
+# Prepare SD card with test files
+python Tools/prepare_test_sd.py D:
 
-# List available COM ports
-python Tools/arduino_build_upload.py list-ports
+# Run automated self-test suite via serial
+python Tools/test_arduino_comm.py COM4 --verbose
 
-# Open serial monitor
-python Tools/arduino_build_upload.py monitor COM4
+# Interactive serial mode
+python Tools/test_arduino_comm.py COM4 --interactive
 ```
 
 **C64 Build Commands:**
