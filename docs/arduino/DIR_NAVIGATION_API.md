@@ -151,6 +151,23 @@ Serial.println("Reset to root");
 
 ---
 
+#### `void CloseDirHandle()`
+
+**Purpose:** Close the internal directory file handle (`m_dirFile`) before SD reinitialization.
+
+**When to use:** Must be called before `sd.begin()` during error recovery. Open directory handles become invalid after SD reinit.
+
+**Example Usage:**
+```cpp
+// SD error recovery pattern (see recoverSD() in IRQHack64.ino)
+dirFunc.CloseDirHandle();
+delay(50);
+sd.begin(chipSelect, SPI_QUARTER_SPEED);
+dirFunc.ForceReset();
+```
+
+---
+
 ## CartApi Changes
 
 ### HandleChangeDirectory()
