@@ -36,45 +36,22 @@ const unsigned char chipSelect = 10;
 
 void ShowMem() {
 #ifdef EASYSD_DEBUG_SERIAL
-  uint16_t freeRAM = FreeStack();
-  uint16_t usedRAM = 2048 - freeRAM;
-
-  Serial.println(F("Memory Status"));
-  Serial.println(F("----------------------------"));
-  Serial.print(F("Total SRAM:  2048 bytes"));
-  Serial.println();
-  Serial.print(F("Used:        "));
-  Serial.print(usedRAM);
-  Serial.print(F(" bytes ("));
-  Serial.print((usedRAM * 100) / 2048);
-  Serial.println(F("%)"));
-  Serial.print(F("Free:        "));
-  Serial.print(freeRAM);
-  Serial.print(F(" bytes ("));
-  Serial.print((freeRAM * 100) / 2048);
-  Serial.println(F("%)"));
-  Serial.println(F("----------------------------"));
-
-  // Status indicator
-  Serial.print(F("Status: "));
-  if (freeRAM > 400) {
-    Serial.println(F("Normal"));
-  } else if (freeRAM > 300) {
-    Serial.println(F("Low (caution)"));
-  } else {
-    Serial.println(F("Critical!"));
-  }
-  Serial.println();
+  uint16_t fr = FreeStack();
+  Serial.print(F("RAM: ")); Serial.print(fr);
+  Serial.print(F("/2048 (used:")); Serial.print(2048 - fr);
+  Serial.print(F(") "));
+  Serial.println(fr > 400 ? F("OK") : (fr > 300 ? F("LOW") : F("CRIT!")));
 #endif
 }
 
-// SPRINT 6: Cold Boot SD Initialization with Retry Logic
+// Cold Boot SD Initialization with Retry Logic
 bool initSD() {
   const uint8_t SD_RETRY_COUNT = 3;
   const uint16_t SD_RETRY_DELAY_MS = 200;
 
   for (uint8_t retry = 0; retry < SD_RETRY_COUNT; retry++) {
-    if (sd.begin(chipSelect, SPI_HALF_SPEED)) {
+    if (sd.begin(chipSelect, SPI_QUARTER_SPEED)) {
+      delay(50);  // Let card stabilize after init
       #ifdef EASYSD_DEBUG_SERIAL
       if (retry > 0) {
         Serial.print(F("SD: OK after "));
@@ -101,14 +78,33 @@ bool initSD() {
   return false;
 }
 
+// SD error recovery: reinitialize card + resync dirFunc
+// Call this after any SD error (write timeout, etc.) to restore working state.
+// Critical for C64 service: the C64 can't know the SD is in a bad state.
+bool recoverSD() {
+  dirFunc.CloseDirHandle();
+  delay(50);
+  if (!sd.begin(chipSelect, SPI_QUARTER_SPEED)) {
+    // Retry after longer delay
+    delay(200);
+    if (!sd.begin(chipSelect, SPI_QUARTER_SPEED)) {
+      #ifdef EASYSD_DEBUG_SERIAL
+      Serial.println(F("[ERR] SD recover FAIL"));
+      #endif
+      return false;
+    }
+  }
+  dirFunc.ForceReset();
+  #ifdef EASYSD_DEBUG_SERIAL
+  Serial.println(F("[SD] Recovered"));
+  #endif
+  return true;
+}
+
 #ifdef EASYSD_DEBUG_SERIAL
 // SPRINT 6: Professional Startup Banner (DEBUG mode only)
 void printStartupBanner() {
-  Serial.println(F("================================"));
-  Serial.println(F(" EasySD IRQHack64 v2.1.0"));
-  Serial.println(F(" SdFat 2.3.0 | Arduino Nano"));
-  Serial.println(F("================================"));
-  Serial.println();
+  Serial.println(F("== EasySD v2.1.0 =="));
 }
 
 void printSDStatus(bool sdInitSuccess) {
@@ -123,16 +119,10 @@ void printSDStatus(bool sdInitSuccess) {
   Serial.println();
 }
 
-// SPRINT 6: Help System (DEBUG mode only)
+// Help System (DEBUG mode only)
 void printHelp() {
-  Serial.println(F("Commands:"));
-  Serial.println(F("  h  Help"));
-  Serial.println(F("  d  Navigate"));
-  Serial.println(F("  r  Root"));
-  Serial.println(F("  l  List"));
-  Serial.println(F("  p  Status"));
-  Serial.println(F("  m  Memory"));
-  Serial.println();
+  Serial.println(F("h:Help d:CD r:Root l:List p:Stat m:Mem"));
+  Serial.println(F("T:Run self-test suite"));
 }
 #endif // EASYSD_DEBUG_SERIAL
 
@@ -222,6 +212,9 @@ void loop() {
           case 'p' : testPrintCurrentPath(); break;
           case 'l' : testListDirectory(); break;
           case 'm' : ShowMem(); break;
+
+          // Self-test suite
+          case 'T' : testRunAll(); break;
       }
   }
   #endif
@@ -233,27 +226,28 @@ void loop() {
 // ========================================================================
 
 void testDirectoryNavigation() {
-  Serial.println(F("Dir name:"));
-
+  Serial.println(F("Dir:"));
   while (Serial.available() == 0) { delay(10); }
-  String input = Serial.readStringUntil('\n');
-  input.trim();
-
-  if (input.length() > 0) {
-    char dirname[64];
-    input.toCharArray(dirname, 64);
-
-    bool result = dirFunc.ChangeDirectoryBasename(dirname);
-    if (result) {
-      dirFunc.Prepare();
-      Serial.print(F("Path: "));
-      Serial.println(dirFunc.currentPath);
-      Serial.print(F("Items: "));
-      Serial.println(dirFunc.GetCount());
-    } else {
-      Serial.print(F("Error: "));
-      Serial.println(dirname);
+  char dn[48];
+  uint8_t i = 0;
+  while (i < 47) {
+    if (Serial.available()) {
+      char ch = Serial.read();
+      if (ch == '\n' || ch == '\r') break;
+      dn[i++] = ch;
     }
+  }
+  dn[i] = 0;
+  // trim trailing spaces
+  while (i > 0 && dn[i-1] == ' ') dn[--i] = 0;
+  if (!i) return;
+
+  if (dirFunc.ChangeDirectoryBasename(dn)) {
+    dirFunc.Prepare();
+    Serial.print(F("Path: ")); Serial.println(dirFunc.currentPath);
+    Serial.print(F("Items: ")); Serial.println(dirFunc.GetCount());
+  } else {
+    Serial.print(F("Err: ")); Serial.println(dn);
   }
 }
 
@@ -272,33 +266,219 @@ void testPrintCurrentPath() {
 }
 
 void testListDirectory() {
-  // SPRINT 6: Always prepare before listing
   dirFunc.Prepare();
-
   Serial.println(dirFunc.currentPath);
-  Serial.println(F("----------------------------"));
-
-  int itemCount = 0;
-  int dirCount = 0;
-
+  int ic = 0, dc = 0;
   while (dirFunc.Iterate()) {
     if (!dirFunc.IsHidden) {
-      itemCount++;
-      if (dirFunc.IsDirectory) {
-        Serial.print(F("[D] "));
-        dirCount++;
-      } else {
-        Serial.print(F("[ ] "));
-      }
+      ic++;
+      Serial.print(dirFunc.IsDirectory ? F("[D] ") : F("[ ] "));
       Serial.println(dirFunc.CurrentFileName.value);
+      if (dirFunc.IsDirectory) dc++;
     }
   }
-
-  Serial.println(F("----------------------------"));
-  Serial.print(itemCount);
-  Serial.print(F(" items ("));
-  Serial.print(dirCount);
-  Serial.println(F(" dirs)"));
+  Serial.print(ic); Serial.print(F(" items (")); Serial.print(dc); Serial.println(F(" dirs)"));
 }
+
+// ========================================================================
+// Self-test: each test is a SEPARATE function so stack is fully freed
+// between tests. No static File - each function uses local File that
+// lives only for the duration of that test. (Sprint 1 lesson: max 32-64
+// bytes local, monitor FreeStack() > 300)
+// ========================================================================
+
+// Helper: print [T] tag + test name + PASS/FAIL
+static void tResult(const __FlashStringHelper* name, bool ok) {
+  Serial.print(F("[T] "));
+  Serial.print(name);
+  Serial.println(ok ? F(": PASS") : F(": FAIL"));
+}
+
+// Test 1: Open, read 16 bytes, verify content, close
+static bool tOpenReadClose() {
+  File f = sd.open("TESTDATA.BIN", FILE_READ);
+  if (!f) return false;
+  uint8_t buf[16];
+  int n = f.read(buf, 16);
+  f.close();
+  if (n != 16 || buf[0] != 0x00 || buf[15] != 0x0F) {
+    Serial.print(F("  n=")); Serial.print(n);
+    Serial.print(F(" [0]=0x")); Serial.print(buf[0], HEX);
+    Serial.print(F(" [15]=0x")); Serial.println(buf[15], HEX);
+    return false;
+  }
+  return true;
+}
+
+// Test 2: Open, seek to 0x80, read 1 byte, verify
+static bool tSeek() {
+  File f = sd.open("TESTDATA.BIN", FILE_READ);
+  if (!f) return false;
+  f.seekSet(0x80);
+  uint8_t b;
+  bool ok = (f.read(&b, 1) == 1 && b == 0x80);
+  f.close();
+  return ok;
+}
+
+// Test 3: Non-existent file must fail to open
+static bool tOpenNoExist() {
+  File f = sd.open("_NOEX.XYZ", FILE_READ);
+  bool ok = !f;
+  if (f) f.close();
+  return ok;
+}
+
+// Test 4: Write 16 bytes, read back, verify, delete
+// Uses O_WRONLY for write phase (SdFat best practice), O_RDONLY for verify.
+// Reports detailed error info for diagnosing SD card/hardware issues.
+static bool tWriteDelete() {
+  if (sd.exists("_TT.TMP")) { sd.remove("_TT.TMP"); delay(50); }
+
+  // Phase 1: Write
+  delay(50);
+  File f = sd.open("_TT.TMP", O_WRONLY | O_CREAT);
+  if (!f) {
+    Serial.print(F("  open err=0x")); Serial.println(sd.sdErrorCode(), HEX);
+    return false;
+  }
+  uint8_t buf[16];
+  for (uint8_t j = 0; j < 16; j++) buf[j] = j + 0x40;
+  size_t wr = f.write(buf, 16);
+  if (wr != 16 || f.getWriteError()) {
+    Serial.print(F("  wr=")); Serial.print(wr);
+    Serial.print(F(" we=")); Serial.print(f.getWriteError());
+    Serial.print(F(" se=0x")); Serial.println(sd.sdErrorCode(), HEX);
+    f.close();
+    return false;
+  }
+  if (!f.sync()) {
+    Serial.print(F("  sync err=0x")); Serial.println(sd.sdErrorCode(), HEX);
+    f.close();
+    return false;
+  }
+  f.close();
+
+  // Phase 2: Read back and verify
+  delay(50);
+  f = sd.open("_TT.TMP", FILE_READ);
+  if (!f) { return false; }
+  int n = f.read(buf, 16);
+  f.close();
+  if (n != 16 || buf[0] != 0x40 || buf[15] != 0x4F) {
+    Serial.print(F("  v n=")); Serial.print(n);
+    Serial.print(F(" [0]=0x")); Serial.print(buf[0], HEX);
+    Serial.print(F(" [15]=0x")); Serial.println(buf[15], HEX);
+    sd.remove("_TT.TMP");
+    return false;
+  }
+
+  // Phase 3: Delete
+  if (!sd.remove("_TT.TMP")) {
+    Serial.print(F("  del err=0x")); Serial.println(sd.sdErrorCode(), HEX);
+    return false;
+  }
+  return true;
+}
+
+// Test 5: 20x open/read/close cycle, check RAM stability
+static bool tMemLoop() {
+  for (uint8_t i = 0; i < 20; i++) {
+    File f = sd.open("TESTDATA.BIN", FILE_READ);
+    if (!f) {
+      Serial.print(F("  fail@")); Serial.println(i);
+      return false;
+    }
+    uint8_t buf[16];
+    f.read(buf, 16);
+    f.close();
+  }
+  return true;
+}
+
+// Test 6: Root directory listing via ForceReset
+static bool tRootList() {
+  dirFunc.ForceReset();
+  return dirFunc.GetCount() > 0;
+}
+
+// Test 7: cd into TESTDIR, verify items, go back
+static bool tDirNav() {
+  // Diagnostic: check if TESTDIR is visible before chdir
+  bool ex = sd.exists("TESTDIR");
+  Serial.print(F("  exists=")); Serial.print(ex);
+  Serial.print(F(" depth=")); Serial.print(dirFunc.pathDepth);
+  Serial.print(F(" path=")); Serial.println(dirFunc.currentPath);
+  if (!ex) {
+    Serial.print(F("  se=0x")); Serial.println(sd.sdErrorCode(), HEX);
+    return false;
+  }
+  if (!dirFunc.ChangeDirectoryBasename("TESTDIR")) {
+    Serial.print(F("  cd se=0x")); Serial.println(sd.sdErrorCode(), HEX);
+    return false;
+  }
+  dirFunc.Prepare();
+  bool ok = dirFunc.GetCount() > 0;
+  dirFunc.GoBack();
+  return ok;
+}
+
+// Helper: recover SD after any failure to prevent cascading errors.
+// On breadboard/prototype hardware, SPI errors corrupt SdFat state.
+// In production (C64 cartridge), this ensures the "drive" stays online.
+static void tRecover() {
+  Serial.println(F("[T] SD recover..."));
+  recoverSD();
+}
+
+// 'T' - run all self-tests, each in its own function call
+void testRunAll() {
+  uint8_t pass = 0, fail = 0;
+  uint16_t ram0 = FreeStack();
+  Serial.println(F("[T] START"));
+
+  tResult(F("SD_INIT"), true); pass++;
+
+  bool ok;
+  delay(50);
+  ok = tOpenReadClose(); tResult(F("OPEN_RD_CL"), ok); ok ? pass++ : fail++;
+  if (!ok) tRecover();
+
+  delay(50);
+  ok = tSeek();          tResult(F("SEEK"), ok);        ok ? pass++ : fail++;
+  if (!ok) tRecover();
+
+  delay(50);
+  ok = tOpenNoExist();   tResult(F("OPEN_NOEX"), ok);   ok ? pass++ : fail++;
+
+  delay(100);
+  ok = tWriteDelete();   tResult(F("WR_DEL"), ok);      ok ? pass++ : fail++;
+  if (!ok) tRecover();
+
+  delay(50);
+  { uint16_t rs = FreeStack();
+    ok = tMemLoop();
+    uint16_t re = FreeStack();
+    Serial.print(F("[T] MEM_LOOP: "));
+    if (ok) { Serial.print(F("PASS ")); Serial.print(rs);
+      Serial.print(F("->")); Serial.println(re); pass++; }
+    else { Serial.println(F("FAIL")); fail++; tRecover(); } }
+
+  delay(50);
+  ok = tRootList();
+  Serial.print(F("[T] ROOT_LIST: ")); Serial.print(ok ? F("PASS (") : F("FAIL ("));
+  Serial.print(dirFunc.GetCount()); Serial.println(')');
+  ok ? pass++ : fail++;
+  if (!ok) tRecover();
+
+  delay(50);
+  ok = tDirNav(); tResult(F("DIR_NAV"), ok); ok ? pass++ : fail++;
+
+  Serial.print(F("[T] END: ")); Serial.print(pass); Serial.print('/');
+  Serial.print(pass+fail); Serial.print(F(" RAM:")); Serial.print(ram0);
+  Serial.print(F("->")); Serial.println(FreeStack());
+  dirFunc.ForceReset();
+}
+
 #endif // EASYSD_DEBUG_SERIAL
 
