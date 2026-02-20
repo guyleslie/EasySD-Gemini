@@ -89,14 +89,17 @@ Built-in plugins: PRG launcher, KOA viewer, PETG viewer, WAV player, MUS player,
 
 ## Critical Arduino Constraints
 
-**ATmega328P has only 2KB SRAM** (~437 bytes free after boot). Every byte matters.
+**ATmega328P has only 2KB SRAM** (~415 bytes free after boot). Every byte matters.
 
 - **Never use `strtok()`** — causes static buffer corruption. Use manual token parsing (see `DirFunction.cpp`).
 - **Never use unbounded `strcpy()`** — always validate buffer sizes.
+- **Never use Arduino `String` class** — costs ~1700 bytes of flash. Use `char[]` instead.
 - **Limit local arrays to 32-64 bytes** to avoid stack overflow.
 - **Monitor memory with `FreeStack()`** — aim for 300+ bytes free minimum.
 - **SdFat 2.x API only:** Use `File` type (not deprecated `SdFile`), 1-parameter `openNext()`.
+- **SPI speed:** Use `SPI_QUARTER_SPEED` for reliable SD communication.
 - **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail.
+- **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.
 
 ## Key File Locations
 
@@ -110,10 +113,22 @@ Built-in plugins: PRG launcher, KOA viewer, PETG viewer, WAV player, MUS player,
 | `Arduino/IRQHack64/CartApi.cpp` | Command routing (new commands register here) |
 | `Arduino/IRQHack64/DirFunction.cpp` | Directory navigation |
 | `Tools/build.py` | Unified build system (v2.2.0) |
+| `Tools/test_arduino_comm.py` | PC-side Arduino serial test runner |
+| `Tools/prepare_test_sd.py` | SD card test file preparation |
 | `GEMINI.md` | Detailed AI developer guide with architectural rules |
 | `docs/build/BUILD_SYSTEM.md` | Build system deep-dive |
 | `docs/arduino/DIR_NAVIGATION_API.md` | Directory navigation API reference |
 
-## Serial Debug
+## Serial Debug & Testing
 
-Baud rate: 57600. Debug log prefixes: `[SD]`, `[DIR]`, `[FILE]`, `[ERR]`, `[MEM]`. Enable with `debug-arduino` build target or `--debug` flag on Arduino commands.
+Baud rate: 57600. Debug log prefixes: `[SD]`, `[DIR]`, `[FILE]`, `[ERR]`, `[MEM]`, `[T]`. Enable with `debug-arduino` build target or `--debug` flag on Arduino commands.
+
+**Self-test:** Send `T` via serial to run the on-device test suite (8 tests: SD init, file read, seek, non-existent file, write/delete, memory stability, root listing, directory navigation).
+
+```bash
+# Prepare SD card with test files
+python Tools/prepare_test_sd.py D:
+
+# Run automated test suite from PC
+python Tools/test_arduino_comm.py COM4 --verbose
+```
