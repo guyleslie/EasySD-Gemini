@@ -99,14 +99,53 @@ python Tools/build.py arduino-upload COM3
 
 ---
 
+### `prepare_test_sd.py` - SD Card Test Preparation
+
+Creates the required test file structure on an SD card for the Arduino self-test suite (`T` command).
+
+```bash
+python Tools/prepare_test_sd.py D:
+```
+
+**Creates:**
+```
+D:\
+├── TESTDATA.BIN    (256 bytes, 0x00-0xFF pattern)
+├── TESTFILE.TXT    (108 bytes)
+├── BIGFILE.BIN     (2048 bytes, 0x00-0xFF x8)
+└── TESTDIR/
+    └── INNER.TXT   (17 bytes)
+```
+
+---
+
+### `test_arduino_comm.py` - Arduino Serial Test Runner
+
+Communicates with the Arduino firmware over USB serial (57600 baud) to run automated tests. Requires `pyserial` (`pip install pyserial`).
+
+```bash
+# Run self-test suite (sends 'T' command, parses results)
+python Tools/test_arduino_comm.py COM4 --verbose
+
+# Interactive serial terminal
+python Tools/test_arduino_comm.py COM4 --interactive
+
+# Directory navigation test only
+python Tools/test_arduino_comm.py COM4 --test dir_nav
+```
+
+---
+
 ## File Structure
 
 ```
 Tools/
 ├── build.py                    # Main build script (v2.2.0)
 ├── README.md                   # This file
-├── test_directory_navigation.py # Directory navigation tests
-└── test_file_io.py             # File I/O tests
+├── prepare_test_sd.py          # SD card test file preparation
+├── test_arduino_comm.py        # PC-side Arduino serial test runner
+├── test_directory_navigation.py # Directory navigation tests (legacy)
+└── test_file_io.py             # File I/O tests (legacy)
 
 IRQHack64/
 ├── build/                      # Build output (generated)
