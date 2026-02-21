@@ -11,7 +11,7 @@ EasySD is an SD card interface for the Commodore 64, consisting of an Arduino-ba
 - **Arduino Side**: C++ (Arduino Nano/Pro Mini, ATmega328P).
 - **SD Library**: SdFat 2.x (migrated from 1.x in v2.0.4, full P1 API compliance in v2.0.5).
 - **Communication**: Custom PWM-like software serial (C64 -> Arduino) and NMI-driven byte transfer (Arduino -> C64).
-- **Current Version**: v2.0.5 (Sprint 2 Complete - 2025-12-25)
+- **Current Version**: v2.1.1 (SD write/delete bugfixes - 2026-02-21)
 
 ---
 
@@ -100,8 +100,9 @@ For time-critical continuous data streaming (e.g., audio).
 
 ### SD Card Error Handling & Recovery
 **SdFat error codes encountered:**
-- `0x21` = `SD_CARD_ERROR_WRITE_TIMEOUT` — Flash programming timeout
+- `0x0D` = `SD_CARD_ERROR_WRITE_DATA` — Card rejected write data (SPI noise)
 - `0x19` = `SD_CARD_ERROR_READ_TOKEN` — Bad read data token (SPI signal issue)
+- `0x21` = `SD_CARD_ERROR_WRITE_TIMEOUT` — Flash programming timeout
 
 **Critical rule:** Write errors corrupt SdFat internal state. All subsequent operations (including reads and directory listings) will fail until recovery.
 
@@ -114,6 +115,59 @@ dirFunc.ForceReset();       // Resync directory state
 ```
 
 **SPI speed:** Use `SPI_QUARTER_SPEED` for reliable operation. `SPI_HALF_SPEED` causes intermittent errors on breadboard setups. Add `delay(50-100)` between rapid SD operations.
+
+**Hardware:** Place a 10-100µF electrolytic capacitor across SD module VCC/GND to absorb write current spikes (100-200mA). Without it, voltage drops cause write timeouts on breadboard.
+
+### SdFat Write & Delete API (Critical Patterns)
+**Correct write sequence:**
+```cpp
+File f = sd.open("FILE.DAT", O_WRONLY | O_CREAT);  // O_TRUNC to overwrite
+size_t wr = f.write(buf, len);        // Returns 0 on failure (NOT -1)
+if (wr == 0 || f.getWriteError()) {   // Always check BOTH
+    f.clearWriteError();              // Reset error flag for next op
+    // handle error
+}
+f.sync();   // Flush cache to SD — data is lost without this!
+f.close();  // Also calls sync() internally
+```
+
+**Key rules:**
+- `write()` returns `size_t` (unsigned) — **never** compare against `-1`
+- `sync()` after write is critical: without it, data stays in 512-byte cache
+- SdFat auto-flushes every 512 bytes, but directory entry only updates on `sync()`/`close()`
+- `sync()` costs ~14ms typical, up to 50-100ms on cheap cards
+
+**Correct delete pattern:**
+```cpp
+sd.remove("FILE.DAT");      // Delete by name (file must NOT be open)
+sd.rmdir("DIRNAME");         // Delete empty directory
+```
+
+**See also:** `docs/arduino/SD_WRITE_DELETE_API.md` for full reference with similar project comparison.
+
+### CartApi Conventions
+**Null-termination rule:** Every handler using `GetArgumentsDynamic()` that reads a filename MUST null-terminate it:
+```cpp
+if (fileNameLength == 0) { HandleResponse(INVALID_ARGUMENT, 0); return; }
+if (fileNameLength < MAX_ARGUMENTS_LENGTH) {
+    fileName[fileNameLength] = 0;
+} else {
+    fileName[MAX_ARGUMENTS_LENGTH-1] = 0;
+}
+```
+Applied in: `HandleOpenFile`, `HandleDeleteFile`, `HandleDeleteDirectory`, `HandleCreateDirectory`, `HandleChangeDirectory`.
+
+**Debug log format:** All serial debug messages use `[TAG] Action` format:
+| Tag | Scope | Examples |
+|:----|:------|:--------|
+| `[FILE]` | File operations | Rd, Open, Close, Write, Del, Seek, LSeek, Info |
+| `[DIR]` | Directory ops | Read, Cd, Del, Mk |
+| `[STR]` | Streaming | Start, NI-Dbl |
+| `[EE]` | EEPROM | Rd, Seek, Wr |
+| `[API]` | Control | Invoke, End, Port |
+| `[SD]` | SD recovery | Recovered |
+| `[ERR]` | Critical errors | SD recover FAIL |
+| `[T]` | Self-test suite | START, END, test names |
 
 ### DirFunction.cpp Best Practices
 **Correct Navigation Pattern (v2.0.4):**
@@ -284,5 +338,5 @@ Root reset:    345 bytes ← Returns to baseline
 
 ---
 
-**Last Updated**: 2025-12-25 (v2.0.5 - Sprint 2 Complete)
-**Status**: Production-ready, SdFat 2.x P1 API compliance complete, Sprint 3 planning phase
+**Last Updated**: 2026-02-21 (v2.1.1 - SD write/delete bugfixes, CartApi hardening)
+**Status**: Production-ready, SdFat 2.x write/delete API verified, self-test suite operational (6/8 on breadboard)
