@@ -2,6 +2,16 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Git Safety Rules (CRITICAL)
+
+This is a **private repository** without branch protection (free GitHub plan limitation). Extra care required:
+
+- **NEVER `git push --force`** to main
+- **NEVER `git reset --hard`** on committed work
+- **NEVER `git branch -D main`**
+- **Always commit individually** per logical change, then push
+- **Never amend published commits** — create new commits instead
+
 ## Project Summary
 
 EasySD is an SD card interface for the Commodore 64, combining an Arduino Nano/Pro Mini "file server" with a C64-side menu and plugin system. Users browse and load files from FAT-formatted SD cards through a cartridge.
