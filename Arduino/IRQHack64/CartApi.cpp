@@ -56,7 +56,7 @@ inline void HandleResponse(unsigned char response, uint16_t waitAfterResponse) {
 void CartApi::HandleReadFile() {
   uint8_t fileBuffer[BUFFER_SIZE];     
   #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("Got HandleReadFile"));
+  Serial.println(F("[FILE] Rd"));
   #endif
   GetArgumentsStatic(1);  
   unsigned int dataLength = Arguments[0];
@@ -102,7 +102,7 @@ void CartApi::HandleReadFile() {
 
 void CartApi::HandleOpenFile() {
   #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("Got HandleOpenFile"));
+  Serial.println(F("[FILE] Open"));
   #endif
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
@@ -154,7 +154,7 @@ void CartApi::HandleOpenFile() {
 }
 void CartApi::HandleCloseFile() {
   #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("Got HandleCloseFile"));    
+  Serial.println(F("[FILE] Close"));    
   #endif
   GetArgumentsStatic(0);
   //HandleResponse(SUCCESSFUL, 1000);
@@ -181,21 +181,26 @@ void CartApi::HandleCloseFile() {
 
 
 
-void CartApi::HandleWriteFile() {  
-  #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleWriteFile"));
+void CartApi::HandleWriteFile() {
+  #ifdef EASYSD_DEBUG_SERIAL
+  Serial.println(F("[FILE] Write"));
   #endif
   GetArgumentsStatic(32);
   if (workingFile == NULL) {
       HandleResponse(NOT_INITIALIZED, 0);
   } else if (workingFile.isOpen()) {
-    int bytesWritten = workingFile.write(Arguments, WRITE_BUFFER_SIZE);
-    if (bytesWritten == -1) {
-      HandleResponse(FILE_WRITE_HAS_FAILED, 0);    
-    } else if (bytesWritten<WRITE_BUFFER_SIZE) {
-      HandleResponse(WRITE_NOT_COMPLETE, 0);  
+    // write() returns size_t (unsigned): 0 on failure, count on success
+    size_t bytesWritten = workingFile.write(Arguments, WRITE_BUFFER_SIZE);
+    if (bytesWritten == 0 || workingFile.getWriteError()) {
+      workingFile.clearWriteError();
+      HandleResponse(FILE_WRITE_HAS_FAILED, 0);
+    } else if (bytesWritten < WRITE_BUFFER_SIZE) {
+      HandleResponse(WRITE_NOT_COMPLETE, 0);
+    } else if (!workingFile.sync()) {
+      // sync() flushes cache to SD — critical for C64 data integrity
+      HandleResponse(FILE_WRITE_HAS_FAILED, 0);
     } else {
-      HandleResponse(SUCCESSFUL, 0);    
+      HandleResponse(SUCCESSFUL, 0);
     }
   } else {
     HandleResponse(FILE_IS_NOT_OPENED, 0);
@@ -203,19 +208,28 @@ void CartApi::HandleWriteFile() {
 }
 
 void CartApi::HandleDeleteFile() {
-  #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleDeleteFile"));
-  #endif    
+  #ifdef EASYSD_DEBUG_SERIAL
+  Serial.println(F("[FILE] Del"));
+  #endif
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
   unsigned int fileNameLength = Arguments[1];
   char * fileName = (char *) &Arguments[2];
+
+  // Ensure NUL-termination (same pattern as HandleOpenFile)
+  if (fileNameLength == 0) { HandleResponse(INVALID_ARGUMENT, 0); return; }
+  if (fileNameLength < MAX_ARGUMENTS_LENGTH) {
+    fileName[fileNameLength] = 0;
+  } else {
+    fileName[MAX_ARGUMENTS_LENGTH-1] = 0;
+  }
+
   if (!sd.exists(fileName)) {
     HandleResponse(FILE_NOT_FOUND, 0);
   } else {
-    if (sd.remove(fileName)) {    
+    if (sd.remove(fileName)) {
       HandleResponse(SUCCESSFUL, 0);
-    } else  {
+    } else {
       HandleResponse(FILE_DELETION_FAILED, 0);
     }
   }
@@ -224,7 +238,7 @@ void CartApi::HandleDeleteFile() {
 //TODO: Signed integer support should be added
 void CartApi::HandleSeekFile() {
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleSeekFile"));
+  Serial.println(F("[FILE] Seek"));
   #endif
   GetArgumentsStatic(3);
   unsigned int seekDirection = Arguments[0];
@@ -258,7 +272,7 @@ void CartApi::HandleSeekFile() {
 
 void CartApi::HandleLongSeekFile() {
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleLongSeekFile"));
+  Serial.println(F("[FILE] LSeek"));
   #endif          
   GetArgumentsStatic(5);
   unsigned int seekDirection = Arguments[0];
@@ -295,7 +309,7 @@ void CartApi::HandleLongSeekFile() {
 
 void CartApi::HandleGetInfoForFile() {
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleGetInfoForFile"));
+  Serial.println(F("[FILE] Info"));
   #endif            
   GetArgumentsStatic(0);
   if (workingFile == NULL) {
@@ -327,7 +341,7 @@ void CartApi::HandleGetInfoForFile() {
 
 inline void CartApi::HandleReadDirectory() {
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleReadDirectory"));
+  Serial.println(F("[DIR] Read"));
   #endif             
   GetArgumentsStatic(3);
   uint8_t numberOfEntries = Arguments[0]; //Max number of directory entries to retrieve
@@ -417,7 +431,7 @@ inline void CartApi::HandleReadDirectory() {
 
 void CartApi::HandleChangeDirectory() {
   #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("Got HandleChangeDirectory"));
+  Serial.println(F("[DIR] Cd"));
   #endif
 
   GetArgumentsDynamic(0);
@@ -472,39 +486,57 @@ void CartApi::HandleChangeDirectory() {
   }
 }
 
-void CartApi::HandleDeleteDirectory() {   
-  #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleDeleteDirectory"));
+void CartApi::HandleDeleteDirectory() {
+  #ifdef EASYSD_DEBUG_SERIAL
+  Serial.println(F("[DIR] Del"));
   #endif
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
   unsigned int fileNameLength = Arguments[1];
   char * fileName = (char *) &Arguments[2];
+
+  // Ensure NUL-termination
+  if (fileNameLength == 0) { HandleResponse(INVALID_ARGUMENT, 0); return; }
+  if (fileNameLength < MAX_ARGUMENTS_LENGTH) {
+    fileName[fileNameLength] = 0;
+  } else {
+    fileName[MAX_ARGUMENTS_LENGTH-1] = 0;
+  }
+
   if (!sd.exists(fileName)) {
     HandleResponse(DIR_NOT_FOUND, 0);
   } else {
-    if (sd.rmdir(fileName)) {    
+    if (sd.rmdir(fileName)) {
       HandleResponse(SUCCESSFUL, 0);
-    } else  {
+    } else {
       HandleResponse(DIR_DELETION_FAILED, 0);
     }
   }
 }
 
-void CartApi::HandleCreateDirectory() {  
-  #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleCreateDirectory"));
+void CartApi::HandleCreateDirectory() {
+  #ifdef EASYSD_DEBUG_SERIAL
+  Serial.println(F("[DIR] Mk"));
   #endif
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
   unsigned int fileNameLength = Arguments[1];
   char * fileName = (char *) &Arguments[2];
+
+  // Ensure NUL-termination
+  if (fileNameLength == 0) { HandleResponse(INVALID_ARGUMENT, 0); return; }
+  if (fileNameLength < MAX_ARGUMENTS_LENGTH) {
+    fileName[fileNameLength] = 0;
+  } else {
+    fileName[MAX_ARGUMENTS_LENGTH-1] = 0;
+  }
+
   if (sd.exists(fileName)) {
     HandleResponse(DIR_ALREADY_EXISTS, 0);
   } else {
-    if (sd.mkdir(fileName)) {    
+    if (sd.mkdir(fileName)) {
       HandleResponse(SUCCESSFUL, 0);
-    } else  {
+    } else {
       HandleResponse(DIR_CREATION_FAILED, 0);
     }
   }
@@ -792,7 +824,7 @@ static uint8_t ConvertStandardTapToPrg(SdFat &sd, const char *tapName, char *out
 
 void CartApi::HandleInvokeWithName() {  
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleInvokeWithName"));
+  Serial.println(F("[API] Invoke"));
   #endif
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
@@ -834,7 +866,7 @@ void CartApi::IncrementEepromAddress() {
 
 void CartApi::HandleReadEeprom() {
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleReadEeprom"));
+  Serial.println(F("[EE] Rd"));
   #endif
   #ifndef __AVR__    
   EEPROM.begin(EEPROM_SIZE);
@@ -849,7 +881,7 @@ void CartApi::HandleReadEeprom() {
 
 void CartApi::HandleSeekEeprom() {
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleSeekEeprom"));
+  Serial.println(F("[EE] Seek"));
   #endif
   GetArgumentsStatic(2);    
   uint8_t hi = Arguments[0];
@@ -860,7 +892,7 @@ void CartApi::HandleSeekEeprom() {
 
 void CartApi::HandleWriteEeprom() {
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleWriteEeprom"));
+  Serial.println(F("[EE] Wr"));
   #endif
   #ifndef __AVR__    
   EEPROM.begin(EEPROM_SIZE);
@@ -879,7 +911,7 @@ void CartApi::HandleWriteEeprom() {
 
 void CartApi::HandleEndTalking() {
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleEndTalking"));
+  Serial.println(F("[API] End"));
   #endif     
   //cartInterface.EndListening();
   cartInterface.ResetReceive();
@@ -887,7 +919,7 @@ void CartApi::HandleEndTalking() {
 
 void CartApi::HandleSetPort() {
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleSetPort"));
+  Serial.println(F("[API] Port"));
   #endif    
   GetArgumentsStatic(1);    
   uint8_t value = Arguments[0];  
@@ -941,7 +973,7 @@ void CartApi::HandleStream() {
   // This fixes the dangling pointer bug where ISR would access stack memory
 
   #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("Got HandleStream"));
+  Serial.println(F("[STR] Start"));
   #endif
   GetArgumentsStatic(3);
   uint8_t initialDelay = Arguments[0];
@@ -1040,7 +1072,7 @@ void CartApi::HandleNonInterruptedStream() {
   uint8_t currentBuffer = 0; // 0 for buffer1, 1 for buffer2
   
   #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Got HandleNIStream (Double Buffered)"));
+  Serial.println(F("[STR] NI-Dbl"));
   #endif    
   GetArgumentsStatic(1);    
   uint8_t countOf8Bytes = Arguments[0];  
