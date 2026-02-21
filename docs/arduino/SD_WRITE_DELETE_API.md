@@ -195,10 +195,11 @@ if (bytesWritten == 0 || workingFile.getWriteError()) {
 - **SPI speed:** `SPI_QUARTER_SPEED` required on breadboard
 - **Wire length:** Keep SPI lines under 5cm for reliable writes
 
-### Test Results (v2.1.1, breadboard + 100µF cap)
+### Test Results (v2.1.1, breadboard + 100nF ceramic + 100µF electrolytic)
 ```
-6/8 PASS: SD_INIT, OPEN_RD_CL, SEEK, OPEN_NOEX, ROOT_LIST, DIR_NAV
-2/8 FAIL: WR_DEL (0x19 SPI noise), MEM_LOOP (cascading from WR_DEL)
+7/8 PASS: SD_INIT, OPEN_RD_CL, SEEK, OPEN_NOEX, MEM_LOOP, ROOT_LIST, DIR_NAV
+1/8 FAIL: WR_DEL (0x19 SPI read token — breadboard hardware limitation)
 RAM: 415 → 415 (stable, no leaks)
+SD recovery after WR_DEL: successful (all subsequent tests pass)
 ```
-Write failures are expected on breadboard — PCB with proper decoupling should resolve.
+Write failure is expected on breadboard — PCB with proper decoupling traces should resolve.

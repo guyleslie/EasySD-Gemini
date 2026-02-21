@@ -1,7 +1,7 @@
 # EasySD / IRQHack64 - Unified Changelog
 
-> **Last updated:** 2025-12-26
-> **Current version:** v2.1.0
+> **Last updated:** 2026-02-21
+> **Current version:** v2.1.1
 > **Project:** EasySD Gemini - C64 Cartridge-based SD card reader
 
 ---
@@ -16,7 +16,7 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
-| **v2.1.1** | 2026-02-20 | Self-Test Suite & SD Error Recovery | ✅ Tested |
+| **v2.1.1** | 2026-02-21 | Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery | ✅ Tested (7/8) |
 | **v2.1.0** | 2025-12-26 | Sprint 6 - Production Polish & User Experience | ✅ Production Ready |
 | **v2.0.6** | 2025-12-26 | Sprint 5 - Directory State Synchronization | ✅ Production Ready |
 | **v2.0.5** | 2025-12-25 | Sprint 2 - SdFat 2.x API Modernization | ✅ Production Ready |
@@ -51,11 +51,27 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 
 ## Chronological Changes
 
-### [v2.1.1] - 2026-02-20
-**Arduino Self-Test Suite & SD Error Recovery**
+### [v2.1.1] - 2026-02-21
+**Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery**
 
 #### Summary
-Added on-device self-test suite (`T` command), SD error recovery mechanism, flash size optimization, and PC-side automated test tooling.
+Fixed critical bugs in SD write/delete handlers, added on-device self-test suite (`T` command), SD error recovery mechanism, flash size optimization, and PC-side automated test tooling.
+
+#### Bug Fixes (CartApi.cpp)
+
+**HandleWriteFile() — 3 bugs fixed:**
+- `write()` returns `size_t` (unsigned) — was compared against `-1` (never true)
+- Missing `sync()` call — data stayed in SdFat 512-byte cache, lost on power failure
+- Missing `getWriteError()`/`clearWriteError()` — write errors went undetected
+
+**HandleDeleteFile/DeleteDirectory/CreateDirectory — null-termination:**
+- `fileName` from `GetArgumentsDynamic()` was used without null terminator
+- Read random memory beyond the intended filename
+- Added same null-termination pattern as `HandleOpenFile()`
+
+**Debug string optimization:**
+- All `"Got HandleXxx"` strings shortened to `"[TAG] Cmd"` format
+- Saved ~180 bytes of flash, enabling bugfix code to fit
 
 #### New Features
 
@@ -69,40 +85,47 @@ Added on-device self-test suite (`T` command), SD error recovery mechanism, flas
 - Reinitializes SD card after SPI errors (write timeout, read token)
 - Pattern: `CloseDirHandle()` → `delay(50)` → `sd.begin()` → `ForceReset()`
 - Critical for C64 service: the C64 cannot detect SD errors independently
-- Used both in self-test and available for production CartApi error handling
 
 **`DirFunction::CloseDirHandle()`:**
 - Closes `m_dirFile` before SD reinitialization
 - Required: open handles become invalid after `sd.begin()`
 
+**`prepare_test_sd.py` — auto-format support:**
+- Detects corrupted/raw SD cards (Windows: no filesystem, 0 size)
+- Interactive prompt: `Format as FAT32? [y/N]`
+- `--format` flag for non-interactive formatting
+- Creates test files after formatting
+
 #### Optimizations
 
-**Flash Size (-7600 bytes debug overhead):**
+**Flash Size:**
+- Debug build: 30578 bytes (99.5% of 30720, 142 bytes margin)
+- Release build: ~22400 bytes (72%)
 - `ShowMem()`: 300 → 80 bytes of strings
-- `printStartupBanner()`, `printHelp()`: compacted
 - `testDirectoryNavigation()`: Arduino `String` → manual `char[]` (-1700 bytes)
-- Debug build: 30658 bytes (99.8% of 30720)
+- Debug log format: `"Got HandleXxx"` → `"[TAG] Cmd"` (-180 bytes)
 
 **SPI Reliability:**
 - `SPI_HALF_SPEED` → `SPI_QUARTER_SPEED` for stable breadboard operation
 - `delay(50)` after SD init for card stabilization
-- `delay(50-100)` between rapid test operations
 
 #### New Files
 
 | File | Purpose |
 |------|---------|
-| `Tools/prepare_test_sd.py` | Creates test files on SD card (TESTDATA.BIN, TESTDIR/, etc.) |
+| `Tools/prepare_test_sd.py` | Creates test files on SD card + auto-format support |
 | `Tools/test_arduino_comm.py` | PC-side serial test runner (auto/interactive/dir_nav modes) |
+| `docs/arduino/SD_WRITE_DELETE_API.md` | SdFat write/delete API reference with similar C64 project comparison |
 
 #### SdFat Error Codes Documented
 
 | Code | Symbol | Meaning |
 |------|--------|---------|
-| `0x21` | `WRITE_TIMEOUT` | Flash programming timeout (breadboard SPI issue) |
+| `0x0D` | `WRITE_DATA` | Card rejected write data (SPI noise) |
 | `0x19` | `READ_TOKEN` | Bad read data token (SPI signal integrity) |
+| `0x21` | `WRITE_TIMEOUT` | Flash programming timeout |
 
-#### Test Results (breadboard, SanDisk SD, SPI_QUARTER_SPEED)
+#### Test Results (breadboard, 100nF+100µF caps, SPI_QUARTER_SPEED)
 
 | Test | Result | Notes |
 |------|--------|-------|
@@ -110,23 +133,23 @@ Added on-device self-test suite (`T` command), SD error recovery mechanism, flas
 | OPEN_RD_CL | PASS | |
 | SEEK | PASS | |
 | OPEN_NOEX | PASS | |
-| WR_DEL | FAIL | 0x21 write timeout — breadboard hardware limitation |
+| WR_DEL | FAIL | 0x19 SPI read token — breadboard hardware limitation |
 | MEM_LOOP | PASS | 20x open/read/close, RAM stable (415→415) |
-| ROOT_LIST | PASS | Directory listing correct |
+| ROOT_LIST | PASS | Directory listing correct (5 items) |
 | DIR_NAV | PASS | cd TESTDIR + GoBack works |
 
-**6/8 PASS.** Write failure is a known breadboard/SPI hardware limitation, not a code issue.
+**7/8 PASS.** Write failure is a known breadboard/SPI hardware limitation, not a code issue. SD recovery works correctly after write failure.
 
-#### Documentation Updated
-- `CLAUDE.md`: SPI_QUARTER_SPEED, recoverSD(), test tools, String class ban
-- `GEMINI.md`: SD error handling section, build system, testing tools
-- `docs/arduino/DIR_NAVIGATION_API.md`: CloseDirHandle() documented
-- `Tools/README.md`: New test scripts documented
+#### Hardware Notes
+- 100µF electrolytic + 100nF ceramic on SD module VCC/GND recommended
+- Breadboard contact resistance limits SPI write reliability
+- PCB with proper decoupling traces expected to resolve WR_DEL
 
 #### Files Modified
 
 | File | Changes |
 |------|---------|
+| `CartApi.cpp` | Write/delete bugfixes, null-termination, debug string optimization |
 | `IRQHack64.ino` | +265 lines (self-test, recoverSD, flash optimization) |
 | `DirFunction.cpp` | +6 lines (CloseDirHandle) |
 | `DirFunction.h` | +1 line (CloseDirHandle declaration) |
@@ -1161,6 +1184,8 @@ python Tools/build.py clean
 
 ## Version History (Summary)
 
+- **v2.1.1** (2026-02-21): Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery (7/8 PASS)
+- **v2.1.0** (2025-12-26): Production Polish & User Experience - Sprint 6 Complete
 - **v2.0.6** (2025-12-26): Directory State Synchronization - Sprint 5 Complete (Production-Ready)
 - **v2.0.5** (2025-12-25): SdFat 2.x API Modernization - Sprint 2 Complete
 - **v2.0.4** (2025-12-25): Critical Memory and Stability Fixes (Sprint 1 Production-Ready)

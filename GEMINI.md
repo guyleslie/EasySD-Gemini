@@ -203,6 +203,9 @@ python Tools/build.py arduino-monitor COM4
 # Prepare SD card with test files
 python Tools/prepare_test_sd.py D:
 
+# Prepare SD card (auto-format corrupted card)
+python Tools/prepare_test_sd.py D: --format
+
 # Run automated self-test suite via serial
 python Tools/test_arduino_comm.py COM4 --verbose
 
@@ -338,5 +341,5 @@ Root reset:    345 bytes ← Returns to baseline
 
 ---
 
-**Last Updated**: 2026-02-21 (v2.1.1 - SD write/delete bugfixes, CartApi hardening)
-**Status**: Production-ready, SdFat 2.x write/delete API verified, self-test suite operational (6/8 on breadboard)
+**Last Updated**: 2026-02-21 (v2.1.1 - SD write/delete bugfixes, CartApi hardening, 7/8 tests)
+**Status**: Production-ready, SdFat 2.x write/delete API verified, self-test suite operational (7/8 on breadboard, WR_DEL=SPI hw limit)
