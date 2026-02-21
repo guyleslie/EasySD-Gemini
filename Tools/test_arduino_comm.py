@@ -9,6 +9,17 @@ The Arduino 'T' command runs a built-in self-test suite that covers:
   SD init, root listing, file open/read/close, non-existent file,
   directory navigation, seek, write/delete, memory stability loop.
 
+Serial debug log prefixes (abbreviated for flash savings):
+  [FILE] Rd/Open/Close/Write/Del/Seek/LSeek/Info — File operations
+  [DIR]  Read/Cd/Del/Mk                          — Directory operations
+  [STR]  Start/NI-Dbl                             — Streaming operations
+  [EE]   Rd/Seek/Wr                               — EEPROM operations
+  [API]  Invoke/End/Port                          — API & control commands
+  [SD]   Recovered                                — SD card recovery
+  [ERR]  SD recover FAIL                          — Critical SD error
+  [MEM]  RAM: xxx/2048                            — Memory status
+  [T]    START/END/test names                     — Self-test suite output
+
 Usage:
     python Tools/test_arduino_comm.py COM4                  # Auto test (T command)
     python Tools/test_arduino_comm.py COM4 --interactive    # Interactive mode
