@@ -124,9 +124,11 @@ Built-in plugins: PRG launcher, KOA viewer, PETG viewer, WAV player, MUS player,
 | `Arduino/IRQHack64/DirFunction.cpp` | Directory navigation |
 | `Tools/build.py` | Unified build system (v2.2.0) |
 | `Tools/test_arduino_comm.py` | PC-side Arduino serial test runner |
+| `Tools/test_vice_menu.py` | VICE automated C64 menu test suite |
 | `Tools/prepare_test_sd.py` | SD card test file preparation |
 | `GEMINI.md` | Detailed AI developer guide with architectural rules |
 | `docs/build/BUILD_SYSTEM.md` | Build system deep-dive |
+| `docs/testing/VICE_MENU_TEST.md` | VICE automated test documentation |
 | `docs/arduino/DIR_NAVIGATION_API.md` | Directory navigation API reference |
 
 ## Serial Debug & Testing
@@ -139,6 +141,9 @@ Baud rate: 57600. Debug log prefixes: `[SD]`, `[DIR]`, `[FILE]`, `[ERR]`, `[MEM]
 # Prepare SD card with test files
 python Tools/prepare_test_sd.py D:
 
-# Run automated test suite from PC
+# Run automated test suite from PC (Arduino)
 python Tools/test_arduino_comm.py COM4 --verbose
+
+# Run automated VICE menu tests (C64, requires VICE 3.9+)
+python Tools/test_vice_menu.py --build --verbose
 ```

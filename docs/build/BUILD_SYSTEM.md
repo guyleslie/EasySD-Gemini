@@ -88,9 +88,10 @@ python build.py arduino-monitor COM4
 **Output:**
 - `build/irqhack64-debug.prg` - C64 debug binary with symbols
 - `build/plugins/*.prg` - Plugin binaries
+- `build/symbol/IrqLoaderMenuNew.vs` - VICE-format labels (for binary monitor / `test_vice_menu.py`)
 - **NO Arduino artifacts** (optimization: saves 66KB + 9 operations)
 
-**Use Case:** VICE emulator testing, C64 development
+**Use Case:** VICE emulator testing, C64 development, automated VICE menu tests
 
 #### `debug-arduino`
 **Description:** Debug build with Arduino serial debugging
@@ -215,7 +216,7 @@ C:\EasySD Gemini\
 │   └── build/                  # Build output
 │       ├── irqhack64.prg       # Main C64 binary
 │       ├── plugins/            # Plugin binaries
-│       ├── symbol/             # Debug symbols
+│       ├── symbol/             # Debug symbols (.txt labels + .vs VICE labels)
 │       ├── listing/            # Assembly listings
 │       └── artifacts/          # Build artifacts (Sprint 7)
 │           ├── FlashLib.h      # C64 binary as Arduino header
@@ -239,12 +240,19 @@ C:\EasySD Gemini\
 **Phase 1: C64 Build → Artifact Generation**
 ```
 C64 Sources (.s, .65s)
-    ↓ 64tass assembler
+    ↓ 64tass assembler (run 1: --labels → .txt format)
+    ↓ 64tass assembler (run 2: --vice-labels --labels → .vs VICE format)
 C64 Binaries (.prg, .bin)
     ↓ bin2ardh conversion
 build/artifacts/FlashLib.h      # C64 data embedded in C header
 build/artifacts/BuildConfig.h   # Arduino config with metadata
+build/symbol/*.txt              # Standard label format (NAME = $ADDR)
+build/symbol/*.vs               # VICE label format (al ADDR .NAME)
 ```
+
+**Note:** 64tass requires two separate invocations because `--vice-labels` is a flag
+that modifies the `--labels` output format (not a separate filename argument).
+The second run outputs the binary to `os.devnull` — only the `.vs` label file matters.
 
 **Phase 2: Artifact Copy → Arduino Workspace**
 ```
@@ -645,6 +653,7 @@ python build.py arduino-upload COM3  # Try different port
 - `SPRINT7_COMPLETION.md` - Sprint 7 implementation details
 - `SPRINT6_COMPLETION.md` - Sprint 6 UX improvements
 - `CHANGELOG_UNIFIED.md` - Full version history
+- `docs/testing/VICE_MENU_TEST.md` - VICE automated test documentation
 
 **Build System Issues:**
 - Check `Tools/build.py` version: Should be v2.2.0+

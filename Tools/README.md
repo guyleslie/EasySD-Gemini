@@ -136,6 +136,33 @@ python Tools/test_arduino_comm.py COM4 --test dir_nav
 
 ---
 
+### `test_vice_menu.py` - VICE Automated C64 Menu Tests
+
+Launches VICE (x64sc) in warp mode and verifies C64 menu behavior via the binary monitor protocol (TCP). Tests navigation, directory entry, and screen rendering. Requires VICE 3.9+.
+
+```bash
+# Run all 7 tests (requires prior debug-vice build)
+python Tools/test_vice_menu.py
+
+# Build first, then test
+python Tools/test_vice_menu.py --build
+
+# Verbose output (monitor protocol traffic)
+python Tools/test_vice_menu.py --verbose
+
+# Keep VICE open after tests for manual inspection
+python Tools/test_vice_menu.py --keep-vice
+
+# Custom VICE path
+python Tools/test_vice_menu.py --vice-path "C:\VICE\bin\x64sc.exe"
+```
+
+**Tests:** INIT, NAV_DOWN, NAV_UP, NAV_WRAP, ENTER_DIR, GO_BACK, SCREEN_VERIFY
+
+See `docs/testing/VICE_MENU_TEST.md` for full documentation.
+
+---
+
 ## File Structure
 
 ```
@@ -144,6 +171,7 @@ Tools/
 ├── README.md                   # This file
 ├── prepare_test_sd.py          # SD card test file preparation
 ├── test_arduino_comm.py        # PC-side Arduino serial test runner
+├── test_vice_menu.py           # VICE automated C64 menu tests
 ├── test_directory_navigation.py # Directory navigation tests (legacy)
 └── test_file_io.py             # File I/O tests (legacy)
 
@@ -151,7 +179,7 @@ IRQHack64/
 ├── build/                      # Build output (generated)
 │   ├── irqhack64-debug.prg    # C64 program
 │   ├── plugins/               # Plugin binaries
-│   └── symbol/                # Debug symbols
+│   └── symbol/                # Debug symbols (.txt + .vs VICE labels)
 └── ...                        # Assembly source files
 
 Arduino/
@@ -195,6 +223,7 @@ On Windows: Device Manager → Ports (COM & LPT)
 
 - `docs/build/BUILD_SYSTEM.md` - Detailed build system documentation
 - `docs/build/ARDUINO_CLI_SETUP.md` - Arduino CLI installation guide
+- `docs/testing/VICE_MENU_TEST.md` - VICE automated menu test documentation
 
 ---
 

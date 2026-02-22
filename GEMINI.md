@@ -199,6 +199,8 @@ python Tools/build.py arduino-monitor COM4
 ```
 
 ### Testing Tools
+
+**Arduino (hardware, serial):**
 ```bash
 # Prepare SD card with test files
 python Tools/prepare_test_sd.py D:
@@ -213,13 +215,31 @@ python Tools/test_arduino_comm.py COM4 --verbose
 python Tools/test_arduino_comm.py COM4 --interactive
 ```
 
+**C64 Menu (VICE emulator, binary monitor):**
+```bash
+# Run all 7 automated menu tests (requires VICE 3.9+)
+python Tools/test_vice_menu.py
+
+# Build debug-vice first, then test
+python Tools/test_vice_menu.py --build
+
+# Verbose (monitor protocol traffic)
+python Tools/test_vice_menu.py --verbose
+
+# Keep VICE open after tests
+python Tools/test_vice_menu.py --keep-vice
+```
+
+Tests: INIT, NAV_DOWN, NAV_UP, NAV_WRAP, ENTER_DIR, GO_BACK, SCREEN_VERIFY.
+See `docs/testing/VICE_MENU_TEST.md` for full documentation.
+
 **C64 Build Commands:**
 ```bash
 # Full project build (C64 + Arduino headers)
 python Tools/build.py release
 
-# Debug build (C64 only, mock data)
-python Tools/build.py debug
+# Debug build (C64 only, mock data + VICE labels .vs)
+python Tools/build.py debug-vice
 
 # Debug build (C64 + Arduino, recommended)
 python Tools/build.py debug-arduino
@@ -249,6 +269,12 @@ python Tools/build.py debug-arduino
 - **SD Command API**: Arduino/IRQHack64/CartApi.cpp
 - **String Buffer**: Arduino/IRQHack64/StringPrint.cpp (32-byte buffer, index < 31)
 - **Arduino Build System**: Tools/arduino_build_upload.py
+
+### Testing
+- **Arduino Serial Tests**: Tools/test_arduino_comm.py
+- **VICE Menu Tests**: Tools/test_vice_menu.py (binary monitor protocol)
+- **SD Card Prep**: Tools/prepare_test_sd.py
+- **VICE Test Docs**: docs/testing/VICE_MENU_TEST.md
 
 ### Documentation
 - **Unified Changelog**: CHANGELOG_UNIFIED.md (v1.x to v2.0.5)

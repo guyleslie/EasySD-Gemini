@@ -321,7 +321,22 @@ PLUGIN_MATRIX = [
 def clean(ctx: Context) -> None:
     if ctx.build_dir.exists():
         print("[CLEAN] Removing C64 build artifacts...")
-        shutil.rmtree(ctx.build_dir)
+        try:
+            shutil.rmtree(ctx.build_dir)
+        except PermissionError:
+            # OneDrive may hold locks on empty dirs — remove files first,
+            # then retry directories ignoring any still-locked empty dirs.
+            for root, dirs, files in os.walk(ctx.build_dir, topdown=False):
+                for f in files:
+                    try:
+                        os.remove(os.path.join(root, f))
+                    except OSError:
+                        pass
+                for d in dirs:
+                    try:
+                        os.rmdir(os.path.join(root, d))
+                    except OSError:
+                        pass
     print("[CLEAN] Done.")
 
 
@@ -345,6 +360,7 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
     menu_src = ctx.irq_root / "Menus" / "EasySD" / "IrqLoaderMenuNew.s"
     menu_bin = ctx.build_dir / "IrqLoaderMenuNew.bin"
     labels = ctx.sym_dir / "IrqLoaderMenuNew.txt"
+    vice_labels = ctx.sym_dir / "IrqLoaderMenuNew.vs"
     listing = ctx.lst_dir / "IrqLoaderMenuNewLst.txt"
     print(f"[CORE] 64tass: {menu_src.relative_to(ctx.irq_root)}")
     run_cmd(
@@ -356,6 +372,19 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
             "-o", str(menu_bin),
             "--labels", str(labels),
             "-L", str(listing),
+        ],
+        cwd=ctx.irq_root
+    )
+    # Generate VICE-format labels for binary monitor / test_vice_menu.py
+    run_cmd(
+        [
+            tass, "-c", "-b", "--long-branch",
+            "-D", f"DEBUG={debug}",
+            "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
+            str(menu_src),
+            "-o", os.devnull,
+            "--vice-labels",
+            "--labels", str(vice_labels),
         ],
         cwd=ctx.irq_root
     )
