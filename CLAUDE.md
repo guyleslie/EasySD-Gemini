@@ -65,7 +65,7 @@ python Tools/build.py release --skip-arduino
 
 ### Build Artifact Flow
 
-C64 assembly → 64tass → `.prg` binaries → `bin2ardh` → `build/artifacts/FlashLib.h` → copied to `Arduino/IRQHack64/` → `arduino-cli compile` → firmware HEX. The `debug-vice` target skips Arduino artifact generation entirely.
+PETMATE `menu.asm` → `convert_petmate_asm()` → `menu.bin` → C64 assembly (`.binary "menu.bin"`) → 64tass → `.prg` binaries → `bin2ardh` → `build/artifacts/FlashLib.h` → copied to `Arduino/IRQHack64/` → `arduino-cli compile` → firmware HEX. The `debug-vice` target skips Arduino artifact generation entirely.
 
 ### C64 Include Hierarchy (strict linear chain, no include guards in 64tass)
 
@@ -119,10 +119,11 @@ Built-in plugins: PRG launcher, KOA viewer, PETG viewer, WAV player, MUS player,
 | `IRQHack64/Loader/CartLibHi.s` | High-level C64 APIs (LoadFileBySize) |
 | `IRQHack64/Loader/CartLibStream.s` | Streaming API (SafeStream, StreamLargeFile) |
 | `IRQHack64/Menus/EasySD/IrqLoaderMenuNew.s` | Main menu program |
+| `IRQHack64/Menus/EasySD/menu.asm` | PETMATE frame export (edit in PETMATE, re-export here) |
 | `Arduino/IRQHack64/IRQHack64.ino` | Arduino entry point |
 | `Arduino/IRQHack64/CartApi.cpp` | Command routing (new commands register here) |
 | `Arduino/IRQHack64/DirFunction.cpp` | Directory navigation |
-| `Tools/build.py` | Unified build system (v2.2.0) |
+| `Tools/build.py` | Unified build system (v3.0.0, includes PETMATE conversion) |
 | `Tools/test_arduino_comm.py` | PC-side Arduino serial test runner |
 | `Tools/test_vice_menu.py` | VICE automated C64 menu test suite |
 | `Tools/prepare_test_sd.py` | SD card test file preparation |

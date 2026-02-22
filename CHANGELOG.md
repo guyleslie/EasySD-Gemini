@@ -1,7 +1,7 @@
 # EasySD / IRQHack64 - Unified Changelog
 
-> **Last updated:** 2026-02-21
-> **Current version:** v2.1.1
+> **Last updated:** 2026-02-22
+> **Current version:** v3.0.0
 > **Project:** EasySD Gemini - C64 Cartridge-based SD card reader
 
 ---
@@ -16,6 +16,7 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
+| **v3.0.0** | 2026-02-22 | PETMATE menu frame, dynamic build pipeline, charset switch | ✅ Complete |
 | **v2.1.1** | 2026-02-21 | Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery | ✅ Tested (7/8) |
 | **v2.1.0** | 2025-12-26 | Sprint 6 - Production Polish & User Experience | ✅ Production Ready |
 | **v2.0.6** | 2025-12-26 | Sprint 5 - Directory State Synchronization | ✅ Production Ready |
@@ -50,6 +51,41 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 ---
 
 ## Chronological Changes
+
+### [v3.0.0] - 2026-02-22
+**PETMATE Menu Frame Redesign & Dynamic Build Pipeline**
+
+#### Summary
+Replaced the hardcoded complex PETSCII art menu frame with a clean box-drawing border designed in PETMATE. The frame is now loaded dynamically from the PETMATE `.asm` export via an automated build step, allowing easy visual redesign without touching assembly code.
+
+#### UI Changes
+- New clean box-drawing border (┌─┐│└─┘) replaces complex PETSCII art frame
+- "EasySD V3" title integrated into top-right corner of frame (┤EasySD V3├)
+- Switched to lowercase/uppercase charset mode for mixed-case title display
+- Interior text color: dark grey ($0B) for readability
+- Frame border color: white ($01), border/background: light grey ($0C)
+- Intro screen (splash art) preserved — displays ~3 seconds before menu
+
+#### Build System (build.py v3.0.0)
+- New `convert_petmate_asm()` function: converts PETMATE `.asm` export → raw `.bin`
+- Automatic conversion step in build pipeline (runs before 64tass assembly)
+- Workflow: edit in PETMATE → export as `menu.asm` → build → done
+
+#### Code Cleanup
+- Removed `PRINTTITLE` routine and `TITLE` data (title is part of the PETMATE frame)
+- `PRGSCREENDATA`: `.binary "menu.bin"` replaces inline data
+- `DISPLAYSCREENGRAPHICS`: charset switch to lowercase/uppercase mode added
+
+#### Files Modified
+
+| File | Changes |
+|------|---------|
+| `IRQHack64/Menus/EasySD/IrqLoaderMenuNew.s` | PRGSCREENDATA → .binary, charset switch, removed PRINTTITLE/TITLE |
+| `IRQHack64/Menus/EasySD/menu.asm` | PETMATE export: interior colors 14→11 (dark grey) |
+| `Tools/build.py` | +convert_petmate_asm(), build pipeline integration |
+| `.gitignore` | +menu.bin (generated file) |
+
+---
 
 ### [v2.1.1] - 2026-02-21
 **Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery**

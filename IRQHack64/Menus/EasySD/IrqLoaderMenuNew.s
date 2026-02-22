@@ -882,7 +882,7 @@ DIRREAD
 ;	DELAYFRAMES 10
 	JSR IRQ_EnableDisplay	
 		
-	;JSR PRINTTITLE		
+	; Title is part of the PETMATE frame, no separate print needed
 
 
 	;Call it elsewhere
@@ -1259,21 +1259,6 @@ COPYBLOCK
 	RTS
 	
 
-PRINTTITLE	; Input : None, Changed : A, X
-	LDX #$00
-NEXTCHAR	
-	LDA TITLE, X
-	BEQ OUTTITLEPRINT
-	CMP #$3F
-	BMI NOTSPACE
-	CLC
-	SBC #$3f
-NOTSPACE	
-	STA $040C, X
-	INX
-	BNE NEXTCHAR
-OUTTITLEPRINT
-	RTS
 	
 	
 PRINTPAGE	; Input : None, Changed : A, X, Y
@@ -1464,7 +1449,10 @@ DISPLAYPETGRAPHICS
 	RTS
 	
 DISPLAYSCREENGRAPHICS
-	; set to 25 line text mode and turn on the screen
+	; Switch to lowercase/uppercase charset for PETMATE frame
+	LDA $D018
+	ORA #$02
+	STA $D018
 
 	LDA PRGSCREENDATA
 	STA $D020
@@ -1553,9 +1541,6 @@ DIRNAMESLO   .byte <(-)
 DIRNAMESHI   .byte >(-)
 
 	
-TITLE	
-	.TEXT "EASYSD V2"
-	.BYTE 0
 
 PARENTDIR
 	.TEXT ".."
@@ -1600,7 +1585,8 @@ SID
 ; character data
 ;*=$2800
 PRGSCREENDATA
- 	.binary "screen"
+	; Generated from PETMATE menu.asm by build.py (lowercase/uppercase charset)
+	.binary "menu.bin"
 
 CURPAGEINDEX	.BYTE 0
 

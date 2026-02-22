@@ -6,6 +6,9 @@ Arduino/IRQHack64/build/
 Arduino/IRQHack64/FlashLib.h
 Arduino/IRQHack64/BuildConfig.h
 
+# Generated PETMATE binary (build.py converts menu.asm -> menu.bin)
+IRQHack64/Menus/EasySD/menu.bin
+
 # Visual Studio user files
 *.csproj.user
 *.suo

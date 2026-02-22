@@ -193,6 +193,22 @@ def concat_files(out_path: Path, *inputs: Path) -> None:
                 shutil.copyfileobj(r, w)
 
 
+def convert_petmate_asm(src: Path, dst: Path) -> None:
+    """Convert PETMATE .asm export (!byte directives) to raw binary."""
+    data = []
+    with src.open("r", encoding="utf-8", errors="ignore") as f:
+        for line in f:
+            stripped = line.strip()
+            if stripped.startswith("!byte"):
+                nums_str = stripped[5:].strip()
+                for val in nums_str.split(","):
+                    val = val.strip()
+                    if val:
+                        data.append(int(val))
+    dst.write_bytes(bytes(data))
+    print(f"[CORE] PETMATE: {src.name} -> {dst.name} ({len(data)} bytes)")
+
+
 def bin2ardh(input_file: Path, output_file: Path, size_decl: str, var_decl: str) -> None:
     """Python implementation of Bin2ArdH.cs"""
     print(f"[BIN2ARDH] {input_file.name} -> {output_file.name}")
@@ -355,6 +371,14 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
         p = subprocess.run([str(petcat), "-w2"], stdin=r, stdout=w, cwd=str(ctx.irq_root))
     if p.returncode != 0:
         raise SystemExit(p.returncode)
+
+    # Convert PETMATE frame export -> raw binary for .binary include
+    petmate_asm = ctx.irq_root / "Menus" / "EasySD" / "menu.asm"
+    petmate_bin = ctx.irq_root / "Menus" / "EasySD" / "menu.bin"
+    if petmate_asm.exists():
+        convert_petmate_asm(petmate_asm, petmate_bin)
+    else:
+        print(f"WARNING: {petmate_asm} not found, skipping PETMATE conversion")
 
     # Menu asm -> bin
     menu_src = ctx.irq_root / "Menus" / "EasySD" / "IrqLoaderMenuNew.s"
