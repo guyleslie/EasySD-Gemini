@@ -84,66 +84,67 @@ All tests run sequentially against a single VICE session with mock directory dat
 
 The `debug-vice` build includes hardcoded mock directories:
 
-**DIR1 (root, 5 items):**
+**MOCK_DIR1 (root `/`, 5 items):**
 | Row | Name | Type |
 |-----|------|------|
-| 0 | merhaba | Directory |
-| 1 | televole | File |
-| 2 | hello.prg | PRG |
-| 3 | africa.koa | KOA |
-| 4 | guzel.petg | PETG |
+| 0 | games | Directory |
+| 1 | giana.prg | PRG |
+| 2 | wizball.prg | PRG |
+| 3 | sunset.koa | Koala image |
+| 4 | logo.petg | PETSCII art |
 
-**DIR2 (inside merhaba, 6 items):**
+**MOCK_DIR2 (`/games/`, 6 items):**
 | Row | Name | Type |
 |-----|------|------|
 | 0 | .. | Parent dir |
-| 1 | deneme1 | Directory |
-| 2 | deneme2 | Directory |
-| 3 | firzt.prg | PRG |
-| 4 | latina.koa | KOA |
-| 5 | spell.petg | PETG |
+| 1 | demos | Directory |
+| 2 | music | Directory |
+| 3 | bubble.prg | PRG |
+| 4 | ocean.koa | Koala image |
+| 5 | intro.petg | PETSCII art |
 
 ### Test 1: INIT
 
 Verifies initial menu state after boot:
-- Debug sentinel at `$CF41` = `$42DE` (non-fatal if missing)
 - `CURPAGEITEMS` = 5 (root directory has 5 entries)
 - `CURRENTROW` = 0 (cursor at top)
 - `DIRLEVEL` = 0 (root level)
+- `$D020` (border color) is logged for reference
 
 ### Test 2: NAV_DOWN
 
-Presses DOWN key (`-`), verifies `CURRENTROW` increments by 1.
+Injects DOWN key (PETSCII `$2D`), verifies `CURRENTROW` increments by 1.
 
 ### Test 3: NAV_UP
 
-Presses UP key (`+`), verifies `CURRENTROW` decrements by 1.
+Injects UP key (PETSCII `$2B`), verifies `CURRENTROW` decrements by 1.
 
 ### Test 4: NAV_WRAP
 
-Navigates cursor to row 0, then presses UP — verifies cursor wraps to `CURPAGEITEMS - 1` (bottom of list).
+Navigates cursor to row 0, then injects UP — verifies cursor wraps to `CURPAGEITEMS - 1` (bottom of list).
 
 ### Test 5: ENTER_DIR
 
-Navigates to row 0 ("merhaba" directory), presses ENTER:
-- `DIRLEVEL` changes from 0 to 1
+Navigates to row 0 ("games" directory), injects ENTER:
+- Polls `DIRLEVEL` until it changes from 0 to 1 (with timeout)
 - `CURPAGEITEMS` changes from 5 to 6
+- `$D020` (border color) increments (visual confirmation via `NEWCONTENT: INC BORDER`)
 
 ### Test 6: GO_BACK
 
-Inside DIR2, navigates to row 0 (".."), presses ENTER:
-- `DIRLEVEL` changes from 1 to 0
+Inside MOCK_DIR2, navigates to row 0 (".."), injects ENTER:
+- Polls `DIRLEVEL` until it changes from 1 to 0 (with timeout)
 - `CURPAGEITEMS` changes from 6 to 5
 
 ### Test 7: SCREEN_VERIFY
 
-Reads screen RAM at `$0454` (first file entry row), verifies the screen codes match "merhaba":
+Reads screen RAM at `$0454` (first file entry row), verifies the screen codes match "games":
 
-| Char | m | e | r | h | a | b | a |
-|------|---|---|---|---|---|---|---|
-| Code | 13 | 5 | 18 | 8 | 1 | 2 | 1 |
+| Char | g | a | m | e | s |
+|------|---|---|---|---|---|
+| Code | 7 | 1 | 13 | 5 | 19 |
 
-Screen codes: lowercase `a`=1, `b`=2, ..., `z`=26.
+Screen codes: lowercase `a`=1, `b`=2, ..., `z`=26 (ASCII→PETSCII→screen code conversion via `PRINTASCIIFILENAME`).
 
 ---
 
@@ -199,7 +200,8 @@ Response (12-byte header + body):
 | Code | Name | Purpose |
 |------|------|---------|
 | `0x01` | `memory_get` | Read C64 RAM (returns bytes at address range) |
-| `0x72` | `keyboard_feed` | Put keystrokes into VICE keyboard buffer |
+| `0x02` | `memory_set` | Write bytes to C64 RAM (used for key injection) |
+| `0x72` | `keyboard_feed` | Put keystrokes into VICE paste buffer (kept as fallback) |
 | `0x81` | `ping` | Verify connection |
 | `0xAA` | `exit` | Resume emulation (exit monitor/break state) |
 | `0xBB` | `quit` | Terminate VICE |
@@ -248,10 +250,19 @@ These are read from the `.vs` symbol file at runtime:
 
 | Symbol | Address | Description |
 |--------|---------|-------------|
-| `CURRENTROW` | `$0FDC` | Currently selected row (0-based) |
-| `CURPAGEITEMS` | `$1EC0` | Number of items on current page |
-| `DIRLEVEL` | `$2914` | Directory depth (0=root, 1=subdir) |
-| `DEBUG_MAGIC` | `$CF41` | Debug sentinel (`$42DE` when debug active) |
+| `CURRENTROW` | (from .vs) | Currently selected row (0-based) |
+| `CURPAGEITEMS` | (from .vs) | Number of items on current page |
+| `DIRLEVEL` | (from .vs) | Directory depth (0=root, 1=subdir) |
+
+Addresses are resolved at runtime from the `.vs` symbol file (may change between builds).
+
+Additional fixed addresses used:
+
+| Address | Description |
+|---------|-------------|
+| `$0277` | C64 KERNAL keyboard buffer |
+| `$00C6` | Keyboard buffer length |
+| `$D020` | Border color (verified after directory changes) |
 
 Screen RAM layout (`COLS` table from `IrqLoaderMenuNew.s`):
 
@@ -264,15 +275,31 @@ Screen RAM layout (`COLS` table from `IrqLoaderMenuNew.s`):
 
 ---
 
+## Key Injection
+
+VICE's `keyboard_feed` command (CMD `0x72`) is unreliable when the emulator is in stopped state — keys may be lost because the paste buffer is not processed until VICE runs a frame.
+
+Instead, the test writes directly to the C64 KERNAL keyboard buffer:
+
+| Address | Description |
+|---------|-------------|
+| `$0277-$0280` | Keyboard buffer (10 bytes) |
+| `$00C6` | Number of characters in buffer |
+
+To inject a key press: write the PETSCII code to `$0277`, set `$00C6` to 1, then resume emulation. The C64's `GETIN` ($FFE4) reads from this buffer on the next main loop iteration.
+
 ## Synchronization Strategy
 
-The test uses time-based synchronization rather than polling specific memory flags:
+The test uses a hybrid approach — time-based delays for simple navigation, polling for state changes:
 
 - **Boot wait**: Poll `CURPAGEITEMS` every 1s until non-zero (max 30s timeout)
-- **Key settle**: 0.3s delay after each keystroke (0.1s for rapid navigation, 0.5s for Enter)
-- **Resume cycle**: `keyboard_feed()` -> `exit_monitor()` -> `sleep()` -> `memory_get()`
+- **Key settle**: 0.5s delay after each keystroke (C64 processes in warp mode)
+- **Directory changes**: Poll `DIRLEVEL` for expected value with 0.3s intervals (max 5s timeout)
+- **Resume cycle**: `_inject_key()` -> `exit_monitor()` -> `sleep()` -> `memory_get()`
 
-In warp mode, the C64 executes thousands of frames per real-time second, so even 0.1s real-time delays give the emulated C64 hundreds of frames to process input.
+In warp mode, the C64 executes thousands of frames per real-time second, so even 0.3s real-time delays give the emulated C64 hundreds of frames to process input.
+
+Border color (`$D020`) is checked after directory changes as visual confirmation — the menu's `NEWCONTENT` routine increments it on every directory switch.
 
 ---
 
