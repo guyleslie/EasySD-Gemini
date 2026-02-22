@@ -10,7 +10,7 @@ Architecture:
   ViceBinaryMonitor  — TCP client for VICE 3.9 binary monitor protocol
   ViceSymbols        — Parses 64tass --vice-labels output (.vs file)
   ViceProcess        — Launches/stops VICE (x64sc.exe)
-  ViceMenuTester     — Test orchestrator with 7 test cases
+  ViceMenuTester     — Test orchestrator with 9 test cases
 
 Key injection uses direct C64 keyboard buffer writes ($0277/$C6)
 instead of VICE's keyboard_feed command, which is unreliable when
@@ -557,6 +557,16 @@ class ViceMenuTester:
         row = self._read_sym_byte("CURRENTROW")
         return row == target_row
 
+    def _read_pathbuffer(self) -> str:
+        """Read null-terminated string from PATHBUFFER ($033C), max 96 bytes."""
+        data = self.mon.memory_get(0x033C, 0x033C + 95)
+        result = []
+        for b in data:
+            if b == 0:
+                break
+            result.append(chr(b))
+        return ''.join(result)
+
     # ==================================================================
     # Test cases
     # ==================================================================
@@ -761,12 +771,150 @@ class ViceMenuTester:
             print(f"  Screen @ $0454: {actual} (exp {expected}) = \"{chars}\"")
         return ok
 
+    def test_prg_select_root(self) -> bool:
+        """Test 8: Select PRG in root, verify PATHBUFFER and mock execution."""
+        # Navigate to row 1 ("giana.prg" in root)
+        if not self._navigate_to_row(1):
+            if self.verbose:
+                print(f"  Could not reach row 1")
+            return False
+
+        # Clear sentinels ($CF50-$CF52)
+        self.mon.memory_set(0xCF50, bytes([0, 0, 0]))
+
+        # Press ENTER to select PRG
+        self._press_key(0x0D, settle=0.3)
+
+        # Poll DEBUG_PRG_EXECUTED ($CF51) until $42 (mock PRG ran)
+        deadline = time.time() + 5.0
+        executed = False
+        while time.time() < deadline:
+            val = self.mon.read_byte(0xCF51)
+            if val == 0x42:
+                executed = True
+                break
+            self.mon.exit_monitor()
+            time.sleep(0.3)
+
+        if not executed:
+            val = self.mon.read_byte(0xCF51)
+            print(f"\n  DEBUG_PRG_EXECUTED=${val:02X} (exp $42) — mock PRG did not run")
+            return False
+
+        # Verify all sentinels and PATHBUFFER
+        reached = self.mon.read_byte(0xCF50)
+        sentinel = self.mon.read_byte(0xCF52)
+        path = self._read_pathbuffer()
+
+        ok = reached == 0x01 and sentinel == 0xDE and path == "/giana.prg"
+        if self.verbose or not ok:
+            print(f"  DEBUG_PRG_REACHED=${reached:02X} (exp $01), "
+                  f"DEBUG_PRG_SENTINEL=${sentinel:02X} (exp $DE)")
+            print(f"  PATHBUFFER=\"{path}\" (exp \"/giana.prg\")")
+
+        # Verify menu returned (CURRENTROW is readable)
+        self.mon.exit_monitor()
+        time.sleep(0.5)
+        try:
+            row = self._read_sym_byte("CURRENTROW")
+            if self.verbose:
+                print(f"  Menu returned, CURRENTROW={row}")
+        except Exception as e:
+            print(f"\n  Menu did not return: {e}")
+            return False
+
+        return ok
+
+    def test_prg_select_subdir(self) -> bool:
+        """Test 9: Enter subdir, select PRG, verify absolute path in PATHBUFFER."""
+        # Enter /games/ (press ENTER on row 0)
+        if not self._navigate_to_row(0):
+            if self.verbose:
+                print(f"  Could not reach row 0")
+            return False
+
+        self._press_key(0x0D, settle=0.3)
+
+        # Poll until DIRLEVEL == 1
+        if not self._wait_for_value("DIRLEVEL", 1, timeout=5.0):
+            dirlevel = self._read_sym_byte("DIRLEVEL")
+            print(f"\n  Could not enter /games/ (DIRLEVEL={dirlevel})")
+            return False
+
+        self.mon.exit_monitor()
+        time.sleep(0.5)
+
+        # Navigate to row 3 ("bubble.prg")
+        if not self._navigate_to_row(3):
+            if self.verbose:
+                print(f"  Could not reach row 3")
+            return False
+
+        # Clear sentinels ($CF50-$CF52)
+        self.mon.memory_set(0xCF50, bytes([0, 0, 0]))
+
+        # Press ENTER to select PRG
+        self._press_key(0x0D, settle=0.3)
+
+        # Poll DEBUG_PRG_EXECUTED ($CF51) until $42
+        deadline = time.time() + 5.0
+        executed = False
+        while time.time() < deadline:
+            val = self.mon.read_byte(0xCF51)
+            if val == 0x42:
+                executed = True
+                break
+            self.mon.exit_monitor()
+            time.sleep(0.3)
+
+        if not executed:
+            val = self.mon.read_byte(0xCF51)
+            print(f"\n  DEBUG_PRG_EXECUTED=${val:02X} (exp $42) — mock PRG did not run")
+            return False
+
+        # Verify sentinels and path
+        reached = self.mon.read_byte(0xCF50)
+        sentinel = self.mon.read_byte(0xCF52)
+        path = self._read_pathbuffer()
+
+        ok = reached == 0x01 and sentinel == 0xDE and path == "/games/bubble.prg"
+        if self.verbose or not ok:
+            print(f"  DEBUG_PRG_REACHED=${reached:02X} (exp $01), "
+                  f"DEBUG_PRG_SENTINEL=${sentinel:02X} (exp $DE)")
+            print(f"  PATHBUFFER=\"{path}\" (exp \"/games/bubble.prg\")")
+
+        # Verify menu returned
+        self.mon.exit_monitor()
+        time.sleep(0.5)
+        try:
+            row = self._read_sym_byte("CURRENTROW")
+            if self.verbose:
+                print(f"  Menu returned, CURRENTROW={row}")
+        except Exception as e:
+            print(f"\n  Menu did not return: {e}")
+            return False
+
+        # Go back to root for cleanup
+        if not self._navigate_to_row(0):
+            if self.verbose:
+                print(f"  {YELLOW}[WARN]{RESET} Could not reach row 0 for cleanup")
+        else:
+            self._press_key(0x0D, settle=0.3)
+            if not self._wait_for_value("DIRLEVEL", 0, timeout=5.0):
+                if self.verbose:
+                    print(f"  {YELLOW}[WARN]{RESET} Could not return to root for cleanup")
+            else:
+                self.mon.exit_monitor()
+                time.sleep(0.3)
+
+        return ok
+
     # ==================================================================
     # Run all tests
     # ==================================================================
 
     def run_all(self) -> bool:
-        """Execute all 7 test cases. Returns True if all pass."""
+        """Execute all 9 test cases. Returns True if all pass."""
         tests = [
             ("INIT", self.test_init),
             ("NAV_DOWN", self.test_nav_down),
@@ -775,6 +923,8 @@ class ViceMenuTester:
             ("ENTER_DIR", self.test_enter_dir),
             ("GO_BACK", self.test_go_back),
             ("SCREEN_VERIFY", self.test_screen_verify),
+            ("PRG_SELECT_ROOT", self.test_prg_select_root),
+            ("PRG_SELECT_SUBDIR", self.test_prg_select_subdir),
         ]
 
         print(f"{BOLD}{'=' * 60}{RESET}")

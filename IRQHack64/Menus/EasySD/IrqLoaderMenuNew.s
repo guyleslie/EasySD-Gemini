@@ -360,7 +360,7 @@ ENTERDIR
 	BCS CHANGEDIRFAIL	
 .else
 	INC DIRLEVEL
-	; DEBUG mock supports DIRLEVEL 0..2 only (DIR1..DIR3)
+	; DEBUG mock supports DIRLEVEL 0..2 only (MOCK_DIR1..DIR3)
 	LDA DIRLEVEL
 	CMP #3
 	BCC +
@@ -401,7 +401,8 @@ DOREADDIRECTORY
 	CMP #02
 	BNE +
 	JSR SETDIR3
-OUTDIRSET	
++
+OUTDIRSET
 .endif
 	
 	JMP NEWCONTENT
@@ -595,6 +596,7 @@ PROGRAM
 	JSR GETCURRENTROW	
 	;Setting name of the file
 	JSR SETFILENAME	
+.if DEBUG = 0
 	; If it's a .tap, offer choice: Convert+Run (default) or Save only.
 	JSR IS_TAP_SELECTED
 	BEQ +
@@ -627,8 +629,31 @@ TAP_AUTORUN
 	JSR IRQ_InvokeWithName
 	BCC SUCCEEDINVOKE
 	JSR IRQ_EnableDisplay
-SUCCEEDINVOKE	
+SUCCEEDINVOKE
 	JMP *
+.else
+	; --- DEBUG: Mock PRG load + execute ---
+	; Mark that PROGRAM path was reached
+	LDA #$01
+	STA DEBUG_PRG_REACHED
+
+	; Copy mock PRG code to $C000
+	LDX #0
+-	LDA MOCK_PRG_CODE, X
+	STA $C000, X
+	INX
+	CPX #MOCK_PRG_CODE_SIZE
+	BNE -
+
+	; Patch JMP target with actual INPUT_GET address
+	LDA #<INPUT_GET
+	STA $C000 + MOCK_PRG_JMP_OFFSET
+	LDA #>INPUT_GET
+	STA $C000 + MOCK_PRG_JMP_OFFSET + 1
+
+	JSR IRQ_EnableDisplay
+	JMP $C000		; execute mock PRG
+.endif
 
 
 ; ------------------------------------------------------------
@@ -799,7 +824,7 @@ GOBACK
 .else
 +	; Alignment label for consistent forward jump target
 	INC DIRLEVEL
-	; DEBUG mock supports DIRLEVEL 0..2 only (DIR1..DIR3)
+	; DEBUG mock supports DIRLEVEL 0..2 only (MOCK_DIR1..DIR3)
 	LDA DIRLEVEL
 	CMP #3
 	BCC ++	; Double forward jump to skip clamp
@@ -869,55 +894,47 @@ DIRREAD
 	RTS
 
 .if DEBUG = 1
-; ------------------------------------------------------------
-; DEBUG MODE: Mock directory data copy routines
-; ------------------------------------------------------------
-; In DEBUG mode, these routines copy mock directory listings
-; from DIR1/DIR2/DIR3 to DIRLOAD area for testing without SD card.
+; ============================================================
+; MOCK CODE — only compiled when DEBUG=1
+; ============================================================
+; These routines replace Arduino SD card communication with
+; hardcoded directory data (MOCK_DIR1/2/3) for VICE emulator
+; testing. See also: MOCK DATA section near end of file.
 ;
-; IMPORTANT: Must use X register (forward copy) instead of Y register
-; (backward copy) to avoid memory corruption issues.
-; ------------------------------------------------------------
+; Copy uses X register (forward) — Y (backward) corrupts data.
+; ============================================================
 
 SETDIR1
-	LDA #$02        ; BORDER = RED (visual indicator: SETDIR1 started)
+	LDA #$02        ; BORDER = RED (visual indicator)
 	STA $D020
-
-	; Copy DIR1 mock data to DIRLOAD using forward loop (X register)
-	; This copies root directory mock listing (5 entries)
 	LDX #$00
 -
-	LDA DIR1, X
+	LDA MOCK_DIR1, X
 	STA DIRLOAD, X
 	INX
-	CPX #(DIR2-DIR1)  ; Copy all bytes from DIR1 to DIR2
+	CPX #(MOCK_DIR2-MOCK_DIR1)
 	BNE -
-
-	LDA #$05        ; BORDER = GREEN (visual indicator: SETDIR1 finished)
+	LDA #$05        ; BORDER = GREEN (visual indicator)
 	STA $D020
 	RTS
 
 SETDIR2
-	; Copy DIR2 mock data to DIRLOAD using forward loop
-	; This copies first subdirectory level (6 entries)
 	LDX #$00
 -
-	LDA DIR2, X
+	LDA MOCK_DIR2, X
 	STA DIRLOAD, X
 	INX
-	CPX #(DIR3-DIR2)  ; Copy all bytes from DIR2 to DIR3
+	CPX #(MOCK_DIR3-MOCK_DIR2)
 	BNE -
 	RTS
 
 SETDIR3
-	; Copy DIR3 mock data to DIRLOAD using forward loop
-	; This copies second subdirectory level (6 entries)
 	LDX #$00
 -
-	LDA DIR3, X
+	LDA MOCK_DIR3, X
 	STA DIRLOAD, X
 	INX
-	CPX #(DIR3END-DIR3)  ; Copy all bytes from DIR3 to DIR3END
+	CPX #(MOCK_DIR3_END-MOCK_DIR3)
 	BNE -
 	RTS
 .endif
@@ -1098,7 +1115,7 @@ ENDFROMASCII
 ; 4. Write to screen memory at (COLLOW), Y
 ;
 ; Used by both DEBUG and release modes since:
-; - DIR1/DIR2/DIR3 mock data uses .TEXT directive (ASCII by default)
+; - MOCK_DIR1/DIR2/DIR3 data uses .TEXT directive (ASCII by default)
 ; - SD card returns filenames in ASCII format
 ;
 ; Input:  NAMELOW/HIGH = pointer to ASCII filename
@@ -1595,7 +1612,7 @@ PAGECOUNT		.BYTE 1
 GAMELIST
 DIRLOAD = GAMELIST - 2
 ; Reserve space for 20 directory entries (20 * 32 bytes = 640 bytes)
-; In DEBUG mode: SETDIR1/2/3 copies DIR1/2/3 data here
+; In DEBUG mode: SETDIR1/2/3 copies MOCK_DIR1/2/3 data here
 ; In release mode: IRQ_ReadDirectory fills this from SD card
 	.FILL (20 * 32), 0
 
@@ -1657,99 +1674,150 @@ COLORDATA
 	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0F, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $00, $0C, $0C, $0C, $0C, $00, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C
 	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C
 
+; ============================================================
+; MOCK DATA — only compiled when DEBUG=1
+; ============================================================
+; Simulates Arduino HandleReadDirectory wire protocol for VICE
+; emulator testing (no SD card needed).
+;
+; Wire format (must match Arduino CartApi.cpp exactly):
+;   Byte 0:    CURPAGEITEMS (number of entries on this page)
+;   Byte 1:    PAGECOUNT (total pages, always 1 here)
+;   Byte 2+:   32-byte entries:
+;              Bytes 0-30:  ASCII filename, null-padded
+;              Byte 31:     $04 = directory, $00 = file
+;
+; Directory flag trick: .enc "screen" + .TEXT "D" = $04
+; Filenames are ASCII (.TEXT default), converted to screen
+; codes by PRINTASCIIFILENAME at display time.
+;
+; Mock SD card layout:
+;   /                        (MOCK_DIR1 — root)
+;   +-- games/               directory
+;   +-- giana.prg            PRG program
+;   +-- wizball.prg          PRG program
+;   +-- sunset.koa           Koala image  -> /PLUGINS/KOAPLUGIN.BIN
+;   +-- logo.petg            PETSCII art  -> /PLUGINS/PETGPLUGIN.BIN
+;
+;   /games/                  (MOCK_DIR2 — level 1)
+;   +-- ..                   parent
+;   +-- demos/               directory
+;   +-- music/               directory
+;   +-- bubble.prg           PRG program
+;   +-- ocean.koa            Koala image
+;   +-- intro.petg           PETSCII art
+;
+;   /games/demos/            (MOCK_DIR3 — level 2)
+;   +-- ..                   parent
+;   +-- tools/               directory
+;   +-- matrix.prg           PRG program
+;   +-- space.koa            Koala image
+;   +-- ascii.petg           PETSCII art
+;   +-- coder.wav            WAV audio    -> /PLUGINS/WAVPLUGIN.BIN
+; ============================================================
+
 .if DEBUG = 1
-; ------------------------------------------------------------
-; DEBUG MODE: Mock directory data structures
-; ------------------------------------------------------------
-; These structures simulate directory listings for testing
-; without an SD card. Format matches what SD card would return.
-;
-; Structure per directory listing:
-;   Byte 0:    CURPAGEITEMS (number of entries)
-;   Byte 1:    PAGECOUNT (always 1 in mock data)
-;   Byte 2+:   Directory entries (32 bytes each):
-;              - Bytes 0-N:  Filename in ASCII (.TEXT directive)
-;              - Bytes N+1-30: Zero padding (.FILL)
-;              - Byte 31:    Entry type flag
-;                           $04 = Directory (using .enc "screen" + .TEXT "D" trick)
-;                           $00 = File (implied by missing flag)
-;
-; IMPORTANT: Filenames use ASCII encoding (64tass .TEXT default).
-; They are converted to screen codes by PRINTASCIIFILENAME routine.
-; ------------------------------------------------------------
 
 DIRLEVEL	.BYTE 0
 
-; Root directory (DIRLEVEL = 0) - 5 entries
-DIR1
+; --- Root directory (DIRLEVEL=0) — 5 entries -----------------
+MOCK_DIR1
 	.BYTE 5             ; CURPAGEITEMS
 	.BYTE 1             ; PAGECOUNT
-	.TEXT "merhaba"    ; 7 chars
-	.FILL 24, 0         ; Pad to 31 bytes total
+	;-- entry 0: "games" (directory) --
+	.TEXT "games"
+	.FILL 26, 0
 .enc "screen"
-	.TEXT "D"           ; Directory flag ($04 in screen encoding)
+	.TEXT "D"           ; $04 = directory
 .enc "none"
-	.TEXT "televole"   ; 8 chars
-	.FILL 24, 0         ; Pad to 31 bytes total (no explicit flag = file)
-	.TEXT "hello.prg"  ; 9 chars
-	.FILL 23, 0         ; Pad to 31 bytes total (no explicit flag = file)
-	.TEXT "africa.koa" ; 10 chars
-	.FILL 22, 0         ; Pad to 31 bytes total (no explicit flag = file)
-	.TEXT "guzel.petg" ; 10 chars
-	.FILL 22, 0         ; Pad to 31 bytes total (no explicit flag = file)
-
-; Subdirectory level 1 (DIRLEVEL = 1) - 6 entries
-DIR2
-	.BYTE 6             ; CURPAGEITEMS
-	.BYTE 1             ; PAGECOUNT
-	.TEXT ".."         ; Parent directory marker (2 chars)
-	.FILL 29, 0         ; Pad to 31 bytes total
-.enc "screen"
-	.TEXT "D"           ; Directory flag ($04)
-.enc "none"
-	.TEXT "deneme1"    ; 7 chars
-	.FILL 24, 0
-.enc "screen"
-	.TEXT "D"           ; Directory flag ($04)
-.enc "none"
-	.TEXT "deneme2"    ; 7 chars
-	.FILL 24, 0
-.enc "screen"
-	.TEXT "D"           ; Directory flag ($04)
-.enc "none"
-	.TEXT "firzt.prg"  ; 9 chars (file, no flag)
+	;-- entry 1: "giana.prg" (PRG file) --
+	.TEXT "giana.prg"
+	.FILL 23, 0         ; byte 31 = $00 = file
+	;-- entry 2: "wizball.prg" (PRG file) --
+	.TEXT "wizball.prg"
+	.FILL 21, 0
+	;-- entry 3: "sunset.koa" (Koala image) --
+	.TEXT "sunset.koa"
+	.FILL 22, 0
+	;-- entry 4: "logo.petg" (PETSCII art) --
+	.TEXT "logo.petg"
 	.FILL 23, 0
-	.TEXT "latina.koa" ; 10 chars (file, no flag)
-	.FILL 22, 0
-	.TEXT "spell.petg" ; 10 chars (file, no flag)
-	.FILL 22, 0
 
-; Subdirectory level 2 (DIRLEVEL = 2) - 6 entries
-DIR3
+; --- /games/ (DIRLEVEL=1) — 6 entries -----------------------
+MOCK_DIR2
 	.BYTE 6             ; CURPAGEITEMS
 	.BYTE 1             ; PAGECOUNT
-	.TEXT ".."         ; Parent directory marker (2 chars)
+	;-- entry 0: ".." (parent directory) --
+	.TEXT ".."
 	.FILL 29, 0
 .enc "screen"
-	.TEXT "D"           ; Directory flag ($04)
+	.TEXT "D"           ; $04 = directory
 .enc "none"
-	.TEXT "kubakuba"   ; 8 chars
-	.FILL 23, 0
+	;-- entry 1: "demos" (directory) --
+	.TEXT "demos"
+	.FILL 26, 0
 .enc "screen"
-	.TEXT "D"           ; Directory flag ($04)
+	.TEXT "D"           ; $04 = directory
 .enc "none"
-	.TEXT "firzt.prg"  ; 9 chars (file, no flag)
+	;-- entry 2: "music" (directory) --
+	.TEXT "music"
+	.FILL 26, 0
+.enc "screen"
+	.TEXT "D"           ; $04 = directory
+.enc "none"
+	;-- entry 3: "bubble.prg" (PRG file) --
+	.TEXT "bubble.prg"
+	.FILL 22, 0
+	;-- entry 4: "ocean.koa" (Koala image) --
+	.TEXT "ocean.koa"
 	.FILL 23, 0
-	.TEXT "latiya.koa" ; 10 chars (file, no flag)
+	;-- entry 5: "intro.petg" (PETSCII art) --
+	.TEXT "intro.petg"
 	.FILL 22, 0
-	.TEXT "spelz.petg" ; 10 chars (file, no flag)
+
+; --- /games/demos/ (DIRLEVEL=2) — 6 entries -----------------
+MOCK_DIR3
+	.BYTE 6             ; CURPAGEITEMS
+	.BYTE 1             ; PAGECOUNT
+	;-- entry 0: ".." (parent directory) --
+	.TEXT ".."
+	.FILL 29, 0
+.enc "screen"
+	.TEXT "D"           ; $04 = directory
+.enc "none"
+	;-- entry 1: "tools" (directory) --
+	.TEXT "tools"
+	.FILL 26, 0
+.enc "screen"
+	.TEXT "D"           ; $04 = directory
+.enc "none"
+	;-- entry 2: "matrix.prg" (PRG file) --
+	.TEXT "matrix.prg"
 	.FILL 22, 0
-	.TEXT "son.prg"    ; 7 chars (file, no flag)
-	.FILL 25, 0
+	;-- entry 3: "space.koa" (Koala image) --
+	.TEXT "space.koa"
+	.FILL 23, 0
+	;-- entry 4: "ascii.petg" (PETSCII art) --
+	.TEXT "ascii.petg"
+	.FILL 22, 0
+	;-- entry 5: "coder.wav" (WAV audio) --
+	.TEXT "coder.wav"
+	.FILL 23, 0
+
+; --- Mock PRG program (loaded to $C000, returns to menu) ---
+MOCK_PRG_CODE
+	LDA #$42		; sentinel value 1
+	STA DEBUG_PRG_EXECUTED	; $CF51
+	LDA #$DE		; sentinel value 2
+	STA DEBUG_PRG_SENTINEL	; $CF52
+	JMP $0000		; placeholder — patched to INPUT_GET at runtime
+MOCK_PRG_CODE_END
+MOCK_PRG_CODE_SIZE = MOCK_PRG_CODE_END - MOCK_PRG_CODE
+MOCK_PRG_JMP_OFFSET = MOCK_PRG_CODE_END - MOCK_PRG_CODE - 2
 
 .endif
 
-DIR3END
+MOCK_DIR3_END
 
 
 ; ------------------------------------------------------------

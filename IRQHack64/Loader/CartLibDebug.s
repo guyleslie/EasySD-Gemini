@@ -39,6 +39,11 @@ DEBUG_STREAM_DELAY      = $CF40  ; 1 byte (stream delay param)
 ; Sentinel value to detect debug dump
 DEBUG_MAGIC             = $CF41  ; 2 bytes (should be $DE $42)
 
+; PRG loading test sentinels (used by MOCK_PRG in IrqLoaderMenuNew.s)
+DEBUG_PRG_REACHED       = $CF50  ; 1 byte: set to $01 when PROGRAM path entered
+DEBUG_PRG_EXECUTED      = $CF51  ; 1 byte: set to $42 by mock PRG execution
+DEBUG_PRG_SENTINEL      = $CF52  ; 1 byte: set to $DE by mock PRG execution
+
 ;-----------------------------------------------
 ; DEBUG_Init - Initialize debug area
 ;-----------------------------------------------

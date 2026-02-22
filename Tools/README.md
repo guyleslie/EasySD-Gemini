@@ -141,7 +141,7 @@ python Tools/test_arduino_comm.py COM4 --test dir_nav
 Launches VICE (x64sc) in warp mode and verifies C64 menu behavior via the binary monitor protocol (TCP). Tests navigation, directory entry, and screen rendering. Requires VICE 3.9+.
 
 ```bash
-# Run all 7 tests (requires prior debug-vice build)
+# Run all 9 tests (requires prior debug-vice build)
 python Tools/test_vice_menu.py
 
 # Build first, then test
@@ -157,7 +157,7 @@ python Tools/test_vice_menu.py --keep-vice
 python Tools/test_vice_menu.py --vice-path "C:\VICE\bin\x64sc.exe"
 ```
 
-**Tests:** INIT, NAV_DOWN, NAV_UP, NAV_WRAP, ENTER_DIR, GO_BACK, SCREEN_VERIFY
+**Tests:** INIT, NAV_DOWN, NAV_UP, NAV_WRAP, ENTER_DIR, GO_BACK, SCREEN_VERIFY, PRG_SELECT_ROOT, PRG_SELECT_SUBDIR
 
 See `docs/testing/VICE_MENU_TEST.md` for full documentation.
 

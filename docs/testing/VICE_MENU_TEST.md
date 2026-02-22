@@ -45,7 +45,7 @@ python Tools/test_vice_menu.py --build
 ## Usage
 
 ```powershell
-# Run all 7 tests
+# Run all 9 tests
 python Tools/test_vice_menu.py
 
 # Build first, then test
@@ -146,6 +146,40 @@ Reads screen RAM at `$0454` (first file entry row), verifies the screen codes ma
 
 Screen codes: lowercase `a`=1, `b`=2, ..., `z`=26 (ASCII→PETSCII→screen code conversion via `PRINTASCIIFILENAME`).
 
+### Test 8: PRG_SELECT_ROOT
+
+Selects a PRG file in the root directory and verifies the PROGRAM path:
+
+1. Navigate to row 1 ("giana.prg")
+2. Clear DEBUG sentinels (`$CF50-$CF52`)
+3. Press ENTER
+4. Poll `$CF51` (DEBUG_PRG_EXECUTED) until `$42` — mock PRG ran
+5. Verify `$CF52` (DEBUG_PRG_SENTINEL) = `$DE`
+6. Verify `$CF50` (DEBUG_PRG_REACHED) = `$01`
+7. Read `PATHBUFFER` (`$033C`) — expect `/giana.prg`
+8. Verify menu returned (CURRENTROW is readable)
+
+### Test 9: PRG_SELECT_SUBDIR
+
+Selects a PRG file inside a subdirectory and verifies the absolute path:
+
+1. Enter `/games/` (ENTER on row 0, poll DIRLEVEL until 1)
+2. Navigate to row 3 ("bubble.prg")
+3. Clear DEBUG sentinels
+4. Press ENTER
+5. Poll `$CF51` until `$42`
+6. Read `PATHBUFFER` — expect `/games/bubble.prg`
+7. Verify menu returned
+8. Go back to root (navigate to "..", ENTER, poll DIRLEVEL until 0)
+
+**MOCK_PRG mechanism:**
+
+In DEBUG mode, the PROGRAM path doesn't call `IRQ_InvokeWithName` (which requires Arduino). Instead, it copies a 13-byte mock PRG to `$C000` and executes it. The mock PRG:
+- Sets sentinel values (`$42` at `$CF51`, `$DE` at `$CF52`)
+- JMPs back to `INPUT_GET` (address patched at runtime)
+
+This tests PATHBUFFER construction (SETFILENAME → BuildAbsolutePathFromPtr) without Arduino communication.
+
 ---
 
 ## Architecture
@@ -161,7 +195,7 @@ test_vice_menu.py
   |
   +-- ViceProcess         Launch/stop x64sc.exe subprocess
   |
-  +-- ViceMenuTester      Test orchestrator (7 test cases)
+  +-- ViceMenuTester      Test orchestrator (9 test cases)
 ```
 
 ### ViceSymbols
@@ -228,7 +262,7 @@ On Windows: uses `CREATE_NEW_PROCESS_GROUP` and `atexit` handler for cleanup.
 Orchestrates test execution:
 1. Launches VICE and waits for binary monitor connection (up to 10s, 20 retries)
 2. Polls `CURPAGEITEMS` until non-zero (menu has loaded, ~3s intro screen + boot)
-3. Runs all 7 tests sequentially
+3. Runs all 9 tests sequentially
 4. Reports PASS/FAIL with ANSI color output
 5. Cleans up VICE (unless `--keep-vice`)
 
@@ -253,6 +287,9 @@ These are read from the `.vs` symbol file at runtime:
 | `CURRENTROW` | (from .vs) | Currently selected row (0-based) |
 | `CURPAGEITEMS` | (from .vs) | Number of items on current page |
 | `DIRLEVEL` | (from .vs) | Directory depth (0=root, 1=subdir) |
+| `DEBUG_PRG_REACHED` | `$CF50` | Set to `$01` when PROGRAM path entered |
+| `DEBUG_PRG_EXECUTED` | `$CF51` | Set to `$42` by mock PRG execution |
+| `DEBUG_PRG_SENTINEL` | `$CF52` | Set to `$DE` by mock PRG execution |
 
 Addresses are resolved at runtime from the `.vs` symbol file (may change between builds).
 
@@ -263,6 +300,7 @@ Additional fixed addresses used:
 | `$0277` | C64 KERNAL keyboard buffer |
 | `$00C6` | Keyboard buffer length |
 | `$D020` | Border color (verified after directory changes) |
+| `$033C` | PATHBUFFER — absolute path built by SETFILENAME |
 
 Screen RAM layout (`COLS` table from `IrqLoaderMenuNew.s`):
 
@@ -354,16 +392,18 @@ Install VICE 3.9+ and pass the correct path: `--vice-path "C:\path\to\x64sc.exe"
  EasySD VICE Menu Test Suite
 ============================================================
 
-[1/7] INIT... PASS
-[2/7] NAV_DOWN... PASS
-[3/7] NAV_UP... PASS
-[4/7] NAV_WRAP... PASS
-[5/7] ENTER_DIR... PASS
-[6/7] GO_BACK... PASS
-[7/7] SCREEN_VERIFY... PASS
+[1/9] INIT... PASS
+[2/9] NAV_DOWN... PASS
+[3/9] NAV_UP... PASS
+[4/9] NAV_WRAP... PASS
+[5/9] ENTER_DIR... PASS
+[6/9] GO_BACK... PASS
+[7/9] SCREEN_VERIFY... PASS
+[8/9] PRG_SELECT_ROOT... PASS
+[9/9] PRG_SELECT_SUBDIR... PASS
 
 ============================================================
- ALL 7 TESTS PASSED
+ ALL 9 TESTS PASSED
 ============================================================
 ```
 

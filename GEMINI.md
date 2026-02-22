@@ -217,7 +217,7 @@ python Tools/test_arduino_comm.py COM4 --interactive
 
 **C64 Menu (VICE emulator, binary monitor):**
 ```bash
-# Run all 7 automated menu tests (requires VICE 3.9+)
+# Run all 9 automated menu tests (requires VICE 3.9+)
 python Tools/test_vice_menu.py
 
 # Build debug-vice first, then test
@@ -367,5 +367,5 @@ Root reset:    345 bytes ← Returns to baseline
 
 ---
 
-**Last Updated**: 2026-02-21 (v2.1.1 - SD write/delete bugfixes, CartApi hardening, 7/8 tests)
+**Last Updated**: 2026-02-22 (v2.1.2 - PRG loading test via VICE, 9/9 VICE menu tests, 7/8 Arduino tests)
 **Status**: Production-ready, SdFat 2.x write/delete API verified, self-test suite operational (7/8 on breadboard, WR_DEL=SPI hw limit)
