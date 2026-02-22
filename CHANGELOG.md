@@ -53,26 +53,40 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 ## Chronological Changes
 
 ### [v3.0.0] - 2026-02-22
-**PETMATE Menu Frame Redesign & Dynamic Build Pipeline**
+**PETMATE Menu Frame Redesign, Inverse Selection & Navigation Overhaul**
 
 #### Summary
-Replaced the hardcoded complex PETSCII art menu frame with a clean box-drawing border designed in PETMATE. The frame is now loaded dynamically from the PETMATE `.asm` export via an automated build step, allowing easy visual redesign without touching assembly code.
+Complete menu UI overhaul: PETMATE-designed box-drawing frame loaded dynamically via build pipeline, inverse highlight for selected items with decorative left-side indicators, uppercase filename display in lc/uc charset mode, and cursor key navigation with proper debouncing.
 
 #### UI Changes
 - New clean box-drawing border (┌─┐│└─┘) replaces complex PETSCII art frame
 - "EasySD V3" title integrated into top-right corner of frame (┤EasySD V3├)
 - Switched to lowercase/uppercase charset mode for mixed-case title display
+- **Inverse selection highlight**: selected filename displayed as reversed white text, only text characters highlighted (not space padding)
+- **Selection cursor**: white solid block ($A0) + horizontal line ($40) at cols 2-3
+- **Left-side decorations**: first item: ■─, middle items: │, last item: ■ (all white)
+- Filenames forced to UPPERCASE display (C64 traditional style)
 - Interior text color: dark grey ($0B) for readability
 - Frame border color: white ($01), border/background: light grey ($0C)
 - Intro screen (splash art) preserved — displays ~3 seconds before menu
+- PETMATE color data: only frame/logo characters have special colors, interior spaces all dark grey
+
+#### Navigation
+- **Cursor UP/DOWN** ($91/$11) replaces +/- for menu navigation
+- **Key repeat disabled** ($028A = $40) — prevents rapid uncontrolled scrolling
+- `<` / `>` for page navigation, ENTER for selection (unchanged)
 
 #### Build System (build.py v3.0.0)
 - New `convert_petmate_asm()` function: converts PETMATE `.asm` export → raw `.bin`
 - Automatic conversion step in build pipeline (runs before 64tass assembly)
 - Workflow: edit in PETMATE → export as `menu.asm` → build → done
 
-#### Code Cleanup
-- Removed `PRINTTITLE` routine and `TITLE` data (title is part of the PETMATE frame)
+#### Code Changes
+- `SETARROW`: inverse highlight with per-character screen/color RAM switching (uses NAMELOW/NAMEHIGH as temp)
+- `CLEARARROW`: position-aware decoration restore (first/middle/last detection via PHP/PLP)
+- `DRAWDECORATIONS`: new routine draws col 2-3 decorations for all menu rows after PRINTPAGE
+- `PRINTASCIIFILENAME`: rewritten for uppercase screen codes ($41-$5A) in lc/uc charset
+- Removed dead code: `PRINTTITLE`, `TITLE`, `PRINTFILENAME`, `FROMASCII`
 - `PRGSCREENDATA`: `.binary "menu.bin"` replaces inline data
 - `DISPLAYSCREENGRAPHICS`: charset switch to lowercase/uppercase mode added
 
@@ -80,9 +94,10 @@ Replaced the hardcoded complex PETSCII art menu frame with a clean box-drawing b
 
 | File | Changes |
 |------|---------|
-| `IRQHack64/Menus/EasySD/IrqLoaderMenuNew.s` | PRGSCREENDATA → .binary, charset switch, removed PRINTTITLE/TITLE |
-| `IRQHack64/Menus/EasySD/menu.asm` | PETMATE export: interior colors 14→11 (dark grey) |
+| `IRQHack64/Menus/EasySD/IrqLoaderMenuNew.s` | Inverse selection, decorations, cursor keys, uppercase filenames, key debounce |
+| `IRQHack64/Menus/EasySD/menu.asm` | PETMATE export: interior colors fixed (only frame chars have special colors) |
 | `Tools/build.py` | +convert_petmate_asm(), build pipeline integration |
+| `Tools/test_vice_menu.py` | Updated expected screen codes for lc/uc uppercase mode |
 | `.gitignore` | +menu.bin (generated file) |
 
 ---

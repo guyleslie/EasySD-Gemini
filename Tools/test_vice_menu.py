@@ -760,14 +760,15 @@ class ViceMenuTester:
         #
         # So: "games" screen codes start at $0454.
 
-        expected = [7, 1, 13, 5, 19]  # g=7, a=1, m=13, e=5, s=19
+        # In lc/uc charset mode, uppercase screen codes are $41-$5A
+        # ASCII "games" → forced uppercase → screen codes G=0x47, A=0x41, M=0x4D, E=0x45, S=0x53
+        expected = [0x47, 0x41, 0x4D, 0x45, 0x53]  # GAMES in lc/uc screen codes
         data = self.mon.memory_get(0x0454, 0x0454 + len(expected) - 1)
         actual = list(data)
 
         ok = actual == expected
         if self.verbose or not ok:
-            # Also show what characters we think they are
-            chars = ''.join(chr(c + 0x60) if 1 <= c <= 26 else '?' for c in actual)
+            chars = ''.join(chr(c) if 0x41 <= c <= 0x5A else '?' for c in actual)
             print(f"  Screen @ $0454: {actual} (exp {expected}) = \"{chars}\"")
         return ok
 

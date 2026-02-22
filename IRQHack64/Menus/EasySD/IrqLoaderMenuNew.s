@@ -76,7 +76,9 @@ CART_ROM_RESTORE .macro
 
 	JSR IRQ_DisableDisplay	
 	JSR DISPLAYSCREENGRAPHICS
-	;JSR POSTINIT		;Clears screen, disables interrupts, copies sid to $C000 and inits it.	
+	LDA #$40
+	STA $028A		; Disable all key repeat (RPTFLG)
+	;JSR POSTINIT		;Clears screen, disables interrupts, copies sid to $C000 and inits it.
 	;JMP INPUT_GET
 .if DEBUG = 0 
 	JSR IRQ_StartTalking
@@ -143,9 +145,9 @@ SKIPMUSIC
   	BEQ NEXTPAGE		; Then continue to request next page from micro
   	CMP #$2C		; IF it's a < character
   	BEQ PREVPAGE 		; Then continue to request previous page from micro
-  	CMP #$2B		; IF it's a + character
+  	CMP #$91		; IF it's cursor UP
   	BEQ UP			; Then continue iterate up in the menu
-  	CMP #$2D		; IF it's a - character
+  	CMP #$11		; IF it's cursor DOWN
   	BEQ DOWN 		; Then continue iterate down in the menu
   	CMP #$0D		; IF it's ENTER character
   	BEQ ENTER		; Then launch the selected item
@@ -1001,16 +1003,120 @@ ISDIRECTORY
 	CMP #$04
 	RTS
 			
-SETARROW 	; Input : X (current row), Changed : A, Y 
+SETARROW 	; Input : X (current row), Changed : A, Y, NAMELOW, NAMEHIGH
+	; Pre-compute screen/color COLHIGH for fast swapping
+	LDA COLHIGH
+	PHA			; Save original for restore at end
+	STA NAMELOW		; $FB = screen COLHIGH (temp)
+	CLC
+	ADC #$D4
+	STA NAMEHIGH		; $FC = color COLHIGH (temp)
+	; Draw white solid block cursor at col 2
 	LDY #$00
-	LDA #$3E	; > sign
+	LDA #$A0		; Reversed space (solid block)
 	STA (COLLOW),Y
+	; Draw $40 char at col 3
+	INY
+	LDA #$40
+	STA (COLLOW),Y
+	; Set cursor + $40 colors to white in color RAM
+	LDA NAMEHIGH
+	STA COLHIGH
+	LDY #$00
+	LDA #$01
+	STA (COLLOW),Y		; col 2 = white
+	INY
+	STA (COLLOW),Y		; col 3 = white
+	; Switch back to screen RAM
+	LDA NAMELOW
+	STA COLHIGH
+	; Reverse + color only non-space chars (cols 4-35)
+	LDY #$02
+_SETARR_LOOP
+	LDA (COLLOW),Y		; Read screen code
+	CMP #$20		; Space?
+	BEQ _SETARR_NEXT	; Skip spaces
+	ORA #$80		; Reverse
+	STA (COLLOW),Y		; Write to screen RAM
+	LDA NAMEHIGH		; Switch to color RAM
+	STA COLHIGH
+	LDA #$01		; White
+	STA (COLLOW),Y
+	LDA NAMELOW		; Switch back to screen RAM
+	STA COLHIGH
+_SETARR_NEXT
+	INY
+	CPY #$22		; 34 = end of filename area
+	BNE _SETARR_LOOP
+	; Restore original COLHIGH
+	PLA
+	STA COLHIGH
 	RTS
 
-CLEARARROW	; Input : X (current row), Changed : A, Y 
-	LDY #$00
-	LDA #$20	; Space
+CLEARARROW	; Input : X (current row), Changed : A, Y
+	; Un-reverse screen codes for cols 4-35
+	LDY #$02
+_CLRARR_UNREV
+	LDA (COLLOW),Y
+	AND #$7F
 	STA (COLLOW),Y
+	INY
+	CPY #$22
+	BNE _CLRARR_UNREV
+	; Restore decoration based on position (X = current row)
+	LDY #$00
+	CPX #$00		; First item?
+	BEQ _CLRARR_FIRST
+	INX
+	CPX CURPAGEITEMS	; Last item? (X+1 == count)
+	PHP			; Save Z flag
+	DEX			; Restore X
+	PLP			; Restore Z from CPX
+	BEQ _CLRARR_LAST
+	; Middle: vertical line + space
+	LDA #$5D
+	STA (COLLOW),Y		; col 2 = |
+	INY
+	LDA #$20
+	STA (COLLOW),Y		; col 3 = space
+	JMP _CLRARR_COLORS
+_CLRARR_FIRST
+	; First: reversed space + horizontal line
+	LDA #$A0
+	STA (COLLOW),Y		; col 2
+	INY
+	LDA #$40
+	STA (COLLOW),Y		; col 3
+	JMP _CLRARR_COLORS
+_CLRARR_LAST
+	; Last: reversed space + space
+	LDA #$A0
+	STA (COLLOW),Y		; col 2
+	INY
+	LDA #$20
+	STA (COLLOW),Y		; col 3
+_CLRARR_COLORS
+	; Set colors: cols 2-3 = white, cols 4-35 = dark grey
+	LDA COLHIGH
+	PHA
+	CLC
+	ADC #$D4
+	STA COLHIGH
+	LDY #$00
+	LDA #$01		; White for decoration
+	STA (COLLOW),Y		; col 2
+	INY
+	STA (COLLOW),Y		; col 3
+	INY
+	LDA #$0B		; Dark grey for filename
+_CLRARR_COL
+	STA (COLLOW),Y
+	INY
+	CPY #$22
+	BNE _CLRARR_COL
+	; Restore screen RAM pointer
+	PLA
+	STA COLHIGH
 	RTS
 	
 SETCURRENTROW	; Input : X (current row), Changed : None
@@ -1053,70 +1159,15 @@ GETCURRENTROW	; Input : None, Output : X (current row)
 	LDX CURRENTROW
 	RTS	
 	
-PRINTFILENAME	; Input : None, Changed: Y, A
-	; Converts PETSCII to screen code (for DEBUG mock data)
-	LDY #$00
-FILENAMEPRINT
-	LDA (NAMELOW), Y
-	BEQ PRINTSPACE       ; If null terminator, print space
-	; PETSCII to screen code conversion
-	CMP #$41             ; 'A'
-	BCC PRINTCHAR        ; < $41: numbers/symbols, no conversion
-	CMP #$5B             ; Check if A-Z ($41-$5A)
-	BCC UPPERCASE
-	CMP #$61             ; Check if a-z ($61-$7A)
-	BCC PRINTCHAR
-	CMP #$7B
-	BCS PRINTCHAR
-	; Lowercase a-z ($61-$7A) → screen code $01-$1A
-	SEC
-	SBC #$60
-	JMP PRINTCHAR
-UPPERCASE
-	; Uppercase A-Z ($41-$5A) → screen code $01-$1A
-	SEC
-	SBC #$40
-	JMP PRINTCHAR
-PRINTSPACE
-	LDA #$20
-PRINTCHAR
-	STA (COLLOW), Y
-	INY
-	CPY #$20
-	BNE FILENAMEPRINT
-	RTS
-	
-FROMASCII
-	CMP #$5B
-	BMI +
-	CMP #$7F
-	BPL +	
-	EOR #$20
-	JMP ENDFROMASCII	
-+
-	CMP #$41
-	BMI +
-	CMP #$5A
-	BPL +
-	ORA #$80
-+
-ENDFROMASCII
-	RTS
-	
 ; ------------------------------------------------------------
 ; PRINTASCIIFILENAME - ASCII to screen code filename printer
 ; ------------------------------------------------------------
-; Converts ASCII encoded filenames to C64 screen codes and displays them.
+; Converts ASCII filenames to uppercase screen codes for the
+; lowercase/uppercase charset mode.
 ;
-; Process:
-; 1. Read ASCII character from (NAMELOW), Y
-; 2. Convert to PETSCII using FROMASCII routine
-; 3. Convert PETSCII to screen code (subtract $3F)
-; 4. Write to screen memory at (COLLOW), Y
-;
-; Used by both DEBUG and release modes since:
-; - MOCK_DIR1/DIR2/DIR3 data uses .TEXT directive (ASCII by default)
-; - SD card returns filenames in ASCII format
+; ASCII $20-$3F (numbers/symbols) → screen code as-is
+; ASCII $41-$5A (uppercase A-Z)   → screen code $41-$5A (uppercase in lc/uc)
+; ASCII $61-$7A (lowercase a-z)   → screen code $41-$5A (forced uppercase)
 ;
 ; Input:  NAMELOW/HIGH = pointer to ASCII filename
 ;         COLLOW/HIGH = pointer to screen memory position
@@ -1129,13 +1180,15 @@ FILENAMEPRINT_A
 	LDA (NAMELOW), Y    ; Read ASCII character
 	BNE NOTEND_A        ; If not null terminator, continue
 	LDA #$20            ; Replace null with space
+	JMP WRITECHAR_A
 NOTEND_A
-	JSR FROMASCII       ; Convert ASCII to PETSCII
-	CMP #$3F            ; Check if >= $3F
-	BMI SYMBOL_A        ; If less, it's a symbol, don't subtract
-	CLC
-	SBC #$3F            ; Convert PETSCII to screen code
-SYMBOL_A
+	CMP #$61            ; >= 'a'?
+	BCC WRITECHAR_A     ; No → numbers/symbols/uppercase, use as-is
+	CMP #$7B            ; <= 'z'?
+	BCS WRITECHAR_A     ; No → use as-is
+	SEC
+	SBC #$20            ; Lowercase $61-$7A → uppercase $41-$5A
+WRITECHAR_A
 	STA (COLLOW), Y     ; Write to screen memory
 	INY
 	CPY #$20            ; Print 32 characters (full line)
@@ -1296,12 +1349,91 @@ FINISH
 	CLV
 	BVC FINISH
 	
-ACTUALFINISH	
+ACTUALFINISH
+	JSR DRAWDECORATIONS
 	LDX #COMMANDENTERMASK
-	STX COMMANDBYTE	
+	STX COMMANDBYTE
 	RTS
-	
-	
+
+; ------------------------------------------------------------
+; DRAWDECORATIONS - Draw col 2-3 decorations for all menu rows
+; First item:  reversed space ($A0) + horizontal line ($40), white
+; Middle items: vertical line ($5D) + space, white
+; Last item:   reversed space ($A0) + space, white
+; Empty rows:  space + space, dark grey
+; ------------------------------------------------------------
+DRAWDECORATIONS
+	LDX #$00
+_DDEC_LOOP
+	CPX #$14		; 20 = max items
+	BEQ _DDEC_DONE
+	JSR SETCURRENTROWHEAD	; COLLOW = col 2 of row X
+	CPX CURPAGEITEMS
+	BCS _DDEC_EMPTY		; >= item count -> empty row
+	; Active item - determine first/last or middle
+	LDY #$00
+	CPX #$00		; First item?
+	BEQ _DDEC_FIRST
+	INX
+	CPX CURPAGEITEMS	; Last item? (X+1 == count)
+	PHP			; Save Z flag
+	DEX			; Restore X
+	PLP			; Restore Z from CPX
+	BEQ _DDEC_LAST
+	; Middle: vertical line + space, white
+	LDA #$5D
+	STA (COLLOW),Y		; col 2 = |
+	INY
+	LDA #$20
+	STA (COLLOW),Y		; col 3 = space
+	LDA #$01		; White
+	BNE _DDEC_SETCOL	; Always taken
+_DDEC_FIRST
+	; First: reversed space + horizontal line, white
+	LDA #$A0
+	STA (COLLOW),Y		; col 2
+	INY
+	LDA #$40
+	STA (COLLOW),Y		; col 3 = horizontal line
+	LDA #$01		; White
+	BNE _DDEC_SETCOL	; Always taken
+_DDEC_LAST
+	; Last: reversed space + space, white
+	LDA #$A0
+	STA (COLLOW),Y		; col 2
+	INY
+	LDA #$20
+	STA (COLLOW),Y		; col 3 = space
+	LDA #$01		; White
+	BNE _DDEC_SETCOL	; Always taken
+_DDEC_EMPTY
+	; Empty row: space + space, dark grey
+	LDY #$00
+	LDA #$20
+	STA (COLLOW),Y
+	INY
+	STA (COLLOW),Y
+	LDA #$0B		; Dark grey
+_DDEC_SETCOL
+	; Set color for cols 2-3 (A = color value)
+	STA NAMELOW		; Temp: save color
+	LDA COLHIGH
+	PHA
+	CLC
+	ADC #$D4
+	STA COLHIGH		; -> color RAM
+	LDY #$00
+	LDA NAMELOW
+	STA (COLLOW),Y		; col 2 color
+	INY
+	STA (COLLOW),Y		; col 3 color
+	PLA
+	STA COLHIGH		; -> screen RAM
+	INX
+	JMP _DDEC_LOOP
+_DDEC_DONE
+	RTS
+
 PrepareFileNameParameter:
 	; We have current row in X
 	LDA NAMESLO, X
