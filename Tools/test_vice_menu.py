@@ -553,7 +553,7 @@ class ViceMenuTester:
             row = self._read_sym_byte("CURRENTROW")
             if row == target_row:
                 return True
-            self._press_key(0x2B, settle=0.3)  # '+' = UP
+            self._press_key(0x91, settle=0.3)  # cursor UP (PETSCII $91)
         row = self._read_sym_byte("CURRENTROW")
         return row == target_row
 
@@ -587,9 +587,9 @@ class ViceMenuTester:
         return ok
 
     def test_nav_down(self) -> bool:
-        """Test 2: Press DOWN (-), CURRENTROW should increment."""
+        """Test 2: Press cursor DOWN ($11), CURRENTROW should increment."""
         before = self._read_sym_byte("CURRENTROW")
-        self._press_key(0x2D)  # '-' = DOWN
+        self._press_key(0x11)  # cursor DOWN (PETSCII $11)
         after = self._read_sym_byte("CURRENTROW")
 
         ok = after == before + 1
@@ -598,9 +598,9 @@ class ViceMenuTester:
         return ok
 
     def test_nav_up(self) -> bool:
-        """Test 3: Press UP (+), CURRENTROW should decrement."""
+        """Test 3: Press cursor UP ($91), CURRENTROW should decrement."""
         before = self._read_sym_byte("CURRENTROW")
-        self._press_key(0x2B)  # '+' = UP
+        self._press_key(0x91)  # cursor UP (PETSCII $91)
         after = self._read_sym_byte("CURRENTROW")
 
         ok = after == before - 1
@@ -617,7 +617,7 @@ class ViceMenuTester:
             return False
 
         # Press UP at row 0 — should wrap to bottom (CURPAGEITEMS - 1)
-        self._press_key(0x2B)  # '+' = UP
+        self._press_key(0x91)  # cursor UP (PETSCII $91)
         row = self._read_sym_byte("CURRENTROW")
         curpage = self._read_sym_byte("CURPAGEITEMS")
         expected = curpage - 1
@@ -703,62 +703,30 @@ class ViceMenuTester:
         return ok
 
     def test_screen_verify(self) -> bool:
-        """Test 7: Read screen RAM, verify 'games' is displayed.
+        """Test 7: Read screen RAM, verify 'games' is displayed at correct address.
 
-        The menu uses PRINTASCIIFILENAME which converts:
-          ASCII -> PETSCII (via FROMASCII) -> screen code (subtract $3F)
-        For lowercase letters a-z ($61-$7A):
-          FROMASCII: EOR #$20 -> uppercase ($41-$5A)
-          Then: ORA #$80 -> $C1-$DA
-          Screen code: $C1-$3F = ... no, let's trace exactly:
+        Screen layout (lc/uc charset mode):
+          Row 1 ($0428): dir header  ■─/ROOT─■  (PRINTDIRHEADER, not navigable)
+          Row 2 ($0450): file item 0 = "games"   ← CURRENTROW=0
+          Row 3 ($0478): file item 1 = "giana.prg"
+          ...
 
-        Actually PRINTASCIIFILENAME calls FROMASCII then subtracts $3F.
-        For 'g' ($67):
-          FROMASCII: $67 >= $5B and < $7F -> EOR $20 -> $47
-          Then in FILENAMEPRINT_A: $47 >= $3F -> SBC $3F (with CLC before SBC = -$40)
-          $47 - $40 = $07
+        COLS table (IrqLoaderMenuNew.s):
+          COLS[0] = $042C  (dir header row, skipped by SETCURRENTROW via COLS+2 offset)
+          COLS[1] = $0454  (file item 0, col 4 of row 2)
+          COLS[2] = $047C  (file item 1)
+          ...
 
-        So lowercase ASCII letters map to screen codes 1-26, same as
-        PETSCII uppercase screen codes. "games" = [7, 1, 13, 5, 19].
+        SETCURRENTROW(X=0): ASL→0, LDA COLS+2+0 = low($0454)=$54, high=$04 → $0454
+        PRINTASCIIFILENAME writes to (COLLOW),Y starting Y=0 → filenames at $0454.
+
+        PRINTASCIIFILENAME conversion for lowercase ASCII:
+          'a'-'z' ($61-$7A): SEC; SBC #$20 → $41-$5A (uppercase screen codes)
+          "games" → G=$47, A=$41, M=$4D, E=$45, S=$53
         """
-        # COLS[1] = $0454 (first file entry row, after header at COLS[0]=$042C)
-        # But SETCURRENTROW adds +2 to COLS index, and the arrow character
-        # is at the COLLOW-1 position (SETCURRENTROWHEAD subtracts 1).
-        # The filename starts at the COLLOW position (offset 0 in PRINTASCIIFILENAME).
-        # SETCURRENTROW for row 0: COLS+2 = COLS[1] = $0454
-        # SETCURRENTROWHEAD: $0454 - 1 - 1 = $0452 (SBC #01 with CLC = subtract 2)
-        # Filename is printed at (COLLOW),Y starting Y=0
-        # So filename starts at $0452? No...
-        #
-        # Let me re-read SETCURRENTROWHEAD:
-        #   STX CURRENTROW
-        #   TXA; ASL; TAX
-        #   LDA COLS+2,X   ; for row 0: COLS+2 = low byte of $0454 = $54
-        #   CLC; SBC #01   ; CLC + SBC = subtract 2: $54 - 2 = $52
-        #   STA COLLOW
-        #   INX
-        #   LDA COLS+2,X   ; high byte = $04
-        #   STA COLHIGH
-        # So COLLOW/HIGH = $0452
-        #
-        # But PRINTPAGE calls SETCURRENTROW (not SETCURRENTROWHEAD):
-        #   LDA COLS+2,X   ; $54
-        #   STA COLLOW     ; no subtraction
-        # So filenames are printed at $0454 for row 0.
-        #
-        # The arrow is placed via SETCURRENTROWHEAD ($0452) at offset 0.
-        # So arrow is at $0452, and filename at $0454 (2 bytes after arrow).
-        #
-        # Actually wait: SETCURRENTROWHEAD does CLC; SBC #01
-        # CLC clears carry, then SBC subtracts (1 + !carry) = (1 + 1) = 2
-        # No: SBC with carry clear subtracts (operand + 1) = (1 + 1) = 2
-        # So COLLOW = $54 - 2 = $52, COLHIGH = $04
-        # Arrow at ($0452),Y=0 = $0452
-        #
-        # Then after arrow, the main loop goes back and for PRINTPAGE:
-        # SETCURRENTROW: COLLOW = $54 (no subtraction), PRINTASCIIFILENAME at ($0454),Y=0
-        #
-        # So: "games" screen codes start at $0454.
+        # Navigate to row 1 so CLEARARROW restores row 0 to normal screen codes.
+        # (If cursor is on row 0, SETARROW has set bit 7 on each char: $47→$C7 etc.)
+        self._press_key(0x11, settle=0.4)  # cursor DOWN → move off row 0
 
         # In lc/uc charset mode, uppercase screen codes are $41-$5A
         # ASCII "games" → forced uppercase → screen codes G=0x47, A=0x41, M=0x4D, E=0x45, S=0x53
