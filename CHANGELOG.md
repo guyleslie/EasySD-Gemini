@@ -1,7 +1,7 @@
 # EasySD / IRQHack64 - Unified Changelog
 
-> **Last updated:** 2026-02-22
-> **Current version:** v3.0.0
+> **Last updated:** 2026-02-28
+> **Current version:** v3.1.1
 > **Project:** EasySD Gemini - C64 Cartridge-based SD card reader
 
 ---
@@ -16,6 +16,8 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
+| **v3.1.1** | 2026-02-28 | GOBACK depth-2 crash fix, VICE test suite fixes, test 10 | ✅ Complete |
+| **v3.1.0** | 2026-02-28 | Directory header row in file browser | ✅ Complete |
 | **v3.0.0** | 2026-02-22 | PETMATE menu frame, dynamic build pipeline, charset switch | ✅ Complete |
 | **v2.1.1** | 2026-02-21 | Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery | ✅ Tested (7/8) |
 | **v2.1.0** | 2025-12-26 | Sprint 6 - Production Polish & User Experience | ✅ Production Ready |
@@ -51,6 +53,71 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 ---
 
 ## Chronological Changes
+
+### [v3.1.1] - 2026-02-28
+**GOBACK Crash Fix & VICE Test Suite Improvements**
+
+#### Bug Fixes
+
+**GOBACK crash at depth ≥ 2 (`IrqLoaderMenuNew.s`):**
+- `BCC ++` in the GOBACK restore loop jumped to the second forward anonymous label (`++`), which landed in `ISPREVIOUSDIRECTORY` instead of the intended clamp skip target. This corrupted the stack on `RTS`, causing a blue screen + READY. crash.
+- Root cause: 64tass anonymous labels (`+`) are counted globally. The `++` skipped the clamp skip target and landed in a different subroutine.
+- Only manifested at depth ≥ 2: at depth 1, `CURRENTDIRINDEX = 0` → `BEQ _RestoreLoopDone` → loop skipped → `BCC` never reached.
+- **Fix:** `BCC ++` → `BCC +` (single forward label is sufficient).
+
+**VICE test suite cursor key codes (`test_vice_menu.py`):**
+- `_navigate_to_row` and all nav tests used `+`/`-` ($2B/$2D) but v3.0.0 switched the menu to cursor keys ($91 UP, $11 DOWN).
+- Fixed in all test functions: `NAV_DOWN`, `NAV_UP`, `NAV_WRAP`, `_navigate_to_row`.
+
+**VICE test SCREEN_VERIFY:**
+- Reading screen RAM while row 0 was selected returned inverted codes (SETARROW inverts chars on selected row).
+- Fix: navigate off row 0 first so CLEARARROW restores normal codes before reading.
+
+#### Test Suite Improvements
+
+**New test 10: DIR_DEPTH (`test_vice_menu.py`):**
+- Round-trip navigation: root → `/games/` → `/games/demos/` → back to root.
+- Verifies `CURRENTDIRINDEX` at each depth (1, 2) and `CURPAGEITEMS` at depth 2 (6).
+- Back-navigation via `..` is now part of the pass/fail check (not just cleanup) — this is what would have caught the GOBACK bug earlier.
+
+**`_navigate_to_row` bidirectional fix:**
+- Was UP-only, causing wrap-around when target > current row.
+- Now chooses UP ($91) or DOWN ($11) based on current vs target row.
+
+**`_go_up_one_level(expected_dirlevel)` helper:**
+- Resumes C64 first (lets NEWCONTENT+INPUT_GET settle), navigates to row 0 (`..`), resumes again, injects ENTER via keyboard buffer write while C64 is running.
+- Polls `DIRLEVEL` for expected value with 5s timeout.
+
+#### Why the test suite didn't catch the GOBACK bug earlier
+`test_dir_depth`'s cleanup (go-back) failures were treated as warnings (not counted in `ok`), so the test reported PASS even when the return journey crashed the menu. Fixed: back-navigation is now a mandatory pass/fail assertion.
+
+#### Files Modified
+
+| File | Changes |
+|------|---------|
+| `IRQHack64/Menus/EasySD/IrqLoaderMenuNew.s` | `BCC ++` → `BCC +` in GOBACK restore loop |
+| `Tools/test_vice_menu.py` | Cursor key codes, SCREEN_VERIFY fix, test 10, bidirectional nav, `_go_up_one_level` |
+
+---
+
+### [v3.1.0] - 2026-02-28
+**Directory Header Row in File Browser**
+
+#### UI Changes
+- New `PRINTDIRHEADER` routine: displays the current directory on header row 1 as inverted `/DIRNAME─■` with a normal `■─` prefix decoration.
+  - At root: shows `/ROOT`
+  - In subdirs: shows last dirname component (max 18 chars)
+  - Clears only up to col 25 to preserve the PETMATE frame at col 26+
+- Display order changed: `PRINTDIRHEADER` runs before `PRINTPAGE` (frame → dir header → files → decorations)
+- Removed FIRST item decoration (`■─`) from file list: all file items now use MIDDLE (`│ `) or LAST (`■ `) style, since the header takes the visual "first" role
+
+#### Files Modified
+
+| File | Changes |
+|------|---------|
+| `IRQHack64/Menus/EasySD/IrqLoaderMenuNew.s` | +115 lines (PRINTDIRHEADER, display order, decoration logic) |
+
+---
 
 ### [v3.0.0] - 2026-02-22
 **PETMATE Menu Frame Redesign, Inverse Selection & Navigation Overhaul**
@@ -1235,6 +1302,9 @@ python Tools/build.py clean
 
 ## Version History (Summary)
 
+- **v3.1.1** (2026-02-28): GOBACK depth-2 crash fix, VICE test suite fixes, test 10 DIR_DEPTH
+- **v3.1.0** (2026-02-28): Directory header row in file browser
+- **v3.0.0** (2026-02-22): PETMATE menu frame, inverse selection, cursor key nav, uppercase filenames
 - **v2.1.1** (2026-02-21): Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery (7/8 PASS)
 - **v2.1.0** (2025-12-26): Production Polish & User Experience - Sprint 6 Complete
 - **v2.0.6** (2025-12-26): Directory State Synchronization - Sprint 5 Complete (Production-Ready)

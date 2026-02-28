@@ -947,14 +947,17 @@ class ViceMenuTester:
             print(f"  After /games/demos/: CURRENTDIRINDEX={dirindex2} (exp 2), "
                   f"CURPAGEITEMS={curpage2} (exp 6)")
 
-        # Cleanup: go back to root via .. twice
-        # _go_up_one_level handles exit_monitor + settle internally
+        # Go back to root via .. twice — this IS part of the test (not just cleanup).
+        # Verifies GOBACK works correctly at depth 2 (the BCC +/++ bug manifests here).
         if not self._go_up_one_level(1):
-            if self.verbose:
-                print(f"  {YELLOW}[WARN]{RESET} cleanup: could not return to /games/")
+            print(f"  Back from /games/demos/ FAIL (exp DIRLEVEL=1)")
+            ok = False
         elif not self._go_up_one_level(0):
-            if self.verbose:
-                print(f"  {YELLOW}[WARN]{RESET} cleanup: could not return to root")
+            print(f"  Back from /games/ FAIL (exp DIRLEVEL=0)")
+            ok = False
+        elif self.verbose:
+            curpage_root = self._read_sym_byte("CURPAGEITEMS")
+            print(f"  After back to root: CURPAGEITEMS={curpage_root} (exp 5)")
 
         return ok
 

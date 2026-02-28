@@ -45,7 +45,7 @@ python Tools/test_vice_menu.py --build
 ## Usage
 
 ```powershell
-# Run all 9 tests
+# Run all 10 tests
 python Tools/test_vice_menu.py
 
 # Build first, then test
@@ -103,6 +103,16 @@ The `debug-vice` build includes hardcoded mock directories:
 | 4 | ocean.koa | Koala image |
 | 5 | intro.petg | PETSCII art |
 
+**MOCK_DIR3 (`/games/demos/`, 6 items):**
+| Row | Name | Type |
+|-----|------|------|
+| 0 | .. | Parent dir |
+| 1 | tools | Directory |
+| 2 | matrix.prg | PRG |
+| 3 | space.koa | Koala image |
+| 4 | ascii.petg | PETSCII art |
+| 5 | coder.wav | WAV audio |
+
 ### Test 1: INIT
 
 Verifies initial menu state after boot:
@@ -113,11 +123,11 @@ Verifies initial menu state after boot:
 
 ### Test 2: NAV_DOWN
 
-Injects DOWN key (PETSCII `$2D`), verifies `CURRENTROW` increments by 1.
+Injects DOWN key (PETSCII cursor down `$11`), verifies `CURRENTROW` increments by 1.
 
 ### Test 3: NAV_UP
 
-Injects UP key (PETSCII `$2B`), verifies `CURRENTROW` decrements by 1.
+Injects UP key (PETSCII cursor up `$91`), verifies `CURRENTROW` decrements by 1.
 
 ### Test 4: NAV_WRAP
 
@@ -138,13 +148,13 @@ Inside MOCK_DIR2, navigates to row 0 (".."), injects ENTER:
 
 ### Test 7: SCREEN_VERIFY
 
-Reads screen RAM at `$0454` (first file entry row), verifies the screen codes match "games":
+Navigates away from row 0 first (so `CLEARARROW` restores normal screen codes — `SETARROW` inverts characters on the selected row). Then reads screen RAM at `$0454` (first file entry row, below the directory header), verifies the screen codes match "games":
 
 | Char | g | a | m | e | s |
 |------|---|---|---|---|---|
 | Code | 7 | 1 | 13 | 5 | 19 |
 
-Screen codes: lowercase `a`=1, `b`=2, ..., `z`=26 (ASCII→PETSCII→screen code conversion via `PRINTASCIIFILENAME`).
+Screen codes: uppercase display in lc/uc charset mode — `PRINTASCIIFILENAME` maps ASCII letters to uppercase screen codes ($41-$5A). Reading after `CLEARARROW` ensures inverted bytes are restored to normal.
 
 ### Test 8: PRG_SELECT_ROOT
 
@@ -180,6 +190,22 @@ In DEBUG mode, the PROGRAM path doesn't call `IRQ_InvokeWithName` (which require
 
 This tests PATHBUFFER construction (SETFILENAME → BuildAbsolutePathFromPtr) without Arduino communication.
 
+### Test 10: DIR_DEPTH
+
+Multi-level navigation round-trip: root → `/games/` → `/games/demos/` → back.
+
+1. Verify starting at root (`DIRLEVEL` = 0)
+2. Navigate to row 0 ("games"), press ENTER, poll `DIRLEVEL` until 1
+3. Read `CURRENTDIRINDEX` (expect 1)
+4. Navigate to row 1 ("demos"), press ENTER, poll `DIRLEVEL` until 2
+5. Read `CURRENTDIRINDEX` (expect 2), `CURPAGEITEMS` (expect 6)
+6. Navigate back via `..` (`_go_up_one_level(1)`): poll `DIRLEVEL` until 1
+7. Navigate back via `..` (`_go_up_one_level(0)`): poll `DIRLEVEL` until 0
+
+Steps 6–7 are part of the pass/fail check — they verify `GOBACK` works correctly at depth 2. The `BCC ++` bug (fixed in v3.1.1) caused steps 6–7 to crash the menu: `GOBACK` jumps to the wrong label when the restore loop runs ≥1 iteration (i.e. depth ≥ 2).
+
+`_go_up_one_level(expected)`: resumes C64, navigates to row 0 (`..`), resumes again, injects ENTER via keyboard buffer write while C64 is running, polls `DIRLEVEL` for `expected` with 5s timeout.
+
 ---
 
 ## Architecture
@@ -195,7 +221,7 @@ test_vice_menu.py
   |
   +-- ViceProcess         Launch/stop x64sc.exe subprocess
   |
-  +-- ViceMenuTester      Test orchestrator (9 test cases)
+  +-- ViceMenuTester      Test orchestrator (10 test cases)
 ```
 
 ### ViceSymbols
@@ -262,19 +288,21 @@ On Windows: uses `CREATE_NEW_PROCESS_GROUP` and `atexit` handler for cleanup.
 Orchestrates test execution:
 1. Launches VICE and waits for binary monitor connection (up to 10s, 20 retries)
 2. Polls `CURPAGEITEMS` until non-zero (menu has loaded, ~3s intro screen + boot)
-3. Runs all 9 tests sequentially
+3. Runs all 10 tests sequentially
 4. Reports PASS/FAIL with ANSI color output
 5. Cleans up VICE (unless `--keep-vice`)
 
 **Keyboard mapping** (menu uses KERNAL `GETIN`):
 
-| Action | Key | ASCII |
-|--------|-----|-------|
-| UP | `+` | 0x2B |
-| DOWN | `-` | 0x2D |
-| ENTER | `\r` | 0x0D |
-| NEXT PAGE | `.` | 0x2E |
-| PREV PAGE | `,` | 0x2C |
+| Action | Key | PETSCII |
+|--------|-----|---------|
+| UP | Cursor up | 0x91 |
+| DOWN | Cursor down | 0x11 |
+| ENTER | Return | 0x0D |
+| NEXT PAGE | `>` | 0x3E |
+| PREV PAGE | `<` | 0x3C |
+
+Note: v3.0.0 switched navigation from `+`/`-` ($2B/$2D) to cursor keys ($91/$11). Test suite updated in commit `691f784`.
 
 ---
 
@@ -392,18 +420,19 @@ Install VICE 3.9+ and pass the correct path: `--vice-path "C:\path\to\x64sc.exe"
  EasySD VICE Menu Test Suite
 ============================================================
 
-[1/9] INIT... PASS
-[2/9] NAV_DOWN... PASS
-[3/9] NAV_UP... PASS
-[4/9] NAV_WRAP... PASS
-[5/9] ENTER_DIR... PASS
-[6/9] GO_BACK... PASS
-[7/9] SCREEN_VERIFY... PASS
-[8/9] PRG_SELECT_ROOT... PASS
-[9/9] PRG_SELECT_SUBDIR... PASS
+[1/10] INIT... PASS
+[2/10] NAV_DOWN... PASS
+[3/10] NAV_UP... PASS
+[4/10] NAV_WRAP... PASS
+[5/10] ENTER_DIR... PASS
+[6/10] GO_BACK... PASS
+[7/10] SCREEN_VERIFY... PASS
+[8/10] PRG_SELECT_ROOT... PASS
+[9/10] PRG_SELECT_SUBDIR... PASS
+[10/10] DIR_DEPTH... PASS
 
 ============================================================
- ALL 9 TESTS PASSED
+ ALL 10 TESTS PASSED
 ============================================================
 ```
 

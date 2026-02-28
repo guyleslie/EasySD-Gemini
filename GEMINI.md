@@ -11,7 +11,7 @@ EasySD is an SD card interface for the Commodore 64, consisting of an Arduino-ba
 - **Arduino Side**: C++ (Arduino Nano/Pro Mini, ATmega328P).
 - **SD Library**: SdFat 2.x (migrated from 1.x in v2.0.4, full P1 API compliance in v2.0.5).
 - **Communication**: Custom PWM-like software serial (C64 -> Arduino) and NMI-driven byte transfer (Arduino -> C64).
-- **Current Version**: v3.0.0 (PETMATE frame, inverse selection, cursor key nav - 2026-02-22)
+- **Current Version**: v3.1.1 (dir header row, GOBACK depth-2 crash fix - 2026-02-28)
 
 ---
 
