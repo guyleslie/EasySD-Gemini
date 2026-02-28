@@ -10,7 +10,7 @@ Architecture:
   ViceBinaryMonitor  — TCP client for VICE 3.9 binary monitor protocol
   ViceSymbols        — Parses 64tass --vice-labels output (.vs file)
   ViceProcess        — Launches/stops VICE (x64sc.exe)
-  ViceMenuTester     — Test orchestrator with 9 test cases
+  ViceMenuTester     — Test orchestrator with 10 test cases
 
 Key injection uses direct C64 keyboard buffer writes ($0277/$C6)
 instead of VICE's keyboard_feed command, which is unreliable when
@@ -542,18 +542,22 @@ class ViceMenuTester:
         return self.mon.read_byte(addr)
 
     def _navigate_to_row(self, target_row: int, max_presses: int = 20) -> bool:
-        """Navigate cursor to target row using UP key presses.
+        """Navigate cursor to target row using UP/DOWN key presses.
 
-        Returns True if target row reached. Each UP press:
-        1. Read current row (VICE stops)
-        2. If at target, done
-        3. Inject UP key + resume + wait
+        Chooses direction based on current vs target row:
+          current > target → UP ($91)
+          current < target → DOWN ($11)
+
+        Returns True if target row reached.
         """
         for _ in range(max_presses):
             row = self._read_sym_byte("CURRENTROW")
             if row == target_row:
                 return True
-            self._press_key(0x91, settle=0.3)  # cursor UP (PETSCII $91)
+            if row > target_row:
+                self._press_key(0x91, settle=0.3)  # cursor UP (PETSCII $91)
+            else:
+                self._press_key(0x11, settle=0.3)  # cursor DOWN (PETSCII $11)
         row = self._read_sym_byte("CURRENTROW")
         return row == target_row
 
@@ -878,12 +882,88 @@ class ViceMenuTester:
 
         return ok
 
+    def _go_up_one_level(self, expected_dirlevel: int) -> bool:
+        """Navigate to row 0 (..) and press ENTER, wait for DIRLEVEL to reach expected.
+
+        Resumes the C64 first so any in-progress rendering completes before
+        we read CURRENTROW, ensuring the menu is stable at INPUT_GET.
+        """
+        # Resume C64 and let NEWCONTENT+INPUT_GET settle fully
+        self.mon.exit_monitor()
+        time.sleep(0.5)
+        # Navigate to row 0 (..)
+        if not self._navigate_to_row(0):
+            return False
+        # Small pause after navigation to ensure we're at INPUT_GET
+        self.mon.exit_monitor()
+        time.sleep(0.3)
+        # Inject ENTER key while C64 is running (VICE handles stop/write/resume)
+        self.mon.write_byte(C64_KEYBUF, 0x0D)
+        self.mon.write_byte(C64_KEYBUF_LEN, 1)
+        # Wait for DIRLEVEL to reach the expected value
+        return self._wait_for_value("DIRLEVEL", expected_dirlevel, timeout=5.0)
+
+    def test_dir_depth(self) -> bool:
+        """Test 10: Multi-level navigation — root→games→demos (depth 2) and back.
+
+        Verifies CURRENTDIRINDEX tracks depth correctly.
+        Mock supports DIRLEVEL 0..2 (root/games/demos).
+        DIRECTORIESMAXDEPTH = 10 (stack limit in IrqLoaderMenuNew.s).
+        """
+        # Must start at root (DIRLEVEL=0)
+        if self._read_sym_byte("DIRLEVEL") != 0:
+            if self.verbose:
+                print(f"  Not at root, skipping")
+            return False
+
+        # Enter /games/ (row 0)
+        if not self._navigate_to_row(0):
+            return False
+        self._press_key(0x0D, settle=0.5)
+        if not self._wait_for_value("DIRLEVEL", 1, timeout=5.0):
+            print(f"  Could not enter /games/")
+            return False
+        self.mon.exit_monitor()
+        time.sleep(0.5)
+
+        dirindex1 = self._read_sym_byte("CURRENTDIRINDEX")
+
+        # Enter /games/demos/ (row 1 in /games/: ..=0, demos=1)
+        if not self._navigate_to_row(1):
+            return False
+        self._press_key(0x0D, settle=0.5)
+        if not self._wait_for_value("DIRLEVEL", 2, timeout=5.0):
+            print(f"  Could not enter /games/demos/")
+            return False
+        self.mon.exit_monitor()
+        time.sleep(0.5)
+
+        dirindex2 = self._read_sym_byte("CURRENTDIRINDEX")
+        curpage2 = self._read_sym_byte("CURPAGEITEMS")
+
+        ok = dirindex1 == 1 and dirindex2 == 2 and curpage2 == 6
+        if self.verbose or not ok:
+            print(f"  After /games/: CURRENTDIRINDEX={dirindex1} (exp 1)")
+            print(f"  After /games/demos/: CURRENTDIRINDEX={dirindex2} (exp 2), "
+                  f"CURPAGEITEMS={curpage2} (exp 6)")
+
+        # Cleanup: go back to root via .. twice
+        # _go_up_one_level handles exit_monitor + settle internally
+        if not self._go_up_one_level(1):
+            if self.verbose:
+                print(f"  {YELLOW}[WARN]{RESET} cleanup: could not return to /games/")
+        elif not self._go_up_one_level(0):
+            if self.verbose:
+                print(f"  {YELLOW}[WARN]{RESET} cleanup: could not return to root")
+
+        return ok
+
     # ==================================================================
     # Run all tests
     # ==================================================================
 
     def run_all(self) -> bool:
-        """Execute all 9 test cases. Returns True if all pass."""
+        """Execute all 10 test cases. Returns True if all pass."""
         tests = [
             ("INIT", self.test_init),
             ("NAV_DOWN", self.test_nav_down),
@@ -894,6 +974,7 @@ class ViceMenuTester:
             ("SCREEN_VERIFY", self.test_screen_verify),
             ("PRG_SELECT_ROOT", self.test_prg_select_root),
             ("PRG_SELECT_SUBDIR", self.test_prg_select_subdir),
+            ("DIR_DEPTH", self.test_dir_depth),
         ]
 
         print(f"{BOLD}{'=' * 60}{RESET}")
