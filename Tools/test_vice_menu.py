@@ -120,10 +120,14 @@ class ViceBinaryMonitor:
     Commands used:
       0x01 = memory_get
       0x02 = memory_set
+      0x31 = registers_get
       0x72 = keyboard_feed
       0x81 = ping
       0xAA = exit (resume)
       0xBB = quit
+
+    Unsolicited events (req_id == 0xFFFFFFFF):
+      0x61 = JAM  — CPU hit an illegal opcode
     """
 
     STX = 0x02
@@ -133,10 +137,14 @@ class ViceBinaryMonitor:
     # Commands
     CMD_MEMORY_GET = 0x01
     CMD_MEMORY_SET = 0x02
+    CMD_REGISTERS_GET = 0x31   # Read CPU registers
     CMD_KEYBOARD_FEED = 0x72
     CMD_PING = 0x81
     CMD_EXIT = 0xAA
     CMD_QUIT = 0xBB
+    # Unsolicited event types
+    RESP_JAM = 0x61            # CPU illegal opcode (crash)
+    _EVENT_REQ_ID = 0xFFFFFFFF # All unsolicited events use this req_id
 
     def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT,
                  timeout: float = 5.0, verbose: bool = False):
@@ -146,6 +154,11 @@ class ViceBinaryMonitor:
         self.verbose = verbose
         self.sock: socket.socket | None = None
         self._req_id = 0
+        self.crash_reason: str | None = None  # Set by _recv_response on JAM event
+
+    def clear_crash(self) -> None:
+        """Reset crash detection state (call before each test)."""
+        self.crash_reason = None
 
     def connect(self, retries: int = 20, delay: float = 0.5) -> bool:
         """Connect to VICE binary monitor with retries."""
@@ -231,6 +244,12 @@ class ViceBinaryMonitor:
                       f"id={resp_id} body={len(body)}B{RESET}")
 
             if expected_id is not None and resp_id != expected_id:
+                # Passively capture JAM events (unsolicited crash notification)
+                if resp_id == self._EVENT_REQ_ID and resp_type == self.RESP_JAM:
+                    pc = struct.unpack_from("<H", body, 0)[0] if len(body) >= 2 else 0
+                    self.crash_reason = f"JAM at ${pc:04X}"
+                    if self.verbose:
+                        print(f"  {RED}[JAM]{RESET} CPU illegal opcode at ${pc:04X}")
                 continue
             return resp_type, error_code, body
 
@@ -319,6 +338,35 @@ class ViceBinaryMonitor:
         except (OSError, ConnectionError):
             return False
 
+    def read_pc(self) -> int:
+        """Read current CPU Program Counter via REGISTERS_GET (cmd 0x31).
+
+        Response body layout:
+          count    : u16le
+          items[]:
+            item_size : u8    (bytes after this, not including itself)
+            reg_id    : u8    (0x03 = PC for main CPU)
+            value     : u16le (for 16-bit registers; item_size == 3)
+        Returns 0 on any error.
+        """
+        req_id = self._send_request(self.CMD_REGISTERS_GET, bytes([0x00]))
+        _, err, resp_body = self._recv_response(req_id)
+        if err != 0 or len(resp_body) < 2:
+            return 0
+        count = struct.unpack_from("<H", resp_body, 0)[0]
+        offset = 2
+        for _ in range(count):
+            if offset >= len(resp_body):
+                break
+            item_size = resp_body[offset]
+            if offset + 1 + item_size > len(resp_body):
+                break
+            reg_id = resp_body[offset + 1]
+            if reg_id == 0x03 and item_size >= 3:  # PC register (16-bit)
+                return struct.unpack_from("<H", resp_body, offset + 2)[0]
+            offset += 1 + item_size
+        return 0
+
 
 # ============================================================================
 # ViceProcess — launch/stop VICE
@@ -393,6 +441,13 @@ class ViceProcess:
 
 class ViceMenuTester:
     """Runs automated tests against the C64 menu in VICE."""
+
+    # Crash detection constants
+    _KERNAL_START = 0xE000      # PC >= this means KERNAL/BASIC ROM (not our menu code)
+    # "READY." in C64 lc/uc screen RAM: R=$12, E=$05, A=$01, D=$04, Y=$19, .=$2E
+    _READY_SCREEN = bytes([0x12, 0x05, 0x01, 0x04, 0x19, 0x2E])
+    _SCREEN_RAM_START = 0x0400
+    _SCREEN_SCAN_END  = 0x04FF  # scan first 256 chars (top ~6 rows)
 
     def __init__(self, vice_path: str, port: int = DEFAULT_PORT,
                  verbose: bool = False, keep_vice: bool = False):
@@ -522,9 +577,14 @@ class ViceMenuTester:
 
         After each memory_get (which stops VICE), we resume emulation
         and wait before polling again. Returns True if the value was reached.
+        Returns False immediately if a crash is detected.
         """
         deadline = time.time() + timeout
         while time.time() < deadline:
+            crashed, reason = self._is_crashed()
+            if crashed:
+                print(f"\n  {RED}[CRASH]{RESET} {reason}")
+                return False
             val = self._read_sym_byte(sym_name)
             if val == expected:
                 return True
@@ -570,6 +630,37 @@ class ViceMenuTester:
                 break
             result.append(chr(b))
         return ''.join(result)
+
+    def _is_crashed(self) -> tuple[bool, str]:
+        """Check if the C64 program has crashed.
+
+        Three detection methods (cheapest first):
+          1. JAM event  — passively captured by _recv_response() side-channel
+          2. PC in KERNAL/BASIC ROM (>= $E000) — typical after BASIC warm start
+          3. Screen RAM contains "READY." pattern — visible BASIC prompt
+        Returns (crashed: bool, reason: str).
+        """
+        # 1. JAM event captured in _recv_response()
+        if self.mon.crash_reason:
+            return True, self.mon.crash_reason
+
+        # 2. PC in KERNAL/BASIC ROM
+        try:
+            pc = self.mon.read_pc()
+            if pc >= self._KERNAL_START:
+                return True, f"PC in KERNAL/BASIC (${pc:04X})"
+        except Exception:
+            pass
+
+        # 3. BASIC READY. visible in screen RAM
+        try:
+            screen = self.mon.memory_get(self._SCREEN_RAM_START, self._SCREEN_SCAN_END)
+            if self._READY_SCREEN in screen:
+                return True, "BASIC READY. detected in screen RAM"
+        except Exception:
+            pass
+
+        return False, ""
 
     # ==================================================================
     # Test cases
@@ -989,6 +1080,7 @@ class ViceMenuTester:
 
         for i, (name, test_fn) in enumerate(tests, 1):
             print(f"{BLUE}[{i}/{len(tests)}]{RESET} {name}...", end=" ", flush=True)
+            self.mon.clear_crash()  # reset JAM capture for this test
             try:
                 ok = test_fn()
             except Exception as e:
