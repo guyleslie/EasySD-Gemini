@@ -861,15 +861,16 @@ ISPREVIOUSDIRECTORY
 	RTS
 	
 NEWCONTENT
-; Update the screen with the new content got from micro		
+; Update the screen with the new content got from micro
 	INC BORDER
 
-	JSR IRQ_EnableDisplay	
-	JSR GETCURRENTROW	
-	JSR CLEARARROW	
-	JSR PRINTPAGE
+	JSR IRQ_EnableDisplay
+	JSR GETCURRENTROW
+	JSR CLEARARROW
+	JSR PRINTDIRHEADER	; 1. directory header row
+	JSR PRINTPAGE		; 2. filenames + decorations
 	LDX #00
-	JSR SETCURRENTROWHEAD 
+	JSR SETCURRENTROWHEAD
 	JSR SETARROW
 
 	CLI
@@ -877,19 +878,16 @@ NEWCONTENT
   	
 	RTS	
 
-DIRREAD		
+DIRREAD
 ;	LDA #$02
 ;	STA BORDER
 
 ;	DELAYFRAMES 10
-	JSR IRQ_EnableDisplay	
-		
-	; Title is part of the PETMATE frame, no separate print needed
+	JSR IRQ_EnableDisplay
 
-
-	;Call it elsewhere
-	JSR PRINTPAGE		;Prints the initial filenames that's added to the program by the micro.
-	LDX #$00		;Puts the selector 
+	JSR PRINTDIRHEADER	; 1. directory header row
+	JSR PRINTPAGE		; 2. filenames + decorations
+	LDX #$00		;Puts the selector
 	JSR SETCURRENTROWHEAD	;to the first entry in the
 	JSR SETARROW		;list
 	CLC
@@ -1064,9 +1062,8 @@ _CLRARR_UNREV
 	CPY #$22
 	BNE _CLRARR_UNREV
 	; Restore decoration based on position (X = current row)
+	; (first item is now the dir header, all file items use middle or last style)
 	LDY #$00
-	CPX #$00		; First item?
-	BEQ _CLRARR_FIRST
 	INX
 	CPX CURPAGEITEMS	; Last item? (X+1 == count)
 	PHP			; Save Z flag
@@ -1079,14 +1076,6 @@ _CLRARR_UNREV
 	INY
 	LDA #$20
 	STA (COLLOW),Y		; col 3 = space
-	JMP _CLRARR_COLORS
-_CLRARR_FIRST
-	; First: reversed space + horizontal line
-	LDA #$A0
-	STA (COLLOW),Y		; col 2
-	INY
-	LDA #$40
-	STA (COLLOW),Y		; col 3
 	JMP _CLRARR_COLORS
 _CLRARR_LAST
 	; Last: reversed space + space
@@ -1370,10 +1359,9 @@ _DDEC_LOOP
 	JSR SETCURRENTROWHEAD	; COLLOW = col 2 of row X
 	CPX CURPAGEITEMS
 	BCS _DDEC_EMPTY		; >= item count -> empty row
-	; Active item - determine first/last or middle
+	; Active item - determine middle or last
+	; (first item is now the dir header, all file items use middle or last style)
 	LDY #$00
-	CPX #$00		; First item?
-	BEQ _DDEC_FIRST
 	INX
 	CPX CURPAGEITEMS	; Last item? (X+1 == count)
 	PHP			; Save Z flag
@@ -1386,15 +1374,6 @@ _DDEC_LOOP
 	INY
 	LDA #$20
 	STA (COLLOW),Y		; col 3 = space
-	LDA #$01		; White
-	BNE _DDEC_SETCOL	; Always taken
-_DDEC_FIRST
-	; First: reversed space + horizontal line, white
-	LDA #$A0
-	STA (COLLOW),Y		; col 2
-	INY
-	LDA #$40
-	STA (COLLOW),Y		; col 3 = horizontal line
 	LDA #$01		; White
 	BNE _DDEC_SETCOL	; Always taken
 _DDEC_LAST
@@ -1432,6 +1411,106 @@ _DDEC_SETCOL
 	INX
 	JMP _DDEC_LOOP
 _DDEC_DONE
+	RTS
+
+; ------------------------------------------------------------
+; PRINTDIRHEADER — print current dir on header row (row 1)
+; Format: ■─/DIRNAME─■  (all inversed, white)
+;         at root: ■─/ROOT─■
+; Screen row 1: $0428-$044F  col2=$042A  col4=$042C
+; Uses: NAMELOW/NAMEHIGH ($FB/$FC)
+; ------------------------------------------------------------
+PRINTDIRHEADER
+	; ■ at col 2 (normal, same as file row decoration)
+	LDA #$A0
+	STA $042A
+	; ─ at col 3 (normal)
+	LDA #$40
+	STA $042B
+	; / reversed at col 4 (start of inverted area)
+	LDA #$AF		; $2F|$80
+	STA $042C
+
+	LDA CURRENTDIRINDEX
+	BNE _pdh_subdir
+
+	; At root: write "ROOT" reversed at col 5-8
+	LDA #$D2		; R ($52|$80)
+	STA $042D
+	LDA #$CF		; O ($4F|$80)
+	STA $042E
+	LDA #$CF		; O
+	STA $042F
+	LDA #$D4		; T ($54|$80)
+	STA $0430
+	; ─■ normal after ROOT at col 9-10
+	LDA #$40		; ─ normal
+	STA $0431
+	LDA #$A0		; ■ normal
+	STA $0432
+	; clear cols 11..25
+	LDA #$20
+	LDY #$07		; offset from $042C = col 11
+_pdh_fill_root
+	STA $042C, Y
+	INY
+	CPY #$16		; stop before col 26
+	BNE _pdh_fill_root
+	JMP _pdh_colors
+
+_pdh_subdir
+	; Point NAMELOW/HIGH to DIRSTACK[CURRENTDIRINDEX-1]
+	LDX CURRENTDIRINDEX
+	DEX
+	LDA DIRNAMESLO, X
+	STA NAMELOW
+	LDA DIRNAMESHI, X
+	STA NAMEHIGH
+
+	LDY #$00
+_pdh_copy
+	LDA (NAMELOW), Y
+	BEQ _pdh_done_copy
+	; ASCII → uppercase screen code
+	CMP #$61
+	BCC _pdh_noconv
+	CMP #$7B
+	BCS _pdh_noconv
+	SEC
+	SBC #$20
+_pdh_noconv
+	ORA #$80		; reverse video
+	STA $042D, Y		; col 5+Y
+	INY
+	CPY #$12		; max 18 chars (leaves room for ─■ before col 26)
+	BCC _pdh_copy
+
+_pdh_done_copy
+	; ─■ normal after dirname
+	LDA #$40		; ─ normal
+	STA $042D, Y
+	INY
+	LDA #$A0		; ■ normal
+	STA $042D, Y
+	INY
+	; fill rest with spaces up to col 25
+	LDA #$20
+_pdh_fill_sub
+	CPY #$15		; stop before col 26 ($042D+20=col25)
+	BCS _pdh_colors
+	STA $042D, Y
+	INY
+	BNE _pdh_fill_sub
+
+_pdh_colors
+	; color RAM for row 1 cols 2..39 = $D82A..$D84F → all white
+	LDA #$01
+	LDY #$00
+_pdh_col
+	STA $D82A, Y
+	INY
+	CPY #$26		; 38 chars
+	BNE _pdh_col
 	RTS
 
 PrepareFileNameParameter:
