@@ -829,7 +829,7 @@ GOBACK
 	; DEBUG mock supports DIRLEVEL 0..2 only (MOCK_DIR1..DIR3)
 	LDA DIRLEVEL
 	CMP #3
-	BCC ++	; Double forward jump to skip clamp
+	BCC +	; Forward jump to skip clamp
 	LDA #2
 	STA DIRLEVEL
 +	; Clamp skip target
