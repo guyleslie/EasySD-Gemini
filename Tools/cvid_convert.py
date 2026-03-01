@@ -3,9 +3,9 @@
 cvid_convert.py — Convert MP4/AVI to C64 CVID format for EasySD CvidPlayer.
 
 Usage:
-    python Tools/cvid_convert.py input.mp4 BADAPPLE.CVID
-    python Tools/cvid_convert.py input.mp4 BADAPPLE.CVID --dither
-    python Tools/cvid_convert.py input.mp4 BADAPPLE.CVID --threshold 100
+    python Tools/cvid_convert.py input.mp4 VIDEO.CVID
+    python Tools/cvid_convert.py input.mp4 VIDEO.CVID --dither
+    python Tools/cvid_convert.py input.mp4 VIDEO.CVID --threshold 100
     python Tools/cvid_convert.py --info input.mp4
 
 CVID format: flat binary, 4000 bytes/frame (10 blocks x 400 bytes/block).
@@ -47,7 +47,7 @@ def parse_args():
     )
     ap.add_argument("input", help="Input video file (MP4, AVI, etc.)")
     ap.add_argument("output", nargs="?",
-                    help="Output CVID file (e.g. BADAPPLE.CVID). "
+                    help="Output CVID file (e.g. VIDEO.CVID). "
                          "Omit when using --info.")
     ap.add_argument("--dither", action="store_true",
                     help="Apply Floyd-Steinberg dithering (better gradients)")
