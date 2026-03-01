@@ -57,10 +57,7 @@ OPENINGCONT
 	;JMP FILEREAD
 	;RINTSTATUSANDWAIT STREAMINGFILE, 200
 
-	; Use SafeStream wrapper with NORMAL profile
-	; (Previously: direct IRQ_Stream call with hardcoded params)
-	LDA #STREAM_NORMAL
-	JSR SafeStream_Impl
+	JSR IRQ_Stream
 	
 	;JMP STREAMTEST2
 	DELAYFRAMES 5
@@ -1127,4 +1124,3 @@ SAVED_D022:	.byte 0
 SAVED_D023:	.byte 0
 
 .include "../../Loader/CartLibStream.s"
-.include "../../Loader/SafeStreamImpl.s"

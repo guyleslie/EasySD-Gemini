@@ -12,11 +12,7 @@ ZP_LF_SKIP_HI      = $85
 ZP_LF_PAYLOAD_LO   = $86
 ZP_LF_PAYLOAD_HI   = $87
 
-; ---- SafeStream temps (moved away from $87 collision) ----
-ZP_SS_OFFSET       = $8B
-ZP_SS_INTERVAL     = $8C
-ZP_SS_CHUNK        = $8D
-ZP_SS_DELAY        = $8E
+; $8B-$8E  FREE (SafeStream removed — params were ignored by Arduino)
 
 ; ---- StreamLargeFile (CartLibStream) uses $90-$95 ----
 ZP_STREAM_TARGET_ADDR_LO = $90

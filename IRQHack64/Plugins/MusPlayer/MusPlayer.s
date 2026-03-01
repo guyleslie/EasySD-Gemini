@@ -578,5 +578,4 @@ SAVED_D023: .byte 0
 ; Common libs
 ;------------------------------------------------------------
 .include "../../Loader/CartLibStream.s"
-.include "../../Loader/SafeStreamImpl.s"
 .include "../../Loader/DebugStrings.s"
