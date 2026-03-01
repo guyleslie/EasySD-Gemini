@@ -78,7 +78,6 @@ class Context:
     sym_dir: Path
     lst_dir: Path
     plugins_out_dir: Path
-    sdcard_dir: Path       # <build_dir>/sdcard — SD card image for release
 
 
 def make_context() -> Context:
@@ -97,7 +96,6 @@ def make_context() -> Context:
         sym_dir=build_dir / "symbol",
         lst_dir=build_dir / "listing",
         plugins_out_dir=build_dir / "plugins",
-        sdcard_dir=build_dir / "sdcard",
     )
 
 
@@ -365,9 +363,9 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
     petcat = resolve_tool(ctx, ["petcat", "petcat.exe"])
 
-    # BASIC header -> build/IrqLoaderMenu.obj
-    bas_src = ctx.irq_root / "Menus" / "EasySD" / "IrqLoaderMenu.bas"
-    bas_obj = ctx.build_dir / "IrqLoaderMenu.obj"
+    # BASIC header -> build/easysd.obj
+    bas_src = ctx.irq_root / "Menus" / "EasySD" / "EasySDMenu.bas"
+    bas_obj = ctx.build_dir / "easysd.obj"
     print(f"[CORE] petcat: {bas_src.relative_to(ctx.irq_root)}")
     with bas_src.open("rb") as r, bas_obj.open("wb") as w:
         p = subprocess.run([str(petcat), "-w2"], stdin=r, stdout=w, cwd=str(ctx.irq_root))
@@ -383,11 +381,11 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
         print(f"WARNING: {petmate_asm} not found, skipping PETMATE conversion")
 
     # Menu asm -> bin
-    menu_src = ctx.irq_root / "Menus" / "EasySD" / "IrqLoaderMenuNew.s"
-    menu_bin = ctx.build_dir / "IrqLoaderMenuNew.bin"
-    labels = ctx.sym_dir / "IrqLoaderMenuNew.txt"
-    vice_labels = ctx.sym_dir / "IrqLoaderMenuNew.vs"
-    listing = ctx.lst_dir / "IrqLoaderMenuNewLst.txt"
+    menu_src = ctx.irq_root / "Menus" / "EasySD" / "EasySDMenu.s"
+    menu_bin = ctx.build_dir / "easysd.bin"
+    labels = ctx.sym_dir / "easysd.txt"
+    vice_labels = ctx.sym_dir / "easysd.vs"
+    listing = ctx.lst_dir / "easysdLst.txt"
     print(f"[CORE] 64tass: {menu_src.relative_to(ctx.irq_root)}")
     run_cmd(
         [
@@ -491,8 +489,8 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
 
         print("[CORE] Arduino/EPROM artifacts generated.")
 
-    if not (ctx.build_dir / "IrqLoaderMenu.obj").exists():
-        raise SystemExit("ERROR: build/IrqLoaderMenu.obj missing (plugins need it).")
+    if not (ctx.build_dir / "easysd.obj").exists():
+        raise SystemExit("ERROR: build/easysd.obj missing (plugins need it).")
 
     print("[CORE] OK")
 
@@ -500,11 +498,11 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
 def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_prereq: bool = True) -> None:
     ensure_dirs(ctx)
 
-    bas_obj = ctx.build_dir / "IrqLoaderMenu.obj"
+    bas_obj = ctx.build_dir / "easysd.obj"
     if ensure_core_prereq and not bas_obj.exists():
-        print("[PLUGINS] Missing build/IrqLoaderMenu.obj -> building core prereq (no Arduino)...")
+        print("[PLUGINS] Missing build/easysd.obj -> building core prereq (no Arduino)...")
         build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=False, arduino_debug=0,
-                   menu_prg_name=("irqhack64-debug.prg" if debug else "irqhack64.prg"))
+                   menu_prg_name=("easysd-debug.prg" if debug else "easysd.prg"))
 
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
 
@@ -541,32 +539,6 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
         out_bin.unlink(missing_ok=True)
 
     print("[PLUGINS] OK")
-
-
-def populate_sdcard(ctx: Context) -> None:
-    """Copy release plugin binaries into build/sdcard/ with the correct SD card layout.
-
-    SD card layout:
-      PLUGINS/
-        CVDPLUGIN.PRG
-        KOAPLUGIN.PRG
-        ...
-    """
-    plugins_sd = ctx.sdcard_dir / "PLUGINS"
-    plugins_sd.mkdir(parents=True, exist_ok=True)
-
-    print("==============================================================")
-    print("[SDCARD] Populating build/sdcard/")
-    for _, _, out_base in PLUGIN_MATRIX:
-        src = ctx.plugins_out_dir / f"{out_base}.prg"
-        dst = plugins_sd / f"{out_base.upper()}.PRG"
-        if src.exists():
-            shutil.copy2(src, dst)
-            print(f"  - PLUGINS/{dst.name}")
-        else:
-            print(f"  WARNING: {src.name} not found, skipping")
-    print(f"[SDCARD] Done -> {ctx.sdcard_dir}")
-    print("==============================================================")
 
 
 # ============================================================================
@@ -893,7 +865,7 @@ def main(argv: Sequence[str]) -> int:
 
     build_arduino = (args.target in ("release", "debug-vice", "debug-arduino", "core")) and (not args.skip_arduino)
 
-    menu_prg_name = args.menu_prg_name or ("irqhack64-debug.prg" if debug else "irqhack64.prg")
+    menu_prg_name = args.menu_prg_name or ("easysd-debug.prg" if debug else "easysd.prg")
 
     print("==============================================================")
     print(f"EasySD BUILD ({args.target.upper() if args.target else 'RELEASE'})")
@@ -926,13 +898,9 @@ def main(argv: Sequence[str]) -> int:
         clean(ctx)
         build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=build_arduino, arduino_debug=arduino_debug, menu_prg_name=menu_prg_name)
         build_plugins(ctx, debug=debug, debug_break=debug_break, ensure_core_prereq=False)
-        if args.target == "release":
-            populate_sdcard(ctx)
         print("==============================================================")
         print(f"BUILD SUCCESSFUL ({args.target.upper()})")
         print(f"Output: {ctx.build_dir / menu_prg_name}")
-        if args.target == "release":
-            print(f"SD card: {ctx.sdcard_dir}")
         print("==============================================================")
         return 0
 
@@ -944,7 +912,7 @@ def main(argv: Sequence[str]) -> int:
         # Build C64
         c64_debug = 1 if args.debug else 0
         arduino_debug_all = 1 if args.debug else 0
-        menu_name = "irqhack64-debug.prg" if c64_debug else "irqhack64.prg"
+        menu_name = "easysd-debug.prg" if c64_debug else "easysd.prg"
 
         print("\n" + "="*70)
         print("BUILDING ALL: C64 + ARDUINO")
@@ -955,8 +923,6 @@ def main(argv: Sequence[str]) -> int:
         clean(ctx)
         build_core(ctx, debug=c64_debug, debug_break=debug_break, build_arduino=True, arduino_debug=arduino_debug_all, menu_prg_name=menu_name)
         build_plugins(ctx, debug=c64_debug, debug_break=debug_break, ensure_core_prereq=False)
-        if not args.debug:
-            populate_sdcard(ctx)
 
         # Build Arduino
         print("\n")
@@ -967,8 +933,6 @@ def main(argv: Sequence[str]) -> int:
         print("="*70)
         print(f"  C64 output: {ctx.build_dir / menu_name}")
         print(f"  Arduino: compiled (ready to upload)")
-        if not args.debug:
-            print(f"  SD card:  {ctx.sdcard_dir}")
         print("\nNext steps:")
         print(f"  python build.py arduino-upload COM4  # Upload firmware")
         print("="*70)

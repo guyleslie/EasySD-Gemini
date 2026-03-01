@@ -53,7 +53,7 @@ DEFAULT_PORT = 6502
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = REPO_ROOT / "IRQHack64" / "build"
 PRG_PATH = BUILD_DIR / "irqhack64-debug.prg"
-LABELS_PATH = BUILD_DIR / "symbol" / "IrqLoaderMenuNew.vs"
+LABELS_PATH = BUILD_DIR / "symbol" / "easysd.vs"
 
 # C64 KERNAL keyboard buffer addresses
 C64_KEYBUF = 0x0277      # Keyboard buffer (10 bytes)
@@ -778,7 +778,7 @@ class ViceMenuTester:
           Row 3 ($0478): file item 1 = "giana.prg"
           ...
 
-        COLS table (IrqLoaderMenuNew.s):
+        COLS table (EasySDMenu.s):
           COLS[0] = $042C  (dir header row, skipped by SETCURRENTROW via COLS+2 offset)
           COLS[1] = $0454  (file item 0, col 4 of row 2)
           COLS[2] = $047C  (file item 1)
@@ -971,7 +971,7 @@ class ViceMenuTester:
 
         Verifies CURRENTDIRINDEX tracks depth correctly.
         Mock supports DIRLEVEL 0..2 (root/games/demos).
-        DIRECTORIESMAXDEPTH = 10 (stack limit in IrqLoaderMenuNew.s).
+        DIRECTORIESMAXDEPTH = 10 (stack limit in EasySDMenu.s).
         """
         # Must start at root (DIRLEVEL=0)
         if self._read_sym_byte("DIRLEVEL") != 0:

@@ -1335,12 +1335,11 @@ void CartApi::SendHeader(unsigned char startLow, unsigned char startHigh, unsign
 }
 
 void CartApi::TransferMenu() {
-  //char irqHack64[] = "irqhack64.prg";  
-  static const unsigned char PROGMEM p_irqHack64[14] = {'i', 'r', 'q', 'h', 'a', 'c', 'k',  '6', '4', '.', 'p', 'r', 'g', 0};
-  char irqHack64[14];
+  static const unsigned char PROGMEM p_easysd[11] = {'e', 'a', 's', 'y', 's', 'd', '.', 'p', 'r', 'g', 0};
+  char easysd[11];
 
-  for (uint8_t i = 0;i<14;i++) {
-    irqHack64[i] = pgm_read_byte(p_irqHack64+i);
+  for (uint8_t i = 0;i<11;i++) {
+    easysd[i] = pgm_read_byte(p_easysd+i);
   }
 
   #ifdef EASYSD_DEBUG_SERIAL
@@ -1354,8 +1353,8 @@ void CartApi::TransferMenu() {
   
   unsigned char readFromFile = 0;  
   
-  if (sd.exists(irqHack64)) {
-    workingFile = sd.open(irqHack64);
+  if (sd.exists(easysd)) {
+    workingFile = sd.open(easysd);
     if (workingFile) {
       #ifdef EASYSD_DEBUG_SERIAL
         Serial.println(F("Menu from SD"));
