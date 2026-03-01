@@ -19,31 +19,20 @@ const unsigned char stateNone = 0;
 const unsigned char statePressed = 1;
 const unsigned char stateReleased = 2;
 
-
-const unsigned char stateBoot = 0;
-const unsigned char stateMenu = 1;
-const unsigned char stateGame = 2;
-
-/*
-volatile unsigned char transferMode = 2;
-*/
-
-unsigned char  state = stateNone;
+unsigned char state = stateNone;
 uint16_t pressTime = 0;
-
-//unsigned char cartridgeState = stateBoot;
 
 const unsigned char chipSelect = 10;
 
-void ShowMem() {
 #ifdef EASYSD_DEBUG_SERIAL
+void ShowMem() {
   uint16_t fr = FreeStack();
   Serial.print(F("RAM: ")); Serial.print(fr);
   Serial.print(F("/2048 (used:")); Serial.print(2048 - fr);
   Serial.print(F(") "));
   Serial.println(fr > 400 ? F("OK") : (fr > 300 ? F("LOW") : F("CRIT!")));
-#endif
 }
+#endif
 
 // Cold Boot SD Initialization with Retry Logic
 bool initSD() {
@@ -105,7 +94,6 @@ bool recoverSD() {
 }
 
 #ifdef EASYSD_DEBUG_SERIAL
-// SPRINT 6: Professional Startup Banner (DEBUG mode only)
 void printStartupBanner() {
   Serial.println(F("== EasySD v2.1.0 =="));
 }
@@ -135,35 +123,25 @@ void setup() {
 
   #ifdef EASYSD_DEBUG_SERIAL
   Serial.begin(57600);
-  // SPRINT 6: Professional startup banner
   printStartupBanner();
   #endif
 
-  // SPRINT 1: Explicit SPI initialization for SD card
+  // SPI initialization for SD card
   pinMode(chipSelect, OUTPUT);     // CS pin must be OUTPUT
   digitalWrite(chipSelect, HIGH);  // Deselect SD card initially
-  SPI.begin();                     // Initialize SPI bus
+  SPI.begin();
 
-  // SPRINT 6: SD init with retry logic for cold boot reliability
   bool sdSuccess = initSD();
   if (sdSuccess) { ledBootOk(); } else { ledBootFail(); }
 
   #ifdef EASYSD_DEBUG_SERIAL
-  // SPRINT 6: Print SD status with user-friendly messages
   printSDStatus(sdSuccess);
   #endif
 
-  // POST-SPRINT6: cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
-  // No need to call them explicitly here (removes duplicate init logging)
+  // cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
   cartApi.Init();
 }
 
-
-void SerialTestTerminal() {
-  while(1) {
-    cartApi.HandleApi();
-  }
-}
 
 void loop() {
   cartApi.HandleApi();
@@ -177,12 +155,10 @@ void loop() {
   if (digitalRead(SEL) && state == statePressed) {
     state = stateReleased;          
     elapsed = millis()/100 - pressTime;
-    if (elapsed >5) {
+    if (elapsed > 5) {
       cartApi.ResetNoCartridge();
-      //cartridgeState = stateBoot;      
     } else {
       cartApi.TransferMenu();
-      //cartridgeState = stateMenu;
     }
   }
   
@@ -199,19 +175,7 @@ void loop() {
   while (Serial.available() > 0) {
       char data=(char)Serial.read();
       switch(data) {
-          // SPRINT 1: Legacy menu disabled to save ~150 bytes
-          // Uncomment after Sprint 1 for full functionality:
-          //case '1' : cartApi.ReceiveFile(); break;
-          //case '2' : cartApi.TransferMenu(); break;
-          //case '3' : cartInterface.ResetC64(); break;
-          //case '4' : cartApi.ResetNoCartridge(); break;
-          //case '5' : cartApi.UpdateFile(); break;
-          //case '6' : SerialTestTerminal(); break;
-
-          // SPRINT 6: User-friendly commands
           case 'h' : printHelp(); break;
-
-          // SPRINT 1: Directory Navigation Testing
           case 'd' : testDirectoryNavigation(); break;
           case 'r' : testResetToRoot(); break;
           case 'p' : testPrintCurrentPath(); break;
@@ -227,7 +191,7 @@ void loop() {
 
 #ifdef EASYSD_DEBUG_SERIAL
 // ========================================================================
-// SPRINT 1: Directory Navigation Test Functions (DEBUG mode only)
+// Directory Navigation Test Functions (DEBUG mode only)
 // ========================================================================
 
 void testDirectoryNavigation() {
@@ -288,8 +252,8 @@ void testListDirectory() {
 // ========================================================================
 // Self-test: each test is a SEPARATE function so stack is fully freed
 // between tests. No static File - each function uses local File that
-// lives only for the duration of that test. (Sprint 1 lesson: max 32-64
-// bytes local, monitor FreeStack() > 300)
+// lives only for the duration of that test. Max 32-64 bytes local,
+// monitor FreeStack() > 300.
 // ========================================================================
 
 // Helper: print [T] tag + test name + PASS/FAIL

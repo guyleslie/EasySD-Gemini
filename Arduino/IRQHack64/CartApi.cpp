@@ -1978,27 +1978,6 @@ void CartApi::ResetNoCartridge() {
 }
 
 
-void CartApi::SendStubLoader() {
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("Loading stub"));
-  #endif  
-
-  cartInterface.InitTransfer();
-  delay(500);
-  
-  for (int i = 0;i<stub_len;i++) {
-    cartInterface.TransmitByteFast(*(stubData + i));
-  }
-
-  for (int i = stub_len;i<256;i++) {
-      cartInterface.TransmitByteFast(0x20); 
-  }
- 
-  cartInterface.EndTransfer(); 
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("Done"));
-  #endif  
-}
 /*
 void CartApi::SendTestProgramToSecondaryLoader() {
   #ifdef EASYSD_DEBUG_SERIAL

@@ -153,8 +153,6 @@ class CartApi {
   void TransferMenu();
   void ResetNoCartridge();  
   void UpdateFile();
-  //void SendTestProgramToSecondaryLoader();
-  void SendStubLoader(); 
   void ReceiveFile();
   void TransferGame(char * selectedFileName);
   void TransferGame(StringPrint selectedFile);

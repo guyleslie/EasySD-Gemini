@@ -24,7 +24,6 @@
 #define SINGLE_WAIT 35
 
 
-/* Signaling/SM definitions */
 #define ONE 1
 #define ZERO 0
 #define BIT_WAITING  0
@@ -42,8 +41,6 @@
 #define IDENTIFIER_3_OK 3
 #define GOT_COMMAND_BYTE 4
 #define IN_TRANSMISSION 5
-
-/* Signaling/SM definitions */
 
 
 
@@ -85,7 +82,6 @@ class CartInterface {
   void TransmitByteFastStd(unsigned char val);
   void StreamByte(unsigned char value);
   void InitTransfer();
-  void EndTransfer();
   void HandleReceive();
   void ResetReceive();
   void ResetReceiveNoStateChange();
