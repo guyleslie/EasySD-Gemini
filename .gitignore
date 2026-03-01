@@ -24,6 +24,10 @@ Thumbs.db
 .DS_Store
 nul
 
+# SD card media files (large binaries, generated locally)
+sdcard/*.CVID
+sdcard/*.cvid
+
 # Backup archives
 *.zip
 
