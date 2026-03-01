@@ -179,8 +179,10 @@ void CartInterface::IOSetup() {
     digitalWrite(NMI, HIGH);
   #endif
 
+  #ifndef EASYSD_DEBUG_SERIAL
   pinMode(STATUS_LED, OUTPUT);
   digitalWrite(STATUS_LED, LOW);
+  #endif
 }
 
 

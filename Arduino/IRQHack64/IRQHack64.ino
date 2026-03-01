@@ -34,6 +34,7 @@ uint16_t pressTime = 0;
 
 const unsigned char chipSelect = 10;
 
+#ifndef EASYSD_DEBUG_SERIAL
 // Blink STATUS_LED count times, then leave LED off
 static void ledBlink(uint8_t count, uint8_t on_ms, uint8_t off_ms) {
   for (uint8_t i = 0; i < count; i++) {
@@ -43,6 +44,7 @@ static void ledBlink(uint8_t count, uint8_t on_ms, uint8_t off_ms) {
     delay(off_ms);
   }
 }
+#endif
 
 void ShowMem() {
 #ifdef EASYSD_DEBUG_SERIAL
@@ -101,7 +103,6 @@ bool recoverSD() {
       #ifdef EASYSD_DEBUG_SERIAL
       Serial.println(F("[ERR] SD recover FAIL"));
       #endif
-      digitalWrite(STATUS_LED, LOW);  // LED off = SD dead
       return false;
     }
   }
@@ -111,8 +112,8 @@ bool recoverSD() {
   #endif
   #ifndef EASYSD_DEBUG_SERIAL
   ledBlink(2, 200, 150);           // 2 blinks = SD recovered
-  #endif
   digitalWrite(STATUS_LED, HIGH);  // LED on = ready
+  #endif
   return true;
 }
 
@@ -161,11 +162,11 @@ void setup() {
   #ifndef EASYSD_DEBUG_SERIAL
   if (sdSuccess) {
     ledBlink(3, 200, 150);           // 3 blinks = boot OK
+    digitalWrite(STATUS_LED, HIGH);  // LED on = ready
   } else {
     ledBlink(6, 100, 100);           // 6 fast blinks = SD error
   }
   #endif
-  digitalWrite(STATUS_LED, sdSuccess ? HIGH : LOW);
 
   #ifdef EASYSD_DEBUG_SERIAL
   // SPRINT 6: Print SD status with user-friendly messages
