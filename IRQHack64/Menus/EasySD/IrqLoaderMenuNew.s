@@ -61,10 +61,6 @@ CART_ROM_RESTORE .macro
 	*=$080E
 	LDX #$FB
 	TXS
-;	LDA MODULATION_ADDRESS
-;	DELAYFRAMES	10
-;	LDA #PP_CONFIG_RAM_ON_BASIC
-;	STA PROCESSOR_PORT
 	JSR PREINIT
 
 .if DEBUG = 1
@@ -78,8 +74,6 @@ CART_ROM_RESTORE .macro
 	JSR DISPLAYSCREENGRAPHICS
 	LDA #$40
 	STA $028A		; Disable all key repeat (RPTFLG)
-	;JSR POSTINIT		;Clears screen, disables interrupts, copies sid to $C000 and inits it.
-	;JMP INPUT_GET
 .if DEBUG = 0 
 	JSR IRQ_StartTalking
 .else
@@ -1762,39 +1756,10 @@ PARENTDIR
 DIRSTACK
 	.FILL 32 * DIRECTORIESMAXDEPTH
 
-	
-;	*=$0E00
-
-SID	
-; 	.binary "SidFile.bin"
-
-;.include "PatternMatch.s"
+SID
 .include "../../Loader/CartLibStream.s"
-;.include "../../Loader/FakeCartLib.s"
-;.include "../../Loader/FakeCartLibHi.s"
-.include "Filename.s"		
-	
+.include "Filename.s"
 
-; File name storage area
-;	*=$1BEF
-;	.BYTE 64
-;DATAAREA 
-
-;CURPAGEITEMS	= $1BFE
-;PAGECOUNT	= $1BFF
-;CURPAGEINDEX	= $1BF2
-;GAMELIST	 = $1C00
-;IRQBUFFER 	 = $1F00
-
-;DIRLOAD = GAMELIST - 2
-
-
-
-;	.BYTE 64
-;DATAAREA 
-
-; character data
-;*=$2800
 PRGSCREENDATA
 	; Generated from PETMATE menu.asm by build.py (lowercase/uppercase charset)
 	.binary "menu.bin"

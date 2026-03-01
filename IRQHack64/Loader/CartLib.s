@@ -271,24 +271,6 @@ IRQ_ReceiveFragment
 	BVC -		
 
 	
-;	TSX 
-;	STX $C100
-;AG	
-;	LDY #00
-;-	
-;	LDA $0100, Y
-;	STA $C000, Y
-;	INY
-;	BNE -
-
-	;JMP AG
-	;JMP *
-	; Remove last RTS
-	;TSX
-	;INX
-	;INX
-	;TXS
-	;JMP $0905
 	; Do a fake RTS
 	LDA ZP_IRQ_CALLBACK_HI
 	PHA

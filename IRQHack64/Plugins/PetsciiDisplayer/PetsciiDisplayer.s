@@ -394,22 +394,4 @@ BADSIZE
 .include "../../Loader/CartLibStream.s"
 .include "../../Loader/DebugStrings.s"
 
-;DIRECTORIESMAXDEPTH	= 10	
-;MAXFILENAMELENGTH = 32
-
-;-       = DIRSTACK + range(0, MAXFILENAMELENGTH * DIRECTORIESMAXDEPTH, MAXFILENAMELENGTH)
-;DIRNAMESLO   .byte <(-)
-;DIRNAMESHI   .byte >(-)
-
-
-;PARENTDIR
-;	.TEXT ".."
-;	.FILL 30,0
-
-; Library on the arduino doesn't support opening parent directories, so we need to go to root and then 
-; traverse the path to the current path's parent.
-;DIRSTACK
-;	.FILL 32 * DIRECTORIESMAXDEPTH
-
 READBUFFER
- ;	.binary "unclenash.petg"
