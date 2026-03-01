@@ -15,6 +15,7 @@
 #define NMI 8
 #define RESET 9
 #define SEL 18
+#define STATUS_LED 19  // A5 — status indicator LED
 
 #define PRE_WAIT 3
 #define INITIAL_WAIT 17

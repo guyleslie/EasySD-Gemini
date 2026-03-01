@@ -163,22 +163,24 @@ uint16_t CartInterface::Read() {
 }
 
 void CartInterface::IOSetup() {
-  pinMode(IO2, INPUT);    
-  pinMode(EXROM, OUTPUT);    
-  digitalWrite(EXROM, HIGH);    
-  pinMode(SEL, INPUT);  
-  digitalWrite(SEL, HIGH); //Activate internal pullup    
-  #ifdef OPENCOLLECTORSTYLE      
-    ResetHigh();        
+  pinMode(IO2, INPUT);
+  pinMode(EXROM, OUTPUT);
+  digitalWrite(EXROM, HIGH);
+  pinMode(SEL, INPUT);
+  digitalWrite(SEL, HIGH); //Activate internal pullup
+  #ifdef OPENCOLLECTORSTYLE
+    ResetHigh();
     NmiHigh();
-  #else  
+  #else
     pinMode(RESET, OUTPUT);
     digitalWrite(RESET, HIGH);
-    
-    pinMode(NMI, OUTPUT);
-    digitalWrite(NMI, HIGH);                
-  #endif  
 
+    pinMode(NMI, OUTPUT);
+    digitalWrite(NMI, HIGH);
+  #endif
+
+  pinMode(STATUS_LED, OUTPUT);
+  digitalWrite(STATUS_LED, LOW);
 }
 
 
