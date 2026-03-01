@@ -78,6 +78,7 @@ class Context:
     sym_dir: Path
     lst_dir: Path
     plugins_out_dir: Path
+    sdcard_dir: Path       # <build_dir>/sdcard — SD card image for release
 
 
 def make_context() -> Context:
@@ -96,6 +97,7 @@ def make_context() -> Context:
         sym_dir=build_dir / "symbol",
         lst_dir=build_dir / "listing",
         plugins_out_dir=build_dir / "plugins",
+        sdcard_dir=build_dir / "sdcard",
     )
 
 
@@ -541,6 +543,32 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
     print("[PLUGINS] OK")
 
 
+def populate_sdcard(ctx: Context) -> None:
+    """Copy release plugin binaries into build/sdcard/ with the correct SD card layout.
+
+    SD card layout:
+      PLUGINS/
+        CVDPLUGIN.PRG
+        KOAPLUGIN.PRG
+        ...
+    """
+    plugins_sd = ctx.sdcard_dir / "PLUGINS"
+    plugins_sd.mkdir(parents=True, exist_ok=True)
+
+    print("==============================================================")
+    print("[SDCARD] Populating build/sdcard/")
+    for _, _, out_base in PLUGIN_MATRIX:
+        src = ctx.plugins_out_dir / f"{out_base}.prg"
+        dst = plugins_sd / f"{out_base.upper()}.PRG"
+        if src.exists():
+            shutil.copy2(src, dst)
+            print(f"  - PLUGINS/{dst.name}")
+        else:
+            print(f"  WARNING: {src.name} not found, skipping")
+    print(f"[SDCARD] Done -> {ctx.sdcard_dir}")
+    print("==============================================================")
+
+
 # ============================================================================
 # Arduino Build Functions (NEW - POST-SPRINT6)
 # ============================================================================
@@ -898,9 +926,13 @@ def main(argv: Sequence[str]) -> int:
         clean(ctx)
         build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=build_arduino, arduino_debug=arduino_debug, menu_prg_name=menu_prg_name)
         build_plugins(ctx, debug=debug, debug_break=debug_break, ensure_core_prereq=False)
+        if args.target == "release":
+            populate_sdcard(ctx)
         print("==============================================================")
         print(f"BUILD SUCCESSFUL ({args.target.upper()})")
         print(f"Output: {ctx.build_dir / menu_prg_name}")
+        if args.target == "release":
+            print(f"SD card: {ctx.sdcard_dir}")
         print("==============================================================")
         return 0
 
@@ -923,6 +955,8 @@ def main(argv: Sequence[str]) -> int:
         clean(ctx)
         build_core(ctx, debug=c64_debug, debug_break=debug_break, build_arduino=True, arduino_debug=arduino_debug_all, menu_prg_name=menu_name)
         build_plugins(ctx, debug=c64_debug, debug_break=debug_break, ensure_core_prereq=False)
+        if not args.debug:
+            populate_sdcard(ctx)
 
         # Build Arduino
         print("\n")
@@ -933,6 +967,8 @@ def main(argv: Sequence[str]) -> int:
         print("="*70)
         print(f"  C64 output: {ctx.build_dir / menu_name}")
         print(f"  Arduino: compiled (ready to upload)")
+        if not args.debug:
+            print(f"  SD card:  {ctx.sdcard_dir}")
         print("\nNext steps:")
         print(f"  python build.py arduino-upload COM4  # Upload firmware")
         print("="*70)
