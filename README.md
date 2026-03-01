@@ -9,6 +9,7 @@ EasySD brings SD card support to the C64 through a cartridge-based system combin
 ## Features
 
 - **SD Card File Browser** - Navigate directories and select files from FAT-formatted SD cards
+  - Cursor key navigation, inverse selection highlight, directory header row
 - **Plugin System** - Extensible file type support through dedicated plugins:
   - **PRG** - Launch C64 programs with KERNAL hooking for BASIC LOAD compatibility
   - **TAP** - Automatic TAP-to-PRG conversion (convert+run or save to SD)
@@ -17,15 +18,17 @@ EasySD brings SD card support to the C64 through a cartridge-based system combin
   - **WAV** - Stream and play digital audio (double-buffered)
   - **MUS** - Play Compute's Sidplayer SID music files
   - **CVID** - Play Bad Apple!! CVID video files
+- **Status LED** - Visual boot and SD health indicator on pin A5 (3 blinks = OK, 6 = fail)
 - **Production-Ready** - Reliable directory navigation, cold boot retry, memory-safe operations
 - **SdFat 2.x** - Modern SD card library with full API compliance
 
 ## Hardware Requirements
 
 - **Commodore 64** (PAL or NTSC)
-- **Arduino Nano** or **Pro Mini** (ATmega328P)
+- **Arduino Nano 3.x** (ATmega328P)
 - **SD card module** (SPI interface)
 - **EasySD cartridge PCB** (see schematic above for circuit design)
+- **Status LED** on pin A5 (optional but recommended)
 
 ## Quick Start
 
@@ -45,8 +48,11 @@ python Tools/build.py arduino-setup
 # Full release build (C64 + Arduino)
 python Tools/build.py release
 
-# Upload firmware to Arduino
+# Upload firmware to Arduino (USB serial)
 python Tools/build.py arduino-upload COM4
+
+# Or: upload via ISP programmer (USBTinyISP)
+python Tools/build.py arduino-upload-isp
 
 # Or: debug build for development
 python Tools/build.py debug-arduino
@@ -83,6 +89,7 @@ EasySD Gemini/
 | [docs/build/](docs/build/) | Build system documentation |
 | [docs/architecture/](docs/architecture/) | Technical architecture docs |
 | [docs/plugins/](docs/plugins/) | Plugin documentation |
+| [docs/testing/VICE_MENU_TEST.md](docs/testing/VICE_MENU_TEST.md) | Automated VICE C64 menu test suite |
 
 ## Architecture Overview
 
