@@ -104,6 +104,12 @@ physical display (multicolor mode).
 
 ## CVID File Format (reference)
 
+> **Note:** The "CVID" name is used by EasySD as a convenient abbreviation for
+> "C64 Video". It is **not** related to the Cinepak video codec (also abbreviated
+> CVID) from the 1990s. The EasySD CVID format is a simple, custom binary format
+> with no compression.
+
+
 | Property       | Value                              |
 |----------------|------------------------------------|
 | Resolution     | 160×80 effective pixels            |
