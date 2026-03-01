@@ -28,7 +28,6 @@ STREAMINGBUFFERHALF = 64
 	*=$C000
 
 	;*=$080E	
-PETGLPLUGINREAD				;Remove when callback in the transfer code fixed.
 	JMP MAIN
 	
 MAIN		
@@ -580,7 +579,7 @@ SETUPMUSICTRANSFER
 	CMP #PLAYTYPE_BOTH
 	
 	
-	BEQ SetupBoth					; TODO : Handle
+	BEQ SetupBoth
 	
 	
 	

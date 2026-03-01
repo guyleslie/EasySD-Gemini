@@ -1,5 +1,75 @@
-; BurstLoader video displayer for IRQHack64
-; 14/07/2016 - Istanbul
+; CvidPlayer — Bad Apple!! video player for EasySD / IRQHack64
+; Original: 14/07/2016 - Istanbul
+;
+;==============================================================================
+; CVID FORMAT SPECIFICATION
+;==============================================================================
+; CVID is a custom, C64-optimized video format designed for NMI-driven
+; streaming via the EasySD cartridge. Each frame is exactly 400 bytes,
+; consumed as 50 fragments of 8 bytes each via COMMAND_NI_STREAM (26).
+;
+; FRAME BLOCK LAYOUT (400 bytes, stored at TRANSFERBUFFER = $A000)
+; ----------------------------------------------------------------
+; Offset $000-$04F (80 bytes): Bitmap quadrant 0 (line pairs 0-1)
+; Offset $050-$09F (80 bytes): Bitmap quadrant 1 (line pairs 2-3)
+; Offset $0A0-$0EF (80 bytes): Bitmap quadrant 2 (line pairs 4-5)
+; Offset $0F0-$13F (80 bytes): Bitmap quadrant 3 (line pairs 6-7)
+; Offset $140-$167 (40 bytes): Screen color data for this frame row
+; Offset $168-$18F (40 bytes): D800 color data for the final line pair
+;
+; DISPLAY PARAMETERS
+; ------------------
+; Mode    : Multicolor bitmap (VIC-II, PAL)
+; Resolution: 160×80 pixels effective (10 character rows × 40 chars wide)
+;             Each pixel is 2×2 physical pixels; physical size: 320×80.
+; Position: Starts at PICTUREROW=3 (screen row 3, approx Y=24 on PAL screen)
+; Frame rate: 5 fps (1 video frame = 10 PAL raster frames = 10 CVID blocks)
+; Throughput: 10 blocks × 400 bytes × 50 Hz = 20 KB/s from SD card
+; Colors per cell (multicolor):
+;   00 = Background ($D021)
+;   01 = Screen RAM color (from $0400 / $4400)
+;   10 = Color RAM ($D800)
+;   11 = Border color ($D020)
+;
+; VIDEO FRAME ASSEMBLY (10 consecutive CVID blocks = 1 complete video frame)
+; Each CVID block updates exactly ONE character row (8 scan lines, 40 cells):
+;   Block 0 → character row 0 (scan lines 0-7)
+;   Block 1 → character row 1 (scan lines 8-15)
+;   ...
+;   Block 9 → character row 9 (scan lines 72-79)
+; Blocks 0-9 fill bank B0, blocks 10-19 fill bank B1 (double-buffering).
+; One bank displays while the other receives and decodes. No screen tearing
+; because the NMI fires at STARTRASTER=241 (VBlank / vertical blanking period).
+;
+; MEMORY MAP
+; ----------
+; $2000-$3FFF  Bitmap bank 0 (VIDEO_B0)   — displayed while bank 1 decodes
+; $4000-$418F  Color buffer (COLORBUFFER) — accumulates D800 data for 10 rows
+; $4400-$47E8  Screen bank 1 (SCREEN_HI)
+; $0400-$07E8  Screen bank 0 (SCREEN_LO)
+; $6000-$7FFF  Bitmap bank 1 (VIDEO_B1)   — displayed while bank 0 decodes
+; $A000-$A18F  Transfer buffer (TRANSFERBUFFER) — NMI pseudo-DMA target (400 B)
+;
+; STREAMING PIPELINE
+; ------------------
+; 1. C64 calls IRQ_NIStream with A=50 (50 fragments × 8 bytes = 400 bytes/block)
+; 2. Arduino enters HandleNonInterruptedStream(): disables all interrupts,
+;    pre-loads two 400-byte SD buffers (double-buffering on Arduino side), then
+;    streams bytes synchronised to IO2 strobes from C64 NMI handlers.
+;    Infinite loop until SEL (GAME) line goes low.
+; 3. NMI handlers (NMI_000..NMI_031 in NMI.s) fire at STARTRASTER=241 (VBlank),
+;    each receiving 8 bytes via READCART_MODULATED into $A000+.
+;    32 handlers × 8 bytes = 256 bytes, remaining 144 bytes from a second pass.
+; 4. Foreground (FGStuff.s) decompresses the 400-byte block:
+;    copies the 4 bitmap quadrants to the inactive bank, writes screen color
+;    data, and accumulates D800 colors in COLORBUFFER for all 10 rows.
+; 5. Playback stops when the CVID file is exhausted and the plugin calls
+;    IRQ_ExitToMenu (drives SEL low, terminating the NI stream on Arduino).
+;
+; VIDEO FILE: VIDEO.CVID on SD card root (filename hardcoded below)
+;   "Bad Apple!!" Touhou fan video — approx. 5 fps, ~104 KB total
+;   CVID converter tool is external (not part of this repo).
+;==============================================================================
 
 INITIALWAITTIME = 150
 
@@ -264,8 +334,6 @@ INIT		; Input : None, Changed : A
 		
 	RTS
 	
-; We do nothing at the moment	
-PETGLPLUGINREAD			; TODO : Remove
 ERROR_OPENING_FILE	
 	JSR IRQ_ExitToMenu
 	
@@ -304,7 +372,7 @@ COLORBUFFER	= $4000
 
 
 VIDEOFILE	
-	.TEXT "BADAPPLE.CVID"
+	.TEXT "VIDEO.CVID"
 	.BYTE  0
 	
 .include "Common.s"

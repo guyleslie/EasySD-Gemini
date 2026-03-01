@@ -222,11 +222,11 @@ STA address
 ```
 
 **Use Cases:**
-- NMI handlers (BurstLoader)
+- NMI handlers (CvidPlayer)
 - Timing-synchronized transfers
 - Hardware-dependent sequences
 
-**Frequency:** 400× in BurstLoader/NMI.s
+**Frequency:** 400× in CvidPlayer/NMI.s
 
 #### SETBANK
 

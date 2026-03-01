@@ -95,7 +95,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - Use `ERROR_GATE` macro after file operations
 - Use `LoadFileBySize` for loading, `SafeStream` for audio streaming
 
-Built-in plugins: PRG launcher, KOA viewer, PETG viewer, WAV player, MUS player, BurstLoader.
+Built-in plugins: PRG launcher, KOA viewer, PETG viewer, WAV player, MUS player, CvidPlayer (Bad Apple!! CVID video).
 
 ## Critical Arduino Constraints
 

@@ -183,7 +183,7 @@ NEXTPAGE
 	LDX CURPAGEINDEX
 	INX
 	CPX PAGECOUNT
-	BCC EXECNEXT	; FIX: Use standard BCC (Branch if Carry Clear) instead of BLT
+	BCC EXECNEXT	; BCC = unsigned less-than (6502 has no BLT)
 	JMP INPUT_GET
 EXECNEXT
 	INC CURPAGEINDEX	
@@ -559,8 +559,6 @@ LDA #1
 	STA $D020
 
 	;JSR IRQ_EnableDisplay
-
-PETGLPLUGINREAD
 
 	DELAYFRAMES	1
 	JSR IRQ_CloseFile

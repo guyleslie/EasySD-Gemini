@@ -137,17 +137,22 @@ IRQ_CloseFile
 
 
 
-; Sets up micro to stream content from current open file. 
-; Micro sends 8 bytes for each flagging of cartridge receive port
-; Receiver should hard syncronize itself to this 8 bytes.
-; Receiver should send the number of 8 bytes to receive. This should not exceed 50 or else the command fails.
-; Unlike normal streaming micro handles this type of streaming in the foreground and doesn't use interrupts.
-; To stop streaming...[TODO]
+; Starts non-interrupted (NI) streaming from the currently open file.
+; The micro sends data in bursts of (A * 8) bytes, synchronized to IO2 strobes
+; driven by the C64 receiver (NMI handlers in NMI.s). The micro runs this in
+; the foreground with all interrupts disabled for maximum throughput.
+;
+; Fragment count controls the per-iteration buffer size only, NOT total frames.
+; Streaming continues indefinitely until the C64 drives the SEL (GAME) line low.
+; To stop: call IRQ_ExitToMenu, which resets the cartridge interface via SEL.
+; There is no partial-transfer stop — this is by design for real-time streaming.
+;
+; Max fragment count: 50 (= 400 bytes per burst). Larger values are rejected.
 ;-----------------------------------------
-; Registers In : A (8 byte fragment count)
+; Registers In : A (8-byte fragment count, 1..50)
 ; Registers Used : A, X, Y
 ; Registers Out : A (Status of operation)
-;-----------------------------------------	
+;-----------------------------------------
 IRQ_NIStream
 	PHA
 	LDA #COMMAND_NI_STREAM
