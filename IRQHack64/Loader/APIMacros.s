@@ -37,14 +37,14 @@
 ; Bytes: ~15 bytes
 ;
 ; Example:
-;   #OPENFILE CASSETTEBUFFER, #31, #01
+;   #OPENFILE FILE_PATH_BUF, #31, #01
 ;   BCC file_opened_ok
 ;   JMP error_handler
 ;   file_opened_ok:
 ;
 ; Replaces:
-;   LDX #<CASSETTEBUFFER
-;   LDY #>CASSETTEBUFFER
+;   LDX #<FILE_PATH_BUF
+;   LDY #>FILE_PATH_BUF
 ;   LDA #31
 ;   JSR IRQ_SetName
 ;   LDX #01

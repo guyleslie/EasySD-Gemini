@@ -76,7 +76,6 @@ INITIALWAITTIME = 150
 STARTRASTER		= 241
 
 BITTARGET = $64
-FILENAMESHADOW = $FF00
 
 FG_GATE = $FB
 
@@ -116,9 +115,16 @@ DELAYFRAMES	.macro
 	
 	LDA #$37
 	STA $01
-	LDX #<CASSETTEBUFFER
-	LDY #>CASSETTEBUFFER
-	LDA #0 ; Dynamic length (null-terminated)
+	; Compute length of null-terminated path placed in FILE_PATH_BUF by the menu
+	LDX #$00
+-	LDA FILE_PATH_BUF, X
+	BEQ CVID_STRLEN_DONE
+	INX
+	BNE -
+CVID_STRLEN_DONE
+	TXA             ; A = path length
+	LDX #<FILE_PATH_BUF
+	LDY #>FILE_PATH_BUF
 	JSR IRQ_SetName
 	LDX #01		; Flags=read
 	JSR IRQ_OpenFile
@@ -368,13 +374,6 @@ ENDOFEXECUTABLE
 
 COLORBUFFER	= $4000
 
-* = $4190
-
-
-VIDEOFILE	
-	.TEXT "VIDEO.CVID"
-	.BYTE  0
-	
 .include "Common.s"
 
 

@@ -325,7 +325,7 @@ def prebuild_checks(ctx: Context) -> None:
 
 PLUGIN_MATRIX = [
     # (plugin_dir, asm_file, out_basename)
-    ("CvidPlayer", "CvidPlayer.s", "cvidplugin"),
+    ("CvidPlayer", "CvidPlayer.s", "cvdplugin"),
     ("KoalaDisplayer", "KoalaDisplayer.s", "koaplugin"),
     ("PetsciiDisplayer", "PetsciiDisplayer.s", "petgplugin"),
     ("PrgPlugin", "PrgPlugin.s", "prgplugin"),

@@ -183,8 +183,8 @@ LoadSid_Fail:
 ;   Opens selected file name (FILENAME), loads MUS payload to $8000.
 ;------------------------------------------------------------
 LoadSelectedMus8000:
-    ldx #<CASSETTEBUFFER
-    ldy #>CASSETTEBUFFER
+    ldx #<FILE_PATH_BUF
+    ldy #>FILE_PATH_BUF
     lda #31
     jsr IRQ_SetName
 
