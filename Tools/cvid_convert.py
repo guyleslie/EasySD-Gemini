@@ -221,7 +221,7 @@ def _progress(frame_count, total_frames, elapsed):
         frac   = 0.0
         filled = 0
         total_s = "?"
-    bar  = "\u2588" * filled + "\u2591" * (bar_w - filled)
+    bar  = "#" * filled + "-" * (bar_w - filled)
     rate = frame_count / elapsed if elapsed > 0 else 0.0
     written_kb = frame_count * BYTES_PER_FRAME / 1024
     print(
