@@ -1,5 +1,6 @@
 #include "IrqHack64.h"
 #include "CartInterface.h"
+#include "StatusLed.h"
 #include "CartApi.h"
 #include <Arduino.h>
 #include <EEPROM.h>
@@ -33,18 +34,6 @@ uint16_t pressTime = 0;
 //unsigned char cartridgeState = stateBoot;
 
 const unsigned char chipSelect = 10;
-
-#ifndef EASYSD_DEBUG_SERIAL
-// Blink STATUS_LED count times, then leave LED off
-static void ledBlink(uint8_t count, uint8_t on_ms, uint8_t off_ms) {
-  for (uint8_t i = 0; i < count; i++) {
-    digitalWrite(STATUS_LED, HIGH);
-    delay(on_ms);
-    digitalWrite(STATUS_LED, LOW);
-    delay(off_ms);
-  }
-}
-#endif
 
 void ShowMem() {
 #ifdef EASYSD_DEBUG_SERIAL
@@ -103,6 +92,7 @@ bool recoverSD() {
       #ifdef EASYSD_DEBUG_SERIAL
       Serial.println(F("[ERR] SD recover FAIL"));
       #endif
+      ledSdFail();
       return false;
     }
   }
@@ -110,10 +100,7 @@ bool recoverSD() {
   #ifdef EASYSD_DEBUG_SERIAL
   Serial.println(F("[SD] Recovered"));
   #endif
-  #ifndef EASYSD_DEBUG_SERIAL
-  ledBlink(2, 200, 150);           // 2 blinks = SD recovered
-  digitalWrite(STATUS_LED, HIGH);  // LED on = ready
-  #endif
+  ledSdRecovered();
   return true;
 }
 
@@ -144,6 +131,7 @@ void printHelp() {
 
 void setup() {
   cartInterface.Init();
+  ledInit();
 
   #ifdef EASYSD_DEBUG_SERIAL
   Serial.begin(57600);
@@ -158,15 +146,7 @@ void setup() {
 
   // SPRINT 6: SD init with retry logic for cold boot reliability
   bool sdSuccess = initSD();
-
-  #ifndef EASYSD_DEBUG_SERIAL
-  if (sdSuccess) {
-    ledBlink(3, 200, 150);           // 3 blinks = boot OK
-    digitalWrite(STATUS_LED, HIGH);  // LED on = ready
-  } else {
-    ledBlink(6, 100, 100);           // 6 fast blinks = SD error
-  }
-  #endif
+  if (sdSuccess) { ledBootOk(); } else { ledBootFail(); }
 
   #ifdef EASYSD_DEBUG_SERIAL
   // SPRINT 6: Print SD status with user-friendly messages
