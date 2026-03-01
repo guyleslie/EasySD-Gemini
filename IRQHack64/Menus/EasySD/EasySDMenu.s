@@ -99,17 +99,24 @@ CART_ROM_RESTORE .macro
 	LDX #MAXDIRITEMS
 	LDA CURPAGEINDEX
 	
-.if DEBUG = 0 
-	JSR IRQ_ReadDirectory	
+.if DEBUG = 0
+	JSR IRQ_ReadDirectory
+	BCC _dir_ok
+	LDA #$02			; red
+	LDX #<MSG_SD_READ_ERR
+	LDY #>MSG_SD_READ_ERR
+	JSR STATUS_LINE
+_dir_ok
 .else
 	JSR SETDIR1
 	JSR DIRREAD
-.endif		
-		
-	; Do error handling if directory can't be read (carry is set)
+	LDA #$02			; red
+	LDX #<MSG_VICE_DEBUG
+	LDY #>MSG_VICE_DEBUG
+	JSR STATUS_LINE
+.endif
 
-		
-;Start of main loop	
+;Start of main loop
 INPUT_GET
 	LDA ISMUSICPLAYING	;Decide to play music or not (ISMUSICPLAYING is just a hardcoded constant)
 	BEQ SKIPMUSIC
@@ -382,6 +389,12 @@ DOREADDIRECTORY
 	LDA CURPAGEINDEX
 .if DEBUG = 0
 	JSR IRQ_ReadDirectoryNC
+	BCC _dirNC_ok
+	LDA #$02			; red
+	LDX #<MSG_SD_READ_ERR
+	LDY #>MSG_SD_READ_ERR
+	JSR STATUS_LINE
+_dirNC_ok
 .else
 	LDA DIRLEVEL
 	CMP #00
@@ -608,6 +621,7 @@ TAP_INVOKE_OK
 	TXA
 	AND #$01
 	BNE TAP_AUTORUN
+	LDA #$0B			; dark gray
 	LDX #<MSG_TAP_SAVED
 	LDY #>MSG_TAP_SAVED
 	JSR STATUS_LINE
@@ -705,6 +719,7 @@ TAP_SCAN_NO
 ; Waits for user choice. Returns X flags for IRQ_InvokeWithName.
 ; Default: Convert+Run (X=$01). Save-only: X=$00.
 TAP_CHOICE
+	LDA #$0B			; dark gray
 	LDX #<MSG_TAP_PROMPT
 	LDY #>MSG_TAP_PROMPT
 	JSR STATUS_LINE
@@ -740,46 +755,90 @@ TAP_SHOW_ERROR
 	BEQ _bad
 	CMP #$14			; TAP_WRITE_FAILED
 	BEQ _wr
+	LDA #$02			; red
 	LDX #<MSG_TAP_FAIL
 	LDY #>MSG_TAP_FAIL
 	JMP STATUS_LINE
 _uns
+	LDA #$02			; red
 	LDX #<MSG_TAP_UNSUPPORTED
 	LDY #>MSG_TAP_UNSUPPORTED
 	JMP STATUS_LINE
 _bad
+	LDA #$02			; red
 	LDX #<MSG_TAP_BAD
 	LDY #>MSG_TAP_BAD
 	JMP STATUS_LINE
 _wr
+	LDA #$02			; red
 	LDX #<MSG_TAP_WRITE
 	LDY #>MSG_TAP_WRITE
 	JMP STATUS_LINE
 
 
 ; Prints a 0-terminated string (X=lo, Y=hi) to bottom status line (row 24)
-STATUS_LINE
+; Internal: write string X/Y to bottom line ($07C0), pad remainder with spaces.
+;           Saves string ptr in $06/$07.
+SL_WRITE
 	STX $06
 	STY $07
-	LDY #$00
-_copy
+	LDY #$03			; col 0-2 = frame decoration, skip
+_slw_copy
 	LDA ($06), Y
-	BEQ _pad
+	BEQ _slw_pad
 	STA $07C0, Y
 	INY
-	CPY #$28			; 40
-	BNE _copy
+	CPY #$25			; 37 = stop before col 37-39 (frame, 3-char margin)
+	BNE _slw_copy
 	RTS
-_pad
+_slw_pad
 	LDA #$20
-_padloop
+_slw_padloop
 	STA $07C0, Y
 	INY
-	CPY #$28
-	BNE _padloop
+	CPY #$25			; 37
+	BNE _slw_padloop
 	RTS
-	
-SPECIALCMD		
+
+; Internal: color the non-space text portion of string at $06/$07 in
+;           bottom line color RAM ($DBC0) with color A.
+;           Uses $FB/$FC/$FD as temps.
+SL_COLOR
+	STA $FD				; save color
+	LDY #$00
+_slc_skip
+	LDA ($06), Y
+	BEQ _slc_done			; empty / all-spaces
+	CMP #$20
+	BNE _slc_text
+	INY
+	JMP _slc_skip
+_slc_text
+	STY $FB				; start col
+_slc_end
+	INY
+	LDA ($06), Y
+	BNE _slc_end
+	STY $FC				; end col (exclusive)
+	LDA $FD
+	LDX $FB
+_slc_loop
+	STA $DBC0, X
+	INX
+	CPX $FC
+	BNE _slc_loop
+_slc_done
+	RTS
+
+; Print string X/Y (lo/hi) to bottom status line with color A.
+; Chars $20 (space) are left uncolored; only non-space text gets the color.
+STATUS_LINE
+	PHA				; save color — SL_WRITE clobbers A
+	JSR SL_WRITE
+	PLA				; restore color
+	JMP SL_COLOR
+
+SPECIALCMD
 
 	; INVOKE PLUGIN
 
@@ -977,6 +1036,7 @@ SETFILENAME
 	RTS
 
 _sf_path_too_long
+	LDA #$02			; red
 	LDX #<MSG_PATH_TOO_LONG
 	LDY #>MSG_PATH_TOO_LONG
 	JSR STATUS_LINE
@@ -1553,6 +1613,7 @@ COPY_PATH_TO_SHADOW
 	RTS
 
 PATH_TOO_LONG_HANDLER
+	LDA #$02			; red
 	LDX #<MSG_PATH_TOO_LONG
 	LDY #>MSG_PATH_TOO_LONG
 	JSR STATUS_LINE
@@ -1984,31 +2045,39 @@ MOCK_DIR3_END
 ; TAP UI strings (0-terminated)
 ; ------------------------------------------------------------
 MSG_TAP_PROMPT
-	.TEXT "TAP: C=CONVERT+RUN  S=SAVE PRG"
+	.TEXT "   TAP: C=CONVERT+RUN  S=SAVE PRG"
 	.BYTE 0
 
 MSG_PATH_TOO_LONG
-	.TEXT "PATH TOO LONG"
+	.TEXT "   PATH TOO LONG"
 	.BYTE 0
 
 MSG_TAP_SAVED
-	.TEXT "TAP CONVERT OK: PRG SAVED"
+	.TEXT "   TAP CONVERT OK: PRG SAVED"
 	.BYTE 0
 
 MSG_TAP_UNSUPPORTED
-	.TEXT "UNSUPPORTED TAP (TURBO/NONSTD)"
+	.TEXT "   UNSUPPORTED TAP (TURBO/NONSTD)"
 	.BYTE 0
 
 MSG_TAP_BAD
-	.TEXT "BAD TAP (INVALID/SHORT)"
+	.TEXT "   BAD TAP (INVALID/SHORT)"
 	.BYTE 0
 
 MSG_TAP_WRITE
-	.TEXT "SD WRITE FAILED"
+	.TEXT "   SD WRITE FAILED"
 	.BYTE 0
 
 MSG_TAP_FAIL
-	.TEXT "TAP CONVERT FAILED"
+	.TEXT "   TAP CONVERT FAILED"
+	.BYTE 0
+
+MSG_SD_READ_ERR
+	.TEXT "   SD READ ERROR"
+	.BYTE 0
+
+MSG_VICE_DEBUG
+	.TEXT "   VICE DEBUG MODE"
 	.BYTE 0
 
 ; Plugin load address parsing support
