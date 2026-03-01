@@ -17,7 +17,7 @@ EasySD brings SD card support to the C64 through a cartridge-based system combin
   - **PETG** - Render PETSCII art
   - **WAV** - Stream and play digital audio (double-buffered)
   - **MUS** - Play Compute's Sidplayer SID music files
-  - **CVID** - Play Bad Apple!! CVID video files
+  - **CVID** - Play CVID format video files (VIDEO.CVID)
 - **Status LED** - Visual boot and SD health indicator on pin A5 (3 blinks = OK, 6 = fail)
 - **Production-Ready** - Reliable directory navigation, cold boot retry, memory-safe operations
 - **SdFat 2.x** - Modern SD card library with full API compliance
