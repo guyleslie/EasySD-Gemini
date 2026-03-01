@@ -4,7 +4,7 @@
 
 EasySD brings SD card support to the C64 through a cartridge-based system combining an Arduino Nano/Pro Mini "file server" with a C64-side menu and plugin architecture. Browse directories and load files directly from a standard FAT-formatted SD card.
 
-![EasySD Schematic](Schematic%20EasySD%20original.png)
+![EasySD Schematic](Schematic%20EasySD%20v3.png)
 
 ## Features
 
@@ -16,6 +16,7 @@ EasySD brings SD card support to the C64 through a cartridge-based system combin
   - **PETG** - Render PETSCII art
   - **WAV** - Stream and play digital audio (double-buffered)
   - **MUS** - Play Compute's Sidplayer SID music files
+  - **CVID** - Play Bad Apple!! CVID video files
 - **Production-Ready** - Reliable directory navigation, cold boot retry, memory-safe operations
 - **SdFat 2.x** - Modern SD card library with full API compliance
 
@@ -107,4 +108,4 @@ See original project for license terms.
 
 ---
 
-*Current version: v2.1.0 (2025-12-26)*
+*Current version: v3.1.1 (2026-02-28)*
