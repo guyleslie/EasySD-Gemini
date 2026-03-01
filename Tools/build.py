@@ -648,6 +648,56 @@ def arduino_upload(ctx: Context, port: str, debug_mode: bool = False) -> None:
     print(f"  python build.py arduino-monitor {port}")
 
 
+def find_avrdude(ctx: Context) -> tuple[Path, Path]:
+    """Find avrdude executable and config in Arduino15 packages"""
+    arduino15 = Path.home() / "AppData" / "Local" / "Arduino15"
+    avrdude_bins = sorted(arduino15.glob("packages/arduino/tools/avrdude/*/bin/avrdude.exe"))
+    avrdude_confs = sorted(arduino15.glob("packages/arduino/tools/avrdude/*/etc/avrdude.conf"))
+    if not avrdude_bins or not avrdude_confs:
+        raise SystemExit(
+            "ERROR: avrdude not found in Arduino15 packages.\n"
+            "Run: python build.py arduino-setup"
+        )
+    return avrdude_bins[-1], avrdude_confs[-1]
+
+
+def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = False) -> None:
+    """Compile and upload Arduino sketch via ISP programmer (USBTinyISP)"""
+    arduino_compile(ctx, debug_mode=debug_mode)
+
+    avrdude_exe, avrdude_conf = find_avrdude(ctx)
+
+    hex_file = ctx.arduino_root / "build" / "arduino.avr.nano" / "IRQHack64.ino.hex"
+    if not hex_file.exists():
+        raise SystemExit(f"ERROR: HEX file not found: {hex_file}")
+
+    print("\n" + "="*70)
+    print("UPLOADING VIA ISP (USBTinyISP)")
+    print("="*70)
+    print(f"  HEX:        {hex_file.name}")
+    print(f"  Programmer: usbtinyisp")
+    print(f"  SCK period: {sck_period} µs  ({1000 // sck_period} kHz)")
+    print(f"  DEBUG_SERIAL: {'ON' if debug_mode else 'OFF'}")
+    print("="*70)
+
+    run_cmd(
+        [
+            str(avrdude_exe),
+            f"-C{avrdude_conf}",
+            "-v",
+            "-p", "atmega328p",
+            "-c", "usbtiny",
+            f"-B{sck_period}",
+            f"-Uflash:w:{hex_file}:i",
+        ],
+        cwd=ctx.repo_root
+    )
+
+    print("\n" + "="*70)
+    print("ISP UPLOAD COMPLETE!")
+    print("="*70)
+
+
 def arduino_monitor(ctx: Context, port: str, baudrate: int = 57600) -> None:
     """Open serial monitor"""
     cli_exe = find_arduino_cli(ctx)
@@ -706,8 +756,10 @@ Examples:
   python build.py arduino-setup        # One-time setup
   python build.py arduino-compile      # Compile (release mode)
   python build.py arduino-compile --debug  # Compile (debug mode - SERIAL ON)
-  python build.py arduino-upload COM4  # Compile + Upload
-  python build.py arduino-monitor COM4 # Serial monitor
+  python build.py arduino-upload COM4          # Compile + Upload (USB)
+  python build.py arduino-upload-isp           # Compile + Upload (ISP/USBTinyISP)
+  python build.py arduino-upload-isp --isp-sck 10  # ISP with custom SCK period (µs)
+  python build.py arduino-monitor COM4         # Serial monitor
 
   # Full workflow
   python build.py all                  # C64 + Arduino (release)
@@ -724,7 +776,7 @@ Examples:
             "release", "debug-vice", "debug-arduino",
             "core", "plugins", "clean", "prebuild",
             # Arduino operations
-            "arduino-setup", "arduino-compile", "arduino-upload",
+            "arduino-setup", "arduino-compile", "arduino-upload", "arduino-upload-isp",
             "arduino-monitor", "arduino-list-ports", "arduino-clean",
             # Combined
             "all"
@@ -741,6 +793,8 @@ Examples:
     p.add_argument("--skip-arduino", action="store_true", help="Skip Arduino/EPROM artifacts in C64 builds")
     p.add_argument("--menu-prg-name", default=None, help="Override menu PRG output name")
     p.add_argument("--baudrate", type=int, default=57600, help="Baudrate for serial monitor (default: 57600)")
+    p.add_argument("--isp-sck", type=int, default=10, metavar="USEC",
+                   help="ISP SCK period in µs for arduino-upload-isp (default: 10 = 100kHz)")
 
     return p.parse_args(list(argv))
 
@@ -773,6 +827,10 @@ def main(argv: Sequence[str]) -> int:
             print("       python build.py arduino-upload COM4 --debug  (for debug mode)")
             return 1
         arduino_upload(ctx, args.port, debug_mode=args.debug)
+        return 0
+
+    if args.target == "arduino-upload-isp":
+        arduino_upload_isp(ctx, sck_period=args.isp_sck, debug_mode=args.debug)
         return 0
 
     if args.target == "arduino-monitor":
