@@ -52,7 +52,7 @@ DEFAULT_PORT = 6502
 # Build paths (relative to repo root)
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BUILD_DIR = REPO_ROOT / "IRQHack64" / "build"
-PRG_PATH = BUILD_DIR / "irqhack64-debug.prg"
+PRG_PATH = BUILD_DIR / "easysd-debug.prg"
 LABELS_PATH = BUILD_DIR / "symbol" / "easysd.vs"
 
 # C64 KERNAL keyboard buffer addresses

@@ -800,32 +800,21 @@ _slw_padloop
 	BNE _slw_padloop
 	RTS
 
-; Internal: color the non-space text portion of string at $06/$07 in
-;           bottom line color RAM ($DBC0) with color A.
-;           Uses $FB/$FC/$FD as temps.
+; Internal: color non-space chars of string at $06/$07 in bottom line
+;           color RAM ($DBC0) with color A. Uses no ZP temps: color in X, index in Y.
 SL_COLOR
-	STA $FD				; save color
+	TAX				; save color in X — avoids $FB-$FE (used by nav)
 	LDY #$00
-_slc_skip
-	LDA ($06), Y
-	BEQ _slc_done			; empty / all-spaces
-	CMP #$20
-	BNE _slc_text
-	INY
-	JMP _slc_skip
-_slc_text
-	STY $FB				; start col
-_slc_end
-	INY
-	LDA ($06), Y
-	BNE _slc_end
-	STY $FC				; end col (exclusive)
-	LDA $FD
-	LDX $FB
 _slc_loop
-	STA $DBC0, X
-	INX
-	CPX $FC
+	LDA ($06), Y
+	BEQ _slc_done
+	CMP #$20			; space = skip
+	BEQ _slc_next
+	TXA				; color
+	STA $DBC0, Y
+_slc_next
+	INY
+	CPY #$25			; 37 = same bound as SL_WRITE
 	BNE _slc_loop
 _slc_done
 	RTS
