@@ -52,7 +52,9 @@ MAIN
 
 ;Lets try to open a file
 	PRINTSTATUSANDWAIT OPENINGFILE, 100
-	JSR IRQ_DisableDisplay		
+	JSR IRQ_DisableDisplay
+	; CRITICAL: Start protocol session - MUST call IRQ_EndTalking on ALL exit paths
+	JSR IRQ_StartTalking
 	LDX #<FILE_PATH_BUF
 	LDY #>FILE_PATH_BUF
 	LDA #31
@@ -60,7 +62,7 @@ MAIN
 	LDX #01		; Flags=read
 	JSR IRQ_OpenFile
 	BCC OPENINGCONT
-	JMP EXITFAIL
+	JMP MAIN_ERROR_EXIT
 OPENINGCONT	
 	JSR IRQ_EnableDisplay
 
@@ -220,7 +222,15 @@ INPUT_GET
 	JSR SCNKEY		; Call kernal's key scan routine
  	JSR GETIN		; Get the pressed key by the kernal routine
   	BEQ INPUT_GET		; If zero then no key is pressed so repeat
-	
+
+; --------------------------------------------------
+; MAIN_ERROR_EXIT: Cleanup handler for MAIN section errors
+; Ensures IRQ_EndTalking is called before error exit
+; --------------------------------------------------
+MAIN_ERROR_EXIT
+	JSR IRQ_EndTalking	; CRITICAL: Cleanup protocol session
+	; Fall through to EXITFAIL
+
 EXITFAIL
 .if DEBUG = 1
 	LDA #$02
@@ -363,10 +373,12 @@ NEW_OPEN
 	LDX #01		; Flags=read
 	JSR IRQ_OpenFile
 	BCC OPEN_SUCCESS
+	; CRITICAL: Cleanup protocol session on error
+	JSR IRQ_EndTalking
 	LDA #128
 	SEC
-	JMP NEW_OPEN_FINISH	
-OPEN_SUCCESS	
+	JMP NEW_OPEN_FINISH
+OPEN_SUCCESS
 	DELAYFRAMES 2
 	LDA #<GENERALBUFFER
 	STA ZP_IRQ_DATA_LOW
@@ -376,12 +388,14 @@ OPEN_SUCCESS
 	JSR IRQ_GetInfoForFile
 	
 	BCC +
+	; CRITICAL: Cleanup protocol session on error
+	JSR IRQ_EndTalking
 	LDA #128
 	SEC
 	JMP NEW_OPEN_FINISH
-+	
++
 	DELAYFRAMES 2
-	JSR IRQ_EndTalking	
+	JSR IRQ_EndTalking
 
 	
 	LDA GENERALBUFFER + FAT_FILE_LENGTH_INDEX
@@ -440,15 +454,17 @@ NEW_CLOSE
 
 	DELAYFRAMES 2
 	JSR IRQ_CloseFile
-	BCC + 
+	BCC +
+	; CRITICAL: Cleanup protocol session on error
+	JSR IRQ_EndTalking
 	LDA #128
 	STA KERNAL_STATUS
 	SEC
 	RTS
-+	
++
 	DELAYFRAMES 2
 	JSR IRQ_EndTalking
-	RTS	
+	RTS
 
 NEW_CLRCHN
 	INC $D020
@@ -502,6 +518,8 @@ NEW_CHRIN
 	JSR IRQ_ReadFileNoCallback
 	BCC +						; If carry clear, success
 	; Read error handling
+	; CRITICAL: Cleanup protocol session on error
+	JSR IRQ_EndTalking
 	LDA #128					; Read error flag
 	STA KERNAL_STATUS
 	SEC							; Set carry (error)
