@@ -4,6 +4,7 @@
 #include "IRQHack64.h"
 #include "Arduino.h"
 #include "DirFunction.h"
+#include "EasySDLog.h"
 
 extern SdFat  sd;
 
@@ -21,25 +22,21 @@ bool DirFunction::ResyncDirFromCwd() {
   // Step 2: Open current working directory (openCwd is the SdFat 2.x canonical method)
   // Reference: SdFat 2.x API - openCwd() synchronizes with firmware state
   if (!m_dirFile.openCwd()) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.print(F("DIR: openCwd FAIL after chdir to "));
-    Serial.println(currentPath);
-    #endif
+    LOGE(DIR, "openCwd FAIL after chdir to ");
+    LOG_PRINTLN(currentPath);
     return false;
   }
 
   // Step 3: Rewind to ensure clean iteration state
   m_dirFile.rewind();
 
-  #ifdef EASYSD_DEBUG_SERIAL
   // Sprint 5 P2.1: Explicit state validation in DEBUG mode
   if (!m_dirFile.isOpen()) {
-    Serial.println(F("DIR: ASSERT FAIL - dirFile not open after openCwd"));
+    LOGE(DIR, "ASSERT FAIL - dirFile not open after openCwd");
   }
   if (!m_dirFile.isDir()) {
-    Serial.println(F("DIR: ASSERT FAIL - dirFile is not a directory"));
+    LOGE(DIR, "ASSERT FAIL - dirFile is not a directory");
   }
-  #endif
 
   return true;
 }
@@ -62,31 +59,23 @@ void DirFunction::ToRoot() {
   // Sprint 5 P1.1: Change directory to root
   // SdFat chdir() without parameters returns to root (official example)
   if (!sd.chdir()) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: chdir root FAIL"));
-    #endif
+    LOGE(DIR, "chdir root FAIL");
     return;
   }
 
   // Sprint 5 P1.1: MANDATORY - Resync directory handle after chdir
   // This ensures m_dirFile is synchronized with firmware's CWD
   if (!ResyncDirFromCwd()) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: ResyncDirFromCwd FAIL at root"));
-    #endif
+    LOGE(DIR, "ResyncDirFromCwd FAIL at root");
     return;
   }
 
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("[DIR] Changed to ROOT"));
-  #endif
+  LOGI(DIR, "Changed to ROOT");
 }
 
 bool DirFunction::GoBack() {
   if (pathDepth == 0) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: At ROOT"));
-    #endif
+    LOGW(DIR, "GoBack: Already at ROOT");
     return false;
   }
 
@@ -124,15 +113,11 @@ bool DirFunction::GoBack() {
   pathDepth--;
   if (pathDepth == 0) InSubDir = 0;
 
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.print(F("DIR: GoBack ")); Serial.println(currentPath);
-  #endif
+  LOGD(DIR, "GoBack to: "); LOG_PRINTLN(currentPath);
 
   // Sprint 5 P1.1: Change directory
   if (!sd.chdir(currentPath)) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: GoBack chdir FAIL"));
-    #endif
+    LOGE(DIR, "GoBack chdir FAIL");
     // Rollback
     strcpy(currentPath, savedPath);
     pathDepth = savedDepth;
@@ -142,9 +127,7 @@ bool DirFunction::GoBack() {
 
   // Sprint 5 P1.1: MANDATORY - Resync directory handle after chdir
   if (!ResyncDirFromCwd()) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: GoBack ResyncDirFromCwd FAIL"));
-    #endif
+    LOGE(DIR, "GoBack ResyncDirFromCwd FAIL");
     // Rollback
     strcpy(currentPath, savedPath);
     pathDepth = savedDepth;
@@ -157,16 +140,12 @@ bool DirFunction::GoBack() {
 
 bool DirFunction::ChangeDirectory(char * directory) {
   if (!directory || directory[0] == '\0') {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: Empty name"));
-    #endif
+    LOGW(DIR, "ChangeDirectory: Empty name");
     return false;
   }
 
   if (strlen(currentPath) + strlen(directory) + 2 > sizeof(currentPath)) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: OVERFLOW"));
-    #endif
+    LOGE(DIR, "ChangeDirectory: path OVERFLOW");
     return false;
   }
 
@@ -185,9 +164,8 @@ bool DirFunction::ChangeDirectory(char * directory) {
   // No need to go back to root, just navigate relative to current directory
   // Reference: SdFat 2.3.0 examples/DirectoryFunctions/DirectoryFunctions.ino line 121
   if (!sd.chdir(directory)) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.print(F("DIR: chdir FAILED: ")); Serial.println(directory);
-    #endif
+    LOGE(DIR, "chdir FAILED: ");
+    LOG_PRINTLN(directory);
     // Rollback - restore state
     strcpy(currentPath, savedPath);
     pathDepth = savedDepth;
@@ -197,9 +175,7 @@ bool DirFunction::ChangeDirectory(char * directory) {
 
   // Sprint 5 P1.1: MANDATORY - Resync directory handle after chdir
   if (!ResyncDirFromCwd()) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: ChangeDirectory ResyncDirFromCwd FAIL"));
-    #endif
+    LOGE(DIR, "ChangeDirectory ResyncDirFromCwd FAIL");
     // Rollback - restore state
     strcpy(currentPath, savedPath);
     pathDepth = savedDepth;
@@ -210,9 +186,8 @@ bool DirFunction::ChangeDirectory(char * directory) {
   // Success - update depth
   InSubDir = 1;
   pathDepth++;
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.print(F("DIR: Entered ")); Serial.println(currentPath);
-  #endif
+  LOGI(DIR, "Entered: ");
+  LOG_PRINTLN(currentPath);
   return true;
 }
 
@@ -225,9 +200,8 @@ void DirFunction::Prepare() {
   // currentPath is for UI/debug ONLY. The firmware's CWD is the single source of truth.
   // This ensures we're always synchronized with the actual directory state.
   if (!ResyncDirFromCwd()) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.print(F("[DIR] Prepare ResyncDirFromCwd FAIL at ")); Serial.println(currentPath);
-    #endif
+    LOGE(DIR, "Prepare ResyncDirFromCwd FAIL at ");
+    LOG_PRINTLN(currentPath);
     return;
   }
 
@@ -242,16 +216,7 @@ void DirFunction::Prepare() {
 
   m_dirFile.rewind();
 
-  #ifdef EASYSD_DEBUG_SERIAL
-  // POST-SPRINT6: Consolidated logging (was 3 lines, now 1)
-  Serial.print(F("[DIR] Prep: "));
-  Serial.print(currentPath);
-  Serial.print(F(" ("));
-  Serial.print(count);
-  Serial.print(F(" items, "));
-  Serial.print(FreeStack());
-  Serial.println(F(" bytes free)"));
-  #endif
+  LOGD(DIR, "Prepare: "); LOG_PRINT(currentPath); LOG_PRINT_F(" n="); LOG_PRINTLN(count);
 }
 
 int DirFunction::Iterate() {
@@ -284,16 +249,12 @@ int DirFunction::Iterate() {
       }
     } else {
       IsFinished = 1;
-      #ifdef EASYSD_DEBUG_SERIAL
-      Serial.println(F("DIR: Iterate EOF or Error"));
-      #endif
+      LOGD(DIR, "Iterate EOF or Error");
       return 0;
     }
   } else {
     IsFinished = 1;
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: Iterate Finished"));
-    #endif
+    LOGD(DIR, "Iterate Finished");
     return 0;
   }
 }
@@ -324,15 +285,11 @@ unsigned int DirFunction::GetSelected(void) {
 
 bool DirFunction::ChangeDirectoryBasename(const char* basename) {
   if (!basename || basename[0] == '\0') {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: Empty basename"));
-    #endif
+    LOGW(DIR, "ChangeDirectoryBasename: Empty basename");
     return false;
   }
 
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.print(F("DIR: CD ")); Serial.println(basename);
-  #endif
+  LOGD(DIR, "CD: "); LOG_PRINTLN(basename);
 
   // Special case: ".." means go back
   if (strcmp(basename, "..") == 0) {
@@ -341,9 +298,7 @@ bool DirFunction::ChangeDirectoryBasename(const char* basename) {
 
   // Validate basename doesn't contain path separators
   if (strchr(basename, '/') != NULL) {
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.println(F("DIR: Invalid name"));
-    #endif
+    LOGW(DIR, "ChangeDirectoryBasename: Invalid name (contains /)");
     return false;
   }
 
@@ -356,17 +311,12 @@ const char* DirFunction::GetCurrentPath() const {
 }
 
 void DirFunction::ForceReset() {
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("DIR: Reset"));
-  #endif
+  LOGI(DIR, "ForceReset");
 
   ToRoot();
   Prepare();
 
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.print(F("DIR: ")); Serial.print(currentPath);
-  Serial.print(F(" n=")); Serial.println(count);
-  #endif
+  LOGD(DIR, "After reset: "); LOG_PRINT(currentPath); LOG_PRINT_F(" n="); LOG_PRINTLN(count);
 }
 
 void DirFunction::CloseDirHandle() {

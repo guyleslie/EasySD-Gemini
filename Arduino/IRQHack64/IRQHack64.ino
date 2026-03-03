@@ -2,6 +2,7 @@
 #include "CartInterface.h"
 #include "StatusLed.h"
 #include "CartApi.h"
+#include "EasySDLog.h"
 #include <Arduino.h>
 #include <EEPROM.h>
 #include <SPI.h>
@@ -42,23 +43,19 @@ bool initSD() {
   for (uint8_t retry = 0; retry < SD_RETRY_COUNT; retry++) {
     if (sd.begin(chipSelect, SPI_QUARTER_SPEED)) {
       delay(50);  // Let card stabilize after init
-      #ifdef EASYSD_DEBUG_SERIAL
       if (retry > 0) {
-        Serial.print(F("SD: OK after "));
-        Serial.print(retry + 1);
-        Serial.println(F(" attempts"));
+        LOG_PRINT_F("SD: OK after ");
+        LOG_PRINT(retry + 1);
+        LOGI(SD, " attempts");
       }
-      #endif
       return true;
     }
 
-    #ifdef EASYSD_DEBUG_SERIAL
-    Serial.print(F("SD: Init attempt "));
-    Serial.print(retry + 1);
-    Serial.print(F("/"));
-    Serial.print(SD_RETRY_COUNT);
-    Serial.println(F(" failed"));
-    #endif
+    LOG_PRINT_F("SD: Init attempt ");
+    LOG_PRINT(retry + 1);
+    LOG_PRINT_F("/");
+    LOG_PRINT(SD_RETRY_COUNT);
+    LOGE(SD, " failed");
 
     if (retry < SD_RETRY_COUNT - 1) {
       delay(SD_RETRY_DELAY_MS);
@@ -78,38 +75,33 @@ bool recoverSD() {
     // Retry after longer delay
     delay(200);
     if (!sd.begin(chipSelect, SPI_QUARTER_SPEED)) {
-      #ifdef EASYSD_DEBUG_SERIAL
-      Serial.println(F("[ERR] SD recover FAIL"));
-      #endif
+      LOGE(SD, "SD recover FAIL");
       ledSdFail();
       return false;
     }
   }
   dirFunc.ForceReset();
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("[SD] Recovered"));
-  #endif
+  LOGI(SD, "Recovered");
   ledSdRecovered();
   return true;
 }
 
-#ifdef EASYSD_DEBUG_SERIAL
 void printStartupBanner() {
-  Serial.println(F("== EasySD v2.1.0 =="));
+  LOGI(SYS, "EasySD v2.1.0");
 }
 
 void printSDStatus(bool sdInitSuccess) {
   if (sdInitSuccess) {
-    Serial.println(F("SD OK"));
-    Serial.print(F("RAM: "));
-    Serial.println(FreeStack());
-    Serial.println(F("Type 'h' for help"));
+    LOGI(SD, "SD OK");
+    LOG_PRINT_F("RAM: ");
+    LOG_PRINTLN(FreeStack());
   } else {
-    Serial.println(F("SD FAIL - check card"));
+    LOGE(SD, "SD FAIL - check card");
   }
-  Serial.println();
+  LOG_NEWLINE();
 }
 
+#ifdef EASYSD_DEBUG_SERIAL
 // Help System (DEBUG mode only)
 void printHelp() {
   Serial.println(F("h:Help d:CD r:Root l:List p:Stat m:Mem"));
@@ -121,10 +113,8 @@ void setup() {
   cartInterface.Init();
   ledInit();
 
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.begin(57600);
+  LOG_BEGIN(57600);
   printStartupBanner();
-  #endif
 
   // SPI initialization for SD card
   pinMode(chipSelect, OUTPUT);     // CS pin must be OUTPUT
@@ -134,9 +124,7 @@ void setup() {
   bool sdSuccess = initSD();
   if (sdSuccess) { ledBootOk(); } else { ledBootFail(); }
 
-  #ifdef EASYSD_DEBUG_SERIAL
   printSDStatus(sdSuccess);
-  #endif
 
   // cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
   cartApi.Init();

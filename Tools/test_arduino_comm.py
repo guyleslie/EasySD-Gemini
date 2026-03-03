@@ -9,15 +9,17 @@ The Arduino 'T' command runs a built-in self-test suite that covers:
   SD init, root listing, file open/read/close, non-existent file,
   directory navigation, seek, write/delete, memory stability loop.
 
-Serial debug log prefixes (abbreviated for flash savings):
-  [FILE] Rd/Open/Close/Write/Del/Seek/LSeek/Info — File operations
-  [DIR]  Read/Cd/Del/Mk                          — Directory operations
-  [STR]  Start/NI-Dbl                             — Streaming operations
-  [EE]   Rd/Seek/Wr                               — EEPROM operations
-  [API]  Invoke/End/Port                          — API & control commands
-  [SD]   Recovered                                — SD card recovery
-  [ERR]  SD recover FAIL                          — Critical SD error
-  [MEM]  RAM: xxx/2048                            — Memory status
+Serial debug log format (EasySDLog.h, Sprint 12+):
+  [LEVEL][CATEGORY] message
+  Levels:   ERR  WARN INFO DBG  TRC
+  Categories: SYS SD DIR FILE PROTO PRG ERR
+  Examples:
+    [INFO][SD]   SD OK                            — SD initialized
+    [DBG ][FILE] HandleOpenFile                   — File operation entry
+    [DBG ][DIR]  HandleChangeDirectory            — Directory operation
+    [ERR ][SD]   SD recover FAIL                  — Critical SD error
+    [INFO][SD]   Recovered                        — SD card recovery
+  Self-test output (unchanged, always printed):
   [T]    START/END/test names                     — Self-test suite output
 
 Usage:

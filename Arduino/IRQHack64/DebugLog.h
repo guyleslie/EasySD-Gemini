@@ -4,6 +4,10 @@
 /**
  * EasySD IRQHack64 - Unified Debug Logging API
  *
+ * @deprecated Replaced by EasySDLog.h (Sprint 12, 2026-03-03).
+ *   EasySDLog.h provides 7 categories, 5 levels, selective compile,
+ *   and 72% fewer log statements. Use EasySDLog.h for new code.
+ *
  * Version: 1.0
  * Date: 2025-12-26
  *
