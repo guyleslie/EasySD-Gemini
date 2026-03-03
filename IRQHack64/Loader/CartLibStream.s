@@ -31,10 +31,10 @@
 
 ; ZP addresses used by this routine.
 ; Allocated from CartZpMap.inc
-STREAM_FILE_SIZE_0 = ZP_STREAM_BYTES_REMAIN_0
-STREAM_FILE_SIZE_1 = ZP_STREAM_BYTES_REMAIN_1
-STREAM_FILE_SIZE_2 = ZP_STREAM_BYTES_REMAIN_2
-STREAM_FILE_SIZE_3 = ZP_STREAM_BYTES_REMAIN_3
+STREAM_FILE_SIZE_0 = ZP_STREAM_API_REMAIN0
+STREAM_FILE_SIZE_1 = ZP_STREAM_API_REMAIN1
+STREAM_FILE_SIZE_2 = ZP_STREAM_API_REMAIN2
+STREAM_FILE_SIZE_3 = ZP_STREAM_API_REMAIN3
 
 
 ; Hardware Interaction Ports
@@ -51,13 +51,13 @@ StreamLargeFile:
 
     ; Step 1: Copy 32-bit file size to our countdown timer
     LDA STREAM_FILE_SIZE_0
-    STA ZP_STREAM_BYTES_REMAIN_0
+    STA ZP_STREAM_API_REMAIN0
     LDA STREAM_FILE_SIZE_1
-    STA ZP_STREAM_BYTES_REMAIN_1
+    STA ZP_STREAM_API_REMAIN1
     LDA STREAM_FILE_SIZE_2
-    STA ZP_STREAM_BYTES_REMAIN_2
+    STA ZP_STREAM_API_REMAIN2
     LDA STREAM_FILE_SIZE_3
-    STA ZP_STREAM_BYTES_REMAIN_3
+    STA ZP_STREAM_API_REMAIN3
 
     ; Step 2: Initialize stream on Arduino
     ; The current Arduino firmware ignores these parameters, but we send them anyway for future compatibility.
@@ -71,10 +71,10 @@ StreamLargeFile:
 
 _stream_loop:
     ; Check if transfer is complete (is the 32-bit counter zero?)
-    LDA ZP_STREAM_BYTES_REMAIN_0
-    ORA ZP_STREAM_BYTES_REMAIN_1
-    ORA ZP_STREAM_BYTES_REMAIN_2
-    ORA ZP_STREAM_BYTES_REMAIN_3
+    LDA ZP_STREAM_API_REMAIN0
+    ORA ZP_STREAM_API_REMAIN1
+    ORA ZP_STREAM_API_REMAIN2
+    ORA ZP_STREAM_API_REMAIN3
     BEQ _stream_done        ; If all bytes are zero, we are done
 
     ; Step 3: Request and receive a byte
@@ -82,27 +82,27 @@ _stream_loop:
     LDA STREAM_DATA_PORT    ; Read the byte from the cartridge port
 
     ; Step 4: Store the byte in memory
-    STA (ZP_STREAM_TARGET_ADDR_LO),Y
+    STA (ZP_STREAM_API_TARGET_LO),Y
 
     ; Step 5: Increment target address pointer
-    INC ZP_STREAM_TARGET_ADDR_LO
+    INC ZP_STREAM_API_TARGET_LO
     BNE +
-    INC ZP_STREAM_TARGET_ADDR_HI
+    INC ZP_STREAM_API_TARGET_HI
 +
     ; Step 6: Decrement 32-bit byte counter
     SEC
-    LDA ZP_STREAM_BYTES_REMAIN_0
+    LDA ZP_STREAM_API_REMAIN0
     SBC #$01
-    STA ZP_STREAM_BYTES_REMAIN_0
-    LDA ZP_STREAM_BYTES_REMAIN_1
+    STA ZP_STREAM_API_REMAIN0
+    LDA ZP_STREAM_API_REMAIN1
     SBC #$00
-    STA ZP_STREAM_BYTES_REMAIN_1
-    LDA ZP_STREAM_BYTES_REMAIN_2
+    STA ZP_STREAM_API_REMAIN1
+    LDA ZP_STREAM_API_REMAIN2
     SBC #$00
-    STA ZP_STREAM_BYTES_REMAIN_2
-    LDA ZP_STREAM_BYTES_REMAIN_3
+    STA ZP_STREAM_API_REMAIN2
+    LDA ZP_STREAM_API_REMAIN3
     SBC #$00
-    STA ZP_STREAM_BYTES_REMAIN_3
+    STA ZP_STREAM_API_REMAIN3
 
     JMP _stream_loop
 

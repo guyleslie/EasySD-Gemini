@@ -158,11 +158,11 @@ IRQ_DeleteFile
 ; An alternative : Call this routine on non visible lines (no dma) where there is enough cycles for  file i/o and data transfer.
 ;-----------------------------------------
 ; Setup : 
-; ZP_IRQ_DATA_LOW = $6C
-; ZP_IRQ_DATA_HIGH = $6D
-; ZP_IRQ_DATA_LENGTH = $6B
-; ZP_IRQ_CALLBACK_LO = $73
-; ZP_IRQ_CALLBACK_HI = $74
+; ZP_IRQ_API_DATA_LO = $6C
+; ZP_IRQ_API_DATA_HI = $6D
+; ZP_IRQ_API_DATA_LENGTH = $6B
+; ZP_IRQ_API_CALLBACK_LO = $73
+; ZP_IRQ_API_CALLBACK_HI = $74
 ;-----------------------------------------
 ; Registers In  : Y - (Transfer Mode)
 ; Registers Out : None
@@ -170,7 +170,7 @@ IRQ_DeleteFile
 IRQ_ReadFile	
 	LDA #COMMAND_READ_FILE
 	JSR IRQ_Send
-	LDA ZP_IRQ_DATA_LENGTH
+	LDA ZP_IRQ_API_DATA_LENGTH
 	JSR IRQ_Send
 	JSR IRQ_WaitProcessing		
 
@@ -186,11 +186,11 @@ IRQ_ReadFile
 ; An alternative : Call this routine on non visible lines (no dma) where there is enough cycles for  file i/o and data transfer.
 ;-----------------------------------------
 ; Setup : 
-; ZP_IRQ_DATA_LOW = $6C
-; ZP_IRQ_DATA_HIGH = $6D
-; ZP_IRQ_DATA_LENGTH = $6B
-; ZP_IRQ_CALLBACK_LO = $73
-; ZP_IRQ_CALLBACK_HI = $74
+; ZP_IRQ_API_DATA_LO = $6C
+; ZP_IRQ_API_DATA_HI = $6D
+; ZP_IRQ_API_DATA_LENGTH = $6B
+; ZP_IRQ_API_CALLBACK_LO = $73
+; ZP_IRQ_API_CALLBACK_HI = $74
 ;-----------------------------------------
 ; Registers In  : Y - (Transfer Mode)
 ; Registers Out : None
@@ -198,7 +198,7 @@ IRQ_ReadFile
 IRQ_ReadFileNoCallback	
 	LDA #COMMAND_READ_FILE
 	JSR IRQ_Send
-	LDA ZP_IRQ_DATA_LENGTH
+	LDA ZP_IRQ_API_DATA_LENGTH
 	JSR IRQ_Send
 	JSR IRQ_WaitProcessing		
 
@@ -210,8 +210,8 @@ IRQ_ReadFileNoCallback
 ; Seeks currently opened file with an 16 bit positive value
 ;-----------------------------------------
 ; Setup : 
-; ZP_IRQ_SEEK_LOW = $69
-; ZP_IRQ_SEEK_HIGH = $6A
+; ZP_IRQ_API_SEEK_LO = $69
+; ZP_IRQ_API_SEEK_HI = $6A
 ;-----------------------------------------
 ; Registers In  : X (Seek direction : 0 from beginning, 1 from current position, 2 from end position)
 ; Registers Out : None
@@ -221,9 +221,9 @@ IRQ_SeekFile
 	JSR IRQ_Send
 	TXA
 	JSR IRQ_Send
-	LDA ZP_IRQ_SEEK_LOW
+	LDA ZP_IRQ_API_SEEK_LO
 	JSR IRQ_Send
-	LDA ZP_IRQ_SEEK_HIGH
+	LDA ZP_IRQ_API_SEEK_HI
 	JSR IRQ_Send
 	JSR IRQ_WaitProcessing		
 	RTS
@@ -232,10 +232,10 @@ IRQ_SeekFile
 ; Seeks currently opened file with an 32 bit positive value
 ;-----------------------------------------
 ; Setup : 
-; ZP_IRQ_SEEK_LOW = $69
-; ZP_IRQ_SEEK_HIGH = $6A
-; ZP_IRQ_SEEK_UPPER_LO = $75
-; ZP_IRQ_SEEK_UPPER_HI = $76
+; ZP_IRQ_API_SEEK_LO = $69
+; ZP_IRQ_API_SEEK_HI = $6A
+; ZP_IRQ_API_SEEK_UPPER_LO = $75
+; ZP_IRQ_API_SEEK_UPPER_HI = $76
 ;-----------------------------------------
 ; Registers In  : X (Seek direction : 0 from beginning, 1 from current position, 2 from end position)
 ; Registers Out : None
@@ -245,20 +245,20 @@ IRQ_LongSeekFile
 	JSR IRQ_Send
 	TXA
 	JSR IRQ_Send
-	LDA ZP_IRQ_SEEK_LOW
+	LDA ZP_IRQ_API_SEEK_LO
 	JSR IRQ_Send
-	LDA ZP_IRQ_SEEK_HIGH
+	LDA ZP_IRQ_API_SEEK_HI
 	JSR IRQ_Send
-	LDA ZP_IRQ_SEEK_UPPER_LO
+	LDA ZP_IRQ_API_SEEK_UPPER_LO
 	JSR IRQ_Send
-	LDA ZP_IRQ_SEEK_UPPER_HI
+	LDA ZP_IRQ_API_SEEK_UPPER_HI
 	JSR IRQ_Send	
 	JSR IRQ_WaitProcessing		
 	RTS	
 	
 ; Setup : 
-; ZP_IRQ_DATA_LOW = $69
-; ZP_IRQ_DATA_HIGH = $6A
+; ZP_IRQ_API_DATA_LO = $69
+; ZP_IRQ_API_DATA_HI = $6A
 ; Gets 256 byte data, first 32 bytes contain directoryEntry.
 ;  uint8_t  name[11];
 ;  uint8_t  attributes;
@@ -289,7 +289,7 @@ IRQ_GetInfoForFile
 
 	BPL +					; Check if command is not successful, if not just return
 	LDA #$01
-	STA ZP_IRQ_DATA_LENGTH
+	STA ZP_IRQ_API_DATA_LENGTH
 	JMP IRQ_ReceiveFragmentNoCallback	
 +	
 	RTS
@@ -300,8 +300,8 @@ IRQ_GetInfoForFile
 ; Write 32 bytes to the currently opened file.
 ;-----------------------------------------
 ; Setup : 
-; ZP_IRQ_DATA_LOW = $6C
-; ZP_IRQ_DATA_HIGH = $6D
+; ZP_IRQ_API_DATA_LO = $6C
+; ZP_IRQ_API_DATA_HI = $6D
 ;-----------------------------------------
 ; Registers in : None
 ; Registers used : A, X, Y
@@ -318,11 +318,11 @@ IRQ_WriteFile		LDA #COMMAND_WRITE_FILE
 
 ;----------- Directory functions ----------
 ; Setup
-; ZP_IRQ_DATA_LOW = $6C
-; ZP_IRQ_DATA_HIGH = $6D
-; ZP_IRQ_DATA_LENGTH = $6B
-; ZP_IRQ_CALLBACK_LO = $73
-; ZP_IRQ_CALLBACK_HI = $74
+; ZP_IRQ_API_DATA_LO = $6C
+; ZP_IRQ_API_DATA_HI = $6D
+; ZP_IRQ_API_DATA_LENGTH = $6B
+; ZP_IRQ_API_CALLBACK_LO = $73
+; ZP_IRQ_API_CALLBACK_HI = $74
 ;-----------------------------------------
 ; Registers in : Y (Transfer speed)
 ; Registers in : X (Max number of entries)
@@ -334,7 +334,7 @@ IRQ_ReadDirectory		PHA
 	JSR IRQ_Send
 	TXA	
 	JSR IRQ_Send
-	LDA ZP_IRQ_DATA_LENGTH
+	LDA ZP_IRQ_API_DATA_LENGTH
 	JSR IRQ_Send	
 	PLA
 	JSR IRQ_Send		
@@ -347,11 +347,11 @@ IRQ_ReadDirectory		PHA
 
 ;----------- Directory functions ----------
 ; Setup
-; ZP_IRQ_DATA_LOW = $6C
-; ZP_IRQ_DATA_HIGH = $6D
-; ZP_IRQ_DATA_LENGTH = $6B
-; ZP_IRQ_CALLBACK_LO = $73
-; ZP_IRQ_CALLBACK_HI = $74
+; ZP_IRQ_API_DATA_LO = $6C
+; ZP_IRQ_API_DATA_HI = $6D
+; ZP_IRQ_API_DATA_LENGTH = $6B
+; ZP_IRQ_API_CALLBACK_LO = $73
+; ZP_IRQ_API_CALLBACK_HI = $74
 ;-----------------------------------------
 ; Registers in : X (Max number of entries)
 ; Registers used : A, X
@@ -361,7 +361,7 @@ IRQ_ReadDirectoryNC		PHA
 	JSR IRQ_Send
 	TXA	
 	JSR IRQ_Send
-	LDA ZP_IRQ_DATA_LENGTH
+	LDA ZP_IRQ_API_DATA_LENGTH
 	JSR IRQ_Send	
 	PLA
 	JSR IRQ_Send
@@ -559,9 +559,9 @@ IRQ_EnableRasterInterrupts
 ; Replaces hardcoded page count with size-based loading
 ;-----------------------------------------
 ; Setup (before calling):
-;   ZP_LF_SIZE0/1/2/3 = 32-bit file size (from IRQ_GetInfoForFile)
-;   ZP_LF_SKIP_LO/HI = Number of bytes to skip (e.g., 2 for PRG header)
-;   ZP_IRQ_DATA_LOW/HIGH = Target load address
+;   ZP_LOADFILE_API_SIZE0/1/2/3 = 32-bit file size (from IRQ_GetInfoForFile)
+;   ZP_LOADFILE_API_SKIP_LO/HI = Number of bytes to skip (e.g., 2 for PRG header)
+;   ZP_IRQ_API_DATA_LO/HIGH = Target load address
 ;
 ; Returns:
 ;   Carry clear if success, set if error
@@ -575,38 +575,38 @@ LoadFileBySize:
 .endif
 
 	; Step 1: Seek past header/skip bytes if needed
-	LDA ZP_LF_SKIP_LO
-	ORA ZP_LF_SKIP_HI
+	LDA ZP_LOADFILE_API_SKIP_LO
+	ORA ZP_LOADFILE_API_SKIP_HI
 	BEQ +					; If skip == 0, don't seek
 
-	LDA ZP_LF_SKIP_LO
-	STA ZP_IRQ_SEEK_LOW
-	LDA ZP_LF_SKIP_HI
-	STA ZP_IRQ_SEEK_HIGH
+	LDA ZP_LOADFILE_API_SKIP_LO
+	STA ZP_IRQ_API_SEEK_LO
+	LDA ZP_LOADFILE_API_SKIP_HI
+	STA ZP_IRQ_API_SEEK_HI
 	LDX #SEEK_DIRECTION_START
 	JSR IRQ_SeekFile
 	BCS LoadFileBySize_Error	; If error, return
 +
 	; Step 2: Calculate payload size = file_size - skip_bytes
 	; WARNING: This is a 16-bit subtraction. It ignores the upper 16 bits of the
-	; file size (ZP_LF_SIZE2/3). This limits the loadable size to
+	; file size (ZP_LOADFILE_API_SIZE2/3). This limits the loadable size to
 	; less than 64KB. For larger files, the payload size will be incorrect.
 	SEC
-	LDA ZP_LF_SIZE0
-	SBC ZP_LF_SKIP_LO
-	STA ZP_LF_PAYLOAD_LO
-	LDA ZP_LF_SIZE1
-	SBC ZP_LF_SKIP_HI
-	STA ZP_LF_PAYLOAD_HI
+	LDA ZP_LOADFILE_API_SIZE0
+	SBC ZP_LOADFILE_API_SKIP_LO
+	STA ZP_LOADFILE_API_PAYLOAD_LO
+	LDA ZP_LOADFILE_API_SIZE1
+	SBC ZP_LOADFILE_API_SKIP_HI
+	STA ZP_LOADFILE_API_PAYLOAD_HI
 
 	; Step 3: Calculate page count (round up)
 	; pages = (payload_lo + 255) >> 8 + payload_hi
-	LDA ZP_LF_PAYLOAD_LO
+	LDA ZP_LOADFILE_API_PAYLOAD_LO
 	CLC
 	ADC #$FF				; Add 255 for rounding up
-	LDA ZP_LF_PAYLOAD_HI
+	LDA ZP_LOADFILE_API_PAYLOAD_HI
 	ADC #$00
-	STA ZP_IRQ_DATA_LENGTH		; Store page count
+	STA ZP_IRQ_API_DATA_LENGTH		; Store page count
 
 	; Step 4: Read file data
 	BEQ LoadFileBySize_Done		; If 0 pages, we're done

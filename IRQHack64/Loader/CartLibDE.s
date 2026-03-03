@@ -187,12 +187,12 @@ OUTERWASTE
 ; Registers Used : X
 ;-----------------------------------------
 IRQ_Send
-	STA ZP_IRQ_TEMP
+	STA ZP_IRQ_TMP_SCRATCH
 	TXA
 	PHA
 	TYA
 	PHA
-	LDA ZP_IRQ_TEMP
+	LDA ZP_IRQ_TMP_SCRATCH
 	
 	JSR IRQ_SendBit
 	JSR IRQ_SendBit
@@ -216,8 +216,8 @@ IRQ_Send
 ; Use to send buffered 32 bytes to the micro. (For ex. writing to a file)
 ;-----------------------------------------
 ; Setup : 
-; ZP_IRQ_DATA_LOW = $69
-; ZP_IRQ_DATA_HIGH = $6A
+; ZP_IRQ_API_DATA_LO = $69
+; ZP_IRQ_API_DATA_HI = $6A
 ;-----------------------------------------
 ; Registers in : None
 ; Registers used : A, X, Y
@@ -225,7 +225,7 @@ IRQ_Send
 IRQ_SendFragment
 	LDY #$00
 -	
-	LDA (ZP_IRQ_DATA_LOW), Y
+	LDA (ZP_IRQ_API_DATA_LO), Y
 	JSR IRQ_Send
 	CPY #$20
 	BNE -
@@ -233,16 +233,16 @@ IRQ_SendFragment
 
 
 ; Reads/Receives content from currently opened file. Caller supplies the target address where the data will be transferred.
-; Caller supplies return address at ZP_IRQ_CALLBACK_LO / ZP_IRQ_CALLBACK_HI and this routine will resume control from that address using a fake RTS.
+; Caller supplies return address at ZP_IRQ_API_CALLBACK_LO / ZP_IRQ_API_CALLBACK_HI and this routine will resume control from that address using a fake RTS.
 ; In this way, loading and invoking another executable is made simple.
 ; Screen should be disabled or one should ensure that no cycle is stealed (VIC) during this routine.
 ;-----------------------------------------
 ; Setup : 
-; ZP_IRQ_DATA_LOW = $6C
-; ZP_IRQ_DATA_HIGH = $6D
-; ZP_IRQ_DATA_LENGTH = $6B
-; ZP_IRQ_CALLBACK_LO = $73
-; ZP_IRQ_CALLBACK_HI = $74
+; ZP_IRQ_API_DATA_LO = $6C
+; ZP_IRQ_API_DATA_HI = $6D
+; ZP_IRQ_API_DATA_LENGTH = $6B
+; ZP_IRQ_API_CALLBACK_LO = $73
+; ZP_IRQ_API_CALLBACK_HI = $74
 ;-----------------------------------------
 ; Registers In  : Y - (Transfer Mode)
 ; Registers Out : None
@@ -255,17 +255,17 @@ IRQ_ReceiveFragment
 	STA SOFTNMIVECTOR+1	
 
 	LDA #$00
-	STA ZP_IRQ_WaitHandle
+	STA ZP_IRQ_STATE_WAITHANDLE
 	
 	LDA #PP_CONFIG_DEFAULT
 	STA PROCESSOR_PORT
 
-	LDX ZP_IRQ_DATA_LENGTH
+	LDX ZP_IRQ_API_DATA_LENGTH
    	LDY #$00	;Setup for transfer routine  	
 	
 	CLV	
 -
-	BIT ZP_IRQ_WaitHandle	
+	BIT ZP_IRQ_STATE_WAITHANDLE	
 	BVC -		
 
 	
@@ -288,9 +288,9 @@ IRQ_ReceiveFragment
 	;TXS
 	;JMP $0905
 	; Do a fake RTS
-	LDA ZP_IRQ_CALLBACK_HI
+	LDA ZP_IRQ_API_CALLBACK_HI
 	PHA
-	LDA ZP_IRQ_CALLBACK_LO
+	LDA ZP_IRQ_API_CALLBACK_LO
 	PHA
 	RTS
 	
@@ -302,9 +302,9 @@ IRQ_ReceiveFragment
 ; Screen should be disabled or one should ensure that no cycle is stealed (VIC) during this routine.
 ;-----------------------------------------
 ; Setup : 
-; ZP_IRQ_DATA_LOW = $6C
-; ZP_IRQ_DATA_HIGH = $6D
-; ZP_IRQ_DATA_LENGTH = $6B
+; ZP_IRQ_API_DATA_LO = $6C
+; ZP_IRQ_API_DATA_HI = $6D
+; ZP_IRQ_API_DATA_LENGTH = $6B
 ;-----------------------------------------
 ; Registers In  : Y - (Transfer Mode)
 ; Registers Out : None
@@ -317,17 +317,17 @@ IRQ_ReceiveFragmentNoCallback
 	STA SOFTNMIVECTOR+1	
 
 	LDA #$00
-	STA ZP_IRQ_WaitHandle
+	STA ZP_IRQ_STATE_WAITHANDLE
 	
 	LDA #PP_CONFIG_DEFAULT
 	STA PROCESSOR_PORT
 
-	LDX ZP_IRQ_DATA_LENGTH
+	LDX ZP_IRQ_API_DATA_LENGTH
    	LDY #$00	;Setup for transfer routine  	
 	
 	CLV	
 -
-	BIT ZP_IRQ_WaitHandle	
+	BIT ZP_IRQ_STATE_WAITHANDLE	
 	BVC -		
 
 	LDA #0	
@@ -339,18 +339,18 @@ IRQ_ReceiveFragmentNoCallback
 ;FE44   6C 18 03   JMP ($0318)  ;5
 TransferHandler					;7
 	LDA CARTRIDGE_BANK_VALUE	;4
-	STA (ZP_IRQ_DATA_LOW), Y		;6
+	STA (ZP_IRQ_API_DATA_LO), Y		;6
 	INY							;2
 	BEQ ENDOFBLOCK				;2-3	
 	RTI							;6
 	
 ENDOFBLOCK
-	INC ZP_IRQ_DATA_HIGH				; Next 256 bytes
+	INC ZP_IRQ_API_DATA_HI				; Next 256 bytes
 	DEX							; Decrement data length (set in STARTNMI)
 	BEQ ENDOFTRANSFER			; If all pages  transferred exit foreground loop
 	RTI
 ENDOFTRANSFER
 	LDA #$64
-	STA ZP_IRQ_WaitHandle												
+	STA ZP_IRQ_STATE_WAITHANDLE												
 	RTI		
 

@@ -126,41 +126,41 @@ LoadSidPlayer9000:
 
     ; read first page to HdrPage so we can ask GetInfo and have a buffer
     lda #<HdrPage
-    sta ZP_IRQ_DATA_LOW
+    sta ZP_IRQ_API_DATA_LO
     lda #>HdrPage
-    sta ZP_IRQ_DATA_HIGH
+    sta ZP_IRQ_API_DATA_HI
     lda #$01
-    sta ZP_IRQ_DATA_LENGTH
+    sta ZP_IRQ_API_DATA_LENGTH
     jsr IRQ_ReadFileNoCallback
     bcs LoadSid_FailClose
 
     ; get directory entry and size
     lda #<HdrPage
-    sta ZP_IRQ_DATA_LOW
+    sta ZP_IRQ_API_DATA_LO
     lda #>HdrPage
-    sta ZP_IRQ_DATA_HIGH
+    sta ZP_IRQ_API_DATA_HI
     ldy #$00
     jsr IRQ_GetInfoForFile
     bcs LoadSid_FailClose
 
     lda HdrPage+28
-    sta ZP_LF_SIZE0
+    sta ZP_LOADFILE_API_SIZE0
     lda HdrPage+29
-    sta ZP_LF_SIZE1
+    sta ZP_LOADFILE_API_SIZE1
     lda HdrPage+30
-    sta ZP_LF_SIZE2
+    sta ZP_LOADFILE_API_SIZE2
     lda HdrPage+31
-    sta ZP_LF_SIZE3
+    sta ZP_LOADFILE_API_SIZE3
 
     lda #$02
-    sta ZP_LF_SKIP_LO
+    sta ZP_LOADFILE_API_SKIP_LO
     lda #$00
-    sta ZP_LF_SKIP_HI
+    sta ZP_LOADFILE_API_SKIP_HI
 
     lda #<PLAYER_ADDRESS
-    sta ZP_IRQ_DATA_LOW
+    sta ZP_IRQ_API_DATA_LO
     lda #>PLAYER_ADDRESS
-    sta ZP_IRQ_DATA_HIGH
+    sta ZP_IRQ_API_DATA_HI
     jsr LoadFileBySize
     bcs LoadSid_FailClose
 
@@ -196,39 +196,39 @@ LoadSelectedMus8000:
 
     ; read first page for header sniffing
     lda #<HdrPage
-    sta ZP_IRQ_DATA_LOW
+    sta ZP_IRQ_API_DATA_LO
     lda #>HdrPage
-    sta ZP_IRQ_DATA_HIGH
+    sta ZP_IRQ_API_DATA_HI
     lda #$01
-    sta ZP_IRQ_DATA_LENGTH
+    sta ZP_IRQ_API_DATA_LENGTH
     jsr IRQ_ReadFileNoCallback
     bcs LoadMus_FailClose
 
     ; get file info / size
     lda #<HdrPage
-    sta ZP_IRQ_DATA_LOW
+    sta ZP_IRQ_API_DATA_LO
     lda #>HdrPage
-    sta ZP_IRQ_DATA_HIGH
+    sta ZP_IRQ_API_DATA_HI
     ldy #$00
     jsr IRQ_GetInfoForFile
     bcs LoadMus_FailClose
 
     lda HdrPage+28
-    sta ZP_LF_SIZE0
+    sta ZP_LOADFILE_API_SIZE0
     lda HdrPage+29
-    sta ZP_LF_SIZE1
+    sta ZP_LOADFILE_API_SIZE1
     lda HdrPage+30
-    sta ZP_LF_SIZE2
+    sta ZP_LOADFILE_API_SIZE2
     lda HdrPage+31
-    sta ZP_LF_SIZE3
+    sta ZP_LOADFILE_API_SIZE3
 
     jsr DetectMusHeaderSetSkip
     bcs LoadMus_FailClose
 
     lda #<SONG_ADDRESS
-    sta ZP_IRQ_DATA_LOW
+    sta ZP_IRQ_API_DATA_LO
     lda #>SONG_ADDRESS
-    sta ZP_IRQ_DATA_HIGH
+    sta ZP_IRQ_API_DATA_HI
     jsr LoadFileBySize
     bcs LoadMus_FailClose
 
@@ -261,16 +261,16 @@ DetectMusHeaderSetSkip:
 
 DMH_IsPrg:
     lda #$02
-    sta ZP_LF_SKIP_LO
+    sta ZP_LOADFILE_API_SKIP_LO
     lda #$00
-    sta ZP_LF_SKIP_HI
+    sta ZP_LOADFILE_API_SKIP_HI
     clc
     rts
 
 DMH_IsRaw:
     lda #$00
-    sta ZP_LF_SKIP_LO
-    sta ZP_LF_SKIP_HI
+    sta ZP_LOADFILE_API_SKIP_LO
+    sta ZP_LOADFILE_API_SKIP_HI
     clc
     rts
 
@@ -287,15 +287,15 @@ Scratch3: .byte 0
 
 ; Validate PRG header at offset 2. Compare (6 + v1+v2+v3) <= (file_size - 2)
 ValidateMusHeader_PRG:
-    lda ZP_LF_SIZE2
-    ora ZP_LF_SIZE3
+    lda ZP_LOADFILE_API_SIZE2
+    ora ZP_LOADFILE_API_SIZE3
     bne VMHPRG_Fail
 
-    lda ZP_LF_SIZE0
+    lda ZP_LOADFILE_API_SIZE0
     sec
     sbc #$02
     sta ScratchSizeLo
-    lda ZP_LF_SIZE1
+    lda ZP_LOADFILE_API_SIZE1
     sbc #$00
     sta ScratchSizeHi
     bcc VMHPRG_Fail
@@ -355,13 +355,13 @@ VMHPRG_Pass:
 
 ; Validate RAW header at offset 0. Compare (6 + v1+v2+v3) <= file_size
 ValidateMusHeader_RAW:
-    lda ZP_LF_SIZE2
-    ora ZP_LF_SIZE3
+    lda ZP_LOADFILE_API_SIZE2
+    ora ZP_LOADFILE_API_SIZE3
     bne VMHRAW_Fail
 
-    lda ZP_LF_SIZE0
+    lda ZP_LOADFILE_API_SIZE0
     sta ScratchSizeLo
-    lda ZP_LF_SIZE1
+    lda ZP_LOADFILE_API_SIZE1
     sta ScratchSizeHi
 
     ; require at least 6 bytes
