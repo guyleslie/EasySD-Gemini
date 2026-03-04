@@ -1,7 +1,7 @@
 ; This file is included by other files.
-; It contains IRQHack-specific constants.
+; It contains EasySD cartridge-specific constants.
 
-; IRQHack Commands
+; EasySD Commands
 COMMAND_READ_FILE = 78
 COMMAND_OPEN_FILE = 2
 COMMAND_CLOSE_FILE = 3
@@ -27,7 +27,7 @@ COMMAND_NI_STREAM = 26
 COMMAND_END_TALKING  = 30
 COMMAND_EXIT_TO_MENU  = 31
 
-; Other IRQHack constants
+; Other EasySD constants
 SOURCE_TYPE_SD  = 1
 SOURCE_TYPE_HTTP  = 2
 SOURCE_TYPE_FTP  = 3

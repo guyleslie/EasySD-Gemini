@@ -9,7 +9,7 @@
 .enc "screen"
 
 .include "../../Loader/Common/System.inc"
-.include "../../Loader/Common/IRQHack.inc"
+.include "../../Loader/Common/EasySD.inc"
 
 ; --- KeyBooter Constants ---
 WAITTIME   = 100

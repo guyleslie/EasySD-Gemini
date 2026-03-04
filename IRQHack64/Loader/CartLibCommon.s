@@ -1,5 +1,5 @@
 .include "Common/System.inc"
-.include "Common/IRQHack.inc"
+.include "Common/EasySD.inc"
 
 CARTRIDGENMIHANDLERX1 	= $80af
 CARTRIDGENMIHANDLERX4	= $80a0

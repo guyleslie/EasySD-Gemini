@@ -4,7 +4,7 @@
 .enc "screen"
 
 .include "../../Loader/Common/System.inc"
-.include "../../Loader/Common/IRQHack.inc"
+.include "../../Loader/Common/EasySD.inc"
 
 
 ;Loader on the cartridge rom sets the 6th bit of this location. Which is tested by BIT $64
