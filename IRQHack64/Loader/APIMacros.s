@@ -211,6 +211,43 @@ EXTRACTFILESIZE .macro
 	STA \2 + 3
 	.endm
 
+;-----------------------------------------------
+; SETADDR - Load a 2-byte address into a ZP pointer pair
+;-----------------------------------------------
+; Sets up a 16-bit zero page pointer to point to a given label.
+;
+; ARCHITECTURAL CONTRACT:
+;   - Always writes low byte first, then high byte
+;   - Uses immediate addressing mode (#<\1 / #>\1)
+;   - Destination must be a zero page address pair (\2 and \2+1)
+;
+; Parameters:
+;   \1 = source label (16-bit address)
+;   \2 = destination ZP low byte (high byte is \2+1)
+;
+; Registers affected: A
+; Flags affected: N, Z
+; Bytes: 8 (LDA imm=2, STA zp=2, LDA imm=2, STA zp=2)
+;
+; Example:
+;   #SETADDR GENERALBUFFER, ZP_IRQ_API_DATA_LO
+;
+; Replaces:
+;   LDA #<GENERALBUFFER
+;   STA ZP_IRQ_API_DATA_LO
+;   LDA #>GENERALBUFFER
+;   STA ZP_IRQ_API_DATA_HI
+;
+; Common usage: File API buffer setup, stream target setup
+; Frequency: ~6 occurrences in KernalBridge
+;-----------------------------------------------
+SETADDR .macro
+	LDA #<\1
+	STA \2
+	LDA #>\1
+	STA \2 + 1
+	.endm
+
 ;===============================================
 ; End of APIMacros.s
 ;===============================================
