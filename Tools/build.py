@@ -324,13 +324,13 @@ def prebuild_checks(ctx: Context) -> None:
 # ============================================================================
 
 PLUGIN_MATRIX = [
-    # (plugin_dir, asm_file, out_basename)
-    ("CvidPlayer", "CvidPlayer.s", "cvdplugin"),
-    ("KoalaDisplayer", "KoalaDisplayer.s", "koaplugin"),
-    ("PetsciiDisplayer", "PetsciiDisplayer.s", "petgplugin"),
-    ("PrgPlugin", "PrgPlugin.s", "prgplugin"),
-    ("WavPlayer", "WavPlayer.s", "wavplugin"),
-    ("MusPlayer", "MusPlayer.s", "musplugin"),
+    # (rel_path_from_irq_root, asm_file, out_basename)
+    ("Plugins/CvidPlayer",              "CvidPlayer.s",       "cvdplugin"),
+    ("Plugins/KoalaDisplayer",          "KoalaDisplayer.s",   "koaplugin"),
+    ("Plugins/PetsciiDisplayer",        "PetsciiDisplayer.s", "petgplugin"),
+    ("Plugins/WavPlayer",               "WavPlayer.s",        "wavplugin"),
+    ("Plugins/MusPlayer",               "MusPlayer.s",        "musplugin"),
+    ("Loader/Bridges/KernalBridge",     "KernalBridge.s",     "prgplugin"),
 ]
 
 
@@ -512,8 +512,8 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
     print(f"  DEBUG_BREAK_AFTER_LOAD={debug_break}")
     print("==============================================================")
 
-    for plugin_dir, asm_file, out_base in PLUGIN_MATRIX:
-        src = ctx.irq_root / "Plugins" / plugin_dir / asm_file
+    for rel_path, asm_file, out_base in PLUGIN_MATRIX:
+        src = ctx.irq_root / rel_path / asm_file
         if not src.exists():
             print(f"WARNING: Plugin source not found: {src}")
             continue
@@ -522,7 +522,7 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
         out_prg = ctx.plugins_out_dir / f"{out_base}.prg"
         labels = ctx.sym_dir / f"{out_base}.txt"
         listing = ctx.lst_dir / f"{out_base}LST.txt"
-        print(f"  - {plugin_dir} -> build/plugins/{out_base}.prg")
+        print(f"  - {rel_path}/{asm_file} -> build/plugins/{out_base}.prg")
         run_cmd(
             [
                 tass, "-c", "-b",

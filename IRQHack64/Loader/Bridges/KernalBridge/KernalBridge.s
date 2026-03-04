@@ -1,39 +1,80 @@
-; PRG plugin for IRQHack64V2
-; Aim : Replace standard kernal functions so that basic tools using standard kernal can work with IRQHack64V2
-; 26/08/2018 - Istanbul
-; I.R.on
+;================================================================================
+; KERNALBRIDGE - C64 KERNAL I/O -> EasySD Bridge
+;================================================================================
+;
+; PURPOSE:
+;   Provides KERNAL-compatible file I/O for unmodified BASIC programs.
+;   Intercepts device 8 file operations and routes them through EasySD API.
+;
+; WHAT THIS IS:
+;   - A KERNAL vector replacement bridge
+;   - Enables BASIC OPEN/CLOSE/GET# to work with the EasySD cartridge
+;   - Launched by the menu system before jumping to the BASIC program
+;
+; WHAT THIS IS NOT:
+;   - NOT a menu plugin (never invoked by user selection)
+;   - NOT a standalone loader (requires BASIC environment)
+;   - NOT a general-purpose PRG loader (use LoadFileBySize API instead)
+;
+; LIFECYCLE:
+;   1. Menu loads this code to $C000
+;   2. Menu loads the target PRG file using EasySD API
+;   3. This code replaces KERNAL vectors (OPEN, CLOSE, CHKIN, CHRIN, CLRCHN)
+;   4. Control jumps to the loaded PRG (BASIC program starts)
+;   5. BASIC program file I/O is intercepted and routed to EasySD
+;   6. On exit, vectors remain patched (one-way compatibility layer)
+;
+; PROTOCOL INVARIANTS:
+;   - ALL file operations MUST be wrapped in IRQ_StartTalking/IRQ_EndTalking
+;   - Error paths MUST call IRQ_EndTalking before returning
+;   - Protocol state leak will corrupt subsequent operations
+;
+; ENTRY POINT:
+;   $C000: JMP MAIN (initial PRG load and launch)
+;
+; KNOWN LIMITATIONS:
+;   - Sequential files only (no relative files)
+;   - Device 8 only (other devices fall through to original KERNAL)
+;
+; DEPENDENCIES:
+;   - CartLibHi.s, DebugMacros.s (via ../../ relative to Loader/)
+;
+; VERSION HISTORY:
+;   - 2018-08-26: Initial version (I.R.on, Istanbul)
+;   - 2026-01-01: Protocol state leak fixes (Sprint 11 post-audit)
+;================================================================================
 
 
 .enc "screen"
 
-; --- PrgPlugin Constants ---
+; --- KernalBridge Constants ---
 FAT_FILE_LENGTH_INDEX = 28
 LOAD_START_LO         = $AE
 LOAD_START_HI         = $AF
 
 ; DEBUG mode - defined from command line (-D DEBUG=1 or -D DEBUG=0)
 ; Load DEBUG macros BEFORE first use
-.include "../../Loader/DebugMacros.s"
+.include "../../DebugMacros.s"
 
 
 EQ16	.macro
 	LDA #<\1
-	CMP #<\2 
+	CMP #<\2
 	BNE +
 	LDA #>(\1 + 1)
 	CMP #>(\2 + 1)
 +
 	.endm
-	
+
 INC16	.macro
 	INC \1
 	BNE +
 	INC \1 + 1
-+	
++
 	.endm
-	
+
 ADD16	.macro
-	CLC 
+	CLC
 	LDA \1
 	ADC \2
 	STA \3
@@ -41,14 +82,14 @@ ADD16	.macro
 	ADC \2 + 1
 	STA \3 + 1
 	.endm
-	
-	
+
+
 	*=$C000
 	JMP MAIN
-	
+
 	*=$C700
-MAIN	
-	JSR INIT		;Clears screen, disables interrupts.	
+MAIN
+	JSR INIT		;Clears screen, disables interrupts.
 
 ;Lets try to open a file
 	PRINTSTATUSANDWAIT OPENINGFILE, 100
@@ -63,7 +104,7 @@ MAIN
 	JSR IRQ_OpenFile
 	BCC OPENINGCONT
 	JMP MAIN_ERROR_EXIT
-OPENINGCONT	
+OPENINGCONT
 	JSR IRQ_EnableDisplay
 
 	PRINTSTATUSANDWAIT OPENINGSUCCESS, 200
@@ -72,9 +113,9 @@ OPENINGCONT
 	STA ZP_IRQ_API_DATA_LO
 	LDA #>GENERALBUFFER
 	STA ZP_IRQ_API_DATA_HI
-	
+
 	JSR IRQ_DisableDisplay
-	
+
 	LDY #$00
 	JSR IRQ_GetInfoForFile
 	JSR ERROR_GATE
@@ -87,8 +128,8 @@ OPENINGCONT
 	STA FILELENGTH + 2
 	LDA GENERALBUFFER + FAT_FILE_LENGTH_INDEX + 3
 	STA FILELENGTH + 3
-		
-	DELAYFRAMES 2		
+
+	DELAYFRAMES 2
 
 	; === Refactored PRG Loading Logic (using LoadFileBySize) ===
 	; Step 1: Read first page to get PRG load address
@@ -133,7 +174,7 @@ OPENINGCONT
 
 	; Recalculate ENDADDRESS for the LAUNCH logic
 	ADD16 STARTADDRESS, FILELENGTH16BIT, ENDADDRESS
-	
+
 RESUMEFULLLOAD
 	DELAYFRAMES  2
 	JSR IRQ_CloseFile
@@ -143,16 +184,16 @@ RESUMEFULLLOAD
 	JSR ERROR_GATE
 
 	; Now we need to change the kernal vectors and launch the program.
-	; GET BACK HERE - GET BACK HERE - GET BACK HERE 
-	
+	; GET BACK HERE - GET BACK HERE - GET BACK HERE
+
 	STX $D016					; Turn on VIC for PAL / NTSC check
 	JSR $FDA3					; IOINIT - Init CIA chips
 	;JSR $FD50					; RANTAM - Clear/test system RAM
 	;JSR ALTRANTAM				; Metallic's fast alternative to RANTAM
 	JSR $FD15					; RESTOR - Init KERNAL RAM vectors
 	JSR $FF5B					; CINT   - Init VIC and screen editor
-	JSR SETVECTORS	
-	CLI							; Re-enable IRQ interrupts	
+	JSR SETVECTORS
+	CLI							; Re-enable IRQ interrupts
 
 ;	BASIC RESET  Routine
 
@@ -160,9 +201,9 @@ RESUMEFULLLOAD
 	JSR $E3BF					; Main BASIC RAM Init routine
 	JSR $E422					; Power-up message / NEW command
 	LDX #$FB
-	TXS		
-	
-	
+	TXS
+
+
 	LDY ENDADDRESSLO
 	STY $2D
 	STY $2F
@@ -171,42 +212,43 @@ RESUMEFULLLOAD
 	STA $2E
 	STA $30
 	STA LOAD_START_HI
-	
+
 	JSR CLEANUP
-		
+
 	LDA #$37					;Restore default memory layout
-	STA $01	
-	
+	STA $01
+
 	JSR IRQ_EnableDisplay
-	
+
 	LDA #$08					;Initialize current device number as 8
 	STA $BA
-	
+
 	LDA #$81					;%10000001 ; Enable CIA interrupts
-	STA $DC0D	
-		
+	STA $DC0D
+
 	JMP $0840
-		
-LAUNCH	
-	LDA #$08					
+
+LAUNCH
+	LDA #$08
 	CMP STARTADDRESSHI
-	BNE MACHINELANG				
+	BNE MACHINELANG
 	LDA STARTADDRESSLO
 	CMP #$01
 	BNE MACHINELANG
-		
-	JSR $A659 ;"CLR" 	
-	JMP $A7AE ;"RUN" 
- 	
-MACHINELANG 
+
+	JSR $A659 ;"CLR"
+	JMP $A7AE ;"RUN"
+
+MACHINELANG
 	LDA STARTADDRESSLO
 	STA $FB
 	LDA STARTADDRESSHI
 	STA $FC
-	JMP ($00FB)				; Leave control to loaded stuff 	
-			
-	
-	
+	JMP ($00FB)				; Leave control to loaded stuff
+
+
+
+
 ; --------------------------------------------------
 ; Error Gate: Carry set -> fatal error
 ; Centralized error handling - prevents branch distance issues
@@ -241,77 +283,77 @@ EXITFAIL
 	JSR IRQ_EnableDisplay
 
 	JMP INPUT_GET
-	
-	
+
+
 CLEANUP
 	; Restore nmi vector
 	LDA #<DEFAULT_NMI_HANDLER
 	STA NMI_LO
 	LDA #>DEFAULT_NMI_HANDLER
-	STA NMI_HI	
+	STA NMI_HI
 
 	RTS
-	
+
 SETVECTORS
 	LDA #<NEW_CHRIN
 	STA V_CHRIN
 	LDA #>NEW_CHRIN
 	STA V_CHRIN	+ 1
-	
+
 	LDA #<NEW_OPEN
-	STA V_OPEN 
+	STA V_OPEN
 	LDA #>NEW_OPEN
 	STA V_OPEN 	+ 1
-	
+
 	LDA #<NEW_CLOSE
-	STA V_CLOSE  
+	STA V_CLOSE
 	LDA #>NEW_CLOSE
-	STA V_CLOSE + 1	
+	STA V_CLOSE + 1
 
 	LDA #<NEW_CHKIN
-	STA V_CHKIN  
+	STA V_CHKIN
 	LDA #>NEW_CHKIN
-	STA V_CHKIN + 1	
+	STA V_CHKIN + 1
 
 	LDA #<NEW_CLRCHN
-	STA V_CLRCHN  
+	STA V_CLRCHN
 	LDA #>NEW_CLRCHN
-	STA V_CLRCHN + 1	
+	STA V_CLRCHN + 1
 	RTS
-	
-	
+
+
 INIT		; Input : None, Changed : A
 	CLD
 	LDA #$93
 	JSR CHROUT
-;	LDA #$00 
+;	LDA #$00
 ;	STA $D020
 ;	LDA #$0B
 ;	STA $D021
-		
-	JSR DISABLEINTERRUPTS		
+
+	JSR DISABLEINTERRUPTS
 	JSR KILLCIA
-		
+
 	RTS
-	
+
 KILLCIA
 	;LDA #$00
 	;STA ISMUSICPLAYING
-	LDY #$7f    ; $7f = %01111111 
-    STY $dc0d   ; Turn off CIAs Timer interrupts 
-    STY $dd0d   ; Turn off CIAs Timer interrupts 
-    LDA $dc0d   ; cancel all CIA-IRQs in queue/unprocessed 
-    LDA $dd0d   ; cancel all CIA-IRQs in queue/unprocessed 
-	RTS	
+	LDY #$7f    ; $7f = %01111111
+    STY $dc0d   ; Turn off CIAs Timer interrupts
+    STY $dd0d   ; Turn off CIAs Timer interrupts
+    LDA $dc0d   ; cancel all CIA-IRQs in queue/unprocessed
+    LDA $dd0d   ; cancel all CIA-IRQs in queue/unprocessed
+	RTS
 
 DISABLEINTERRUPTS
-    LDY #$7f    				; $7f = %01111111 
-    STY $dc0d   				; Turn off CIAs Timer interrupts 
-    STY $dd0d  				; Turn off CIAs Timer interrupts 
-    LDA $dc0d  				; cancel all CIA-IRQs in queue/unprocessed 
-    LDA $dd0d   				; cancel all CIA-IRQs in queue/unprocessed 
-	
-					
+    LDY #$7f    				; $7f = %01111111
+    STY $dc0d   				; Turn off CIAs Timer interrupts
+    STY $dd0d  				; Turn off CIAs Timer interrupts
+    LDA $dc0d  				; cancel all CIA-IRQs in queue/unprocessed
+    LDA $dd0d   				; cancel all CIA-IRQs in queue/unprocessed
+
+
 ; 	Change interrupt routines
 	ASL $D019
 	LDA #$00
@@ -320,25 +362,25 @@ DISABLEINTERRUPTS
 
 DISABLEDISPLAY
 	LDA #$0B				;%00001011 ; Disable VIC display until the end of transfer
-	STA $D011	
+	STA $D011
 	RTS
-	
+
 ENABLEDISPLAY
-	LDA #$3B				
-	STA $D011	
-	RTS	
+	LDA #$3B
+	STA $D011
+	RTS
 
 WAITFRAMES
 FD
 	LDY #$90
--	
+-
 	CPY $D012
 	BNE -
 	LDY #50
--	
+-
 	DEY
-	BNE - 
-	
+	BNE -
+
 	DEX
 	BNE FD
 	RTS
@@ -349,7 +391,7 @@ TALK_STATUS
 TALK_DIRECTION
 	.BYTE $00
 TALK_FILE
-	.BYTE $00	
+	.BYTE $00
 HAS_OPENED_FILE
 	.BYTE $00
 
@@ -358,7 +400,7 @@ NEW_OPEN
 	INC $D020
 	LDA KERNAL_DEVICE_NUMBER
 	CMP #08
-	BEQ + 
+	BEQ +
 	JMP K_OPEN
 +
 	JSR IRQ_DisableDisplay
@@ -386,7 +428,7 @@ OPEN_SUCCESS
 	STA ZP_IRQ_API_DATA_HI
 	LDY #$00
 	JSR IRQ_GetInfoForFile
-	
+
 	BCC +
 	; CRITICAL: Cleanup protocol session on error
 	JSR IRQ_EndTalking
@@ -397,7 +439,7 @@ OPEN_SUCCESS
 	DELAYFRAMES 2
 	JSR IRQ_EndTalking
 
-	
+
 	LDA GENERALBUFFER + FAT_FILE_LENGTH_INDEX
 	STA OPENEDFILELENGTH
 	LDA GENERALBUFFER + FAT_FILE_LENGTH_INDEX + 1
@@ -406,27 +448,27 @@ OPEN_SUCCESS
 	STA OPENEDFILELENGTH + 2
 	LDA GENERALBUFFER + FAT_FILE_LENGTH_INDEX + 3
 	STA OPENEDFILELENGTH + 3
-		
-	
+
+
 	LDA #0
 	STA FILEINDEX
 	STA FILEINDEX+1
-	LDA #1		
-	STA HAS_OPENED_FILE	
+	LDA #1
+	STA HAS_OPENED_FILE
 	EQ16 OPENEDFILELENGTH16BIT, 0
 	BNE +
 	LDA #64
 	SEC
 	JMP NEW_OPEN_FINISH
-+	
++
 	CLC
 	LDA #0
 NEW_OPEN_FINISH
 	STA KERNAL_STATUS
-	JSR IRQ_EnableDisplay	
-	
+	JSR IRQ_EnableDisplay
+
 	RTS
-	
+
 NEW_CHKIN
 	INC $D020
 	LDA KERNAL_DEVICE_NUMBER
@@ -440,16 +482,16 @@ NEW_CHKIN
 	STA KERNAL_STATUS		; Clear status (success)
 	CLC						; Clear carry (no error)
 	RTS
-	
+
 NEW_CLOSE
 	INC $D020
 	LDA KERNAL_DEVICE_NUMBER
 	CMP #08
-	BEQ + 
+	BEQ +
 	JMP K_CLOSE
 +
 	JSR IRQ_DisableDisplay
-	
+
 	JSR IRQ_StartTalking
 
 	DELAYFRAMES 2
@@ -470,11 +512,11 @@ NEW_CLRCHN
 	INC $D020
 	LDA KERNAL_DEVICE_NUMBER
 	CMP #08
-	BEQ + 
+	BEQ +
 	JMP K_CLRCHN
 +
 	RTS
-	
+
 	;First chrin will be pulling 256 bytes from the micro
 	;then it will serve the calling program from this buffer.
 	;for the next 256 bytes it will call the micro again.
@@ -483,7 +525,7 @@ NEW_CHRIN
 	INC $D020
 	LDA KERNAL_DEVICE_NUMBER
 	CMP #08
-	BEQ + 
+	BEQ +
 	JMP K_CHRIN
 +
 	; Check EOF: FILEINDEX == OPENEDFILELENGTH16BIT?
@@ -500,13 +542,13 @@ NEW_CHRIN
 	LDA #$00					; Return null byte (KERNAL EOF convention)
 	CLC							; No error
 	RTS
-+	
++
 	LDA FILEINDEXLOW
 	BNE +			;Read from already filled buffer
 
 	JSR IRQ_StartTalking
 	DELAYFRAMES 2
-	
+
 	LDY #$00
 	LDA #<GENERALBUFFER
 	STA ZP_IRQ_API_DATA_LO
@@ -536,34 +578,34 @@ NEW_CHRIN
 +
 	LDA #$00
 	STA KERNAL_STATUS
-	
+
 	LDX FILEINDEXLOW
-	LDA GENERALBUFFER, X	
+	LDA GENERALBUFFER, X
 	TAY
 	INC16 FILEINDEX
-	TYA	
+	TYA
 	RTS
-	
-	
 
 
-.include "../../Loader/CartLibStream.s"
-.include "../../Loader/DebugStrings.s"
+
+
+.include "../../CartLibStream.s"
+.include "../../DebugStrings.s"
 
 DUMPHEX	.macro
 	; \1 -> source addresses
 	; \2 -> dump destination
 	; \3 -> length
-	
-	; Init self modified addresses	
+
+	; Init self modified addresses
 	LDA #<\1
 	STA DATASOURCE+1
-	
+
 	LDA #<\2
 	STA HNIBBLESTORE+1
-	
+
 	LDA #<\2 + 1
-	STA LNIBBLESTORE+1	
+	STA LNIBBLESTORE+1
 
 	LDA #>\1
 	STA DATASOURCE+2
@@ -571,15 +613,15 @@ DUMPHEX	.macro
 	STA HNIBBLESTORE+2
 	LDA #>\2
 	STA LNIBBLESTORE+2
-	
+
 	LDY #0
--	
-DATASOURCE	
+-
+DATASOURCE
 	LDA \1,Y
 	JSR GetHigh
-HNIBBLESTORE	
+HNIBBLESTORE
 	STA \2
-	
+
 	LDA \1,Y
 	JSR GetLow
 LNIBBLESTORE
@@ -591,16 +633,16 @@ LNIBBLESTORE
 	INC16 LNIBBLESTORE+1
 	INY
 	CPY #\3
-	BNE - 
-	.endm	
-	
+	BNE -
+	.endm
+
 	; X have first byte, 	Y have second byte
-DisplayReceived	
-	DUMPHEX GENERALBUFFER, $0400, $00	
-	DUMPHEX GENERALBUFFER+256, $0700, $10		
-	
+DisplayReceived
+	DUMPHEX GENERALBUFFER, $0400, $00
+	DUMPHEX GENERALBUFFER+256, $0700, $10
+
 	RTS
-	
+
 
 GetHigh
 	LSR
@@ -616,13 +658,13 @@ GetLow
 	TAX
 	LDA  HEXTOSCREEN, X
 	RTS
-	
+
 minikey:
 	lda #$0
 	sta $dc03	; port b ddr (input)
 	lda #$ff
 	sta $dc02	; port a ddr (output)
-			
+
 	lda #$00
 	sta $dc00	; port a
 	lda $dc01       ; port b
@@ -630,29 +672,29 @@ minikey:
 	beq nokey
 	; got column
 	tay
-			
+
 	lda #$7f
 	sta nokey2+1
 	ldx #8
 nokey2:
 	lda #0
 	sta $dc00	; port a
-	
+
 	sec
 	ror nokey2+1
 	dex
 	bmi nokey
-			
+
 	lda $dc01       ; port b
 	cmp #$ff
 	beq nokey2
-			
+
 	; got row in X
 	txa
 	ora columntab,y
 	sec
 	rts
-			
+
 nokey:
 	clc
 	rts
@@ -673,25 +715,25 @@ HEXTOSCREEN
 GENERALBUFFER
 	.FILL 256
 
-; Attributes of launched initial program file	
+; Attributes of launched initial program file
 FILELENGTH16BIT	; F9 36
 FILELENGTH
 	.FILL 4
 
 STARTADDRESS	; 01 08
 STARTADDRESSLO
-	.BYTE 0	
+	.BYTE 0
 STARTADDRESSHI
 	.BYTE 0
-	
+
 ENDADDRESS		; FA 3E
 ENDADDRESSLO
-	.BYTE 0	
+	.BYTE 0
 ENDADDRESSHI
-	.BYTE 0	
+	.BYTE 0
 
 
-; Attributes of opened files	
+; Attributes of opened files
 OPENEDFILELENGTH16BIT	; FA 3E
 OPENEDFILELENGTH
 	.FILL 4

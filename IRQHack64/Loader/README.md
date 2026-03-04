@@ -11,8 +11,8 @@ Ez a könyvtár tartalmazza a C64 oldali cartridge kommunikációs könyvtáraka
 ```
 Loader/
 ├── Apps/              - Type B standalone alkalmazások (pl. BurstLoader)
-├── Shims/             - Kompatibilitási shim-ek (pl. KernalIOShim)
-├── Common/            - Közös include fájlok (System.inc, IRQHack.inc)
+├── Bridges/           - I/O bridge layers (e.g. KernalBridge)
+├── Common/            - Közös include fájlok (System.inc, EasySD.inc)
 ├── _archive/          - Elavult/nem használt fájlok (archivált)
 └── (library files)    - Aktív cartridge library fájlok
 ```
@@ -73,7 +73,7 @@ Loader/
 | Fájl | Méret | Leírás |
 |------|-------|--------|
 | **System.inc** | 1.5 KB | System konstansok (VIC, SID, CIA címek, KERNAL rutinok). |
-| **IRQHack.inc** | 1.4 KB | IRQHack64-specifikus konstansok (cartridge címek, protokoll értékek). |
+| **EasySD.inc** | 1.4 KB | IRQHack64-specifikus konstansok (cartridge címek, protokoll értékek). |
 
 ---
 
@@ -133,7 +133,7 @@ CartLibStream.s
           └─> SystemMacros.s
           └─> CartLibCommon.s
               └─> Common/System.inc
-              └─> Common/IRQHack.inc
+              └─> Common/EasySD.inc
           └─> CartLibDebug.s (ha DEBUG=1)
 ```
 
