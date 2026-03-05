@@ -22,12 +22,14 @@ PLAYTYPE_BOTH = 2
 ; DEBUG mode - defined from command line (-D DEBUG=1 or -D DEBUG=0)
 ; Load DEBUG macros BEFORE first use
 .include "../../Loader/DebugMacros.s"
+.include "../../Loader/APIMacros.s"
 
 STREAMINGBUFFERHALF = 64
 
 	*=$C000
 
-	;*=$080E	
+	;*=$080E
+PETGLPLUGINREAD				;Remove when callback in the transfer code fixed.
 	JMP MAIN
 	
 MAIN		
@@ -42,12 +44,7 @@ ALTENTRY
 	;PRINTSTATUSANDWAIT OPENINGFILE, 100
 	DELAYFRAMES 5
 	JSR IRQ_DisableDisplay		
-	LDX #<FILE_PATH_BUF
-	LDY #>FILE_PATH_BUF
-	LDA #31
-	JSR IRQ_SetName
-	LDX #01		; Flags=read
-	JSR IRQ_OpenFile
+	#OPENFILE FILE_PATH_BUF, #31, #01
 	BCC OPENINGCONT
 	JMP ERROR_OPENING_FILE
 OPENINGCONT	
@@ -57,8 +54,13 @@ OPENINGCONT
 	;JMP FILEREAD
 	;RINTSTATUSANDWAIT STREAMINGFILE, 200
 
+	; Initialize Arduino streaming mode (parameters ignored by firmware)
+	; WavPlayer implements its own IRQ-based streaming loop (see PlayRoutine)
+	LDA #$00
+	LDX #$00
+	LDY #$00
 	JSR IRQ_Stream
-	
+
 	;JMP STREAMTEST2
 	DELAYFRAMES 5
 	LDA #PLAYTYPE_BOTH
@@ -94,15 +96,10 @@ WAITAKEY
 
 
 PlayRoutineSimple:
-	PHA
-	TXA
-	PHA
-	TYA
-	PHA
+	#SAVEREGS
 
 	INC VIC_BORDER_COLOR			;is interrupt handler alive?
-	LDA #PP_CONFIG_DEFAULT
-	STA PROCESSOR_PORT	
+	#SETBANK PP_CONFIG_DEFAULT
 	LDA MODULATION_ADDRESS	
 	NOP
 	LDA CARTRIDGE_BANK_VALUE
@@ -110,27 +107,17 @@ PlayRoutineSimple:
 	LDA SHIFT4BIT, Y				; 4+	
 	STA $D418
 
-	LDA #PP_CONFIG_RAM_ON_ROM
-	STA PROCESSOR_PORT		
+	#SETBANK PP_CONFIG_RAM_ON_ROM
 	LDA CIA_1_BASE + CIA_INT_MASK	; Acknowledge interrupt
 
-	PLA
-	TAY
-	PLA
-	TAX
-	PLA
-	RTI	
-	
+	#RESTOREREGS
+	RTI
+
 PlayRoutineBoth:
-	PHA
-	TXA
-	PHA
-	TYA
-	PHA
+	#SAVEREGS
 
 	INC VIC_BORDER_COLOR			;is interrupt handler alive?
-	LDA #PP_CONFIG_DEFAULT
-	STA PROCESSOR_PORT	
+	#SETBANK PP_CONFIG_DEFAULT
 	LDA MODULATION_ADDRESS	
 	NOP
 	LDA CARTRIDGE_BANK_VALUE
@@ -139,32 +126,22 @@ PlayRoutineBoth:
 	STA $D418
 	STY CIA_2_BASE + DATA_B			; 8-bit Digimax
 	
-	LDA #PP_CONFIG_RAM_ON_ROM
-	STA PROCESSOR_PORT		
+	#SETBANK PP_CONFIG_RAM_ON_ROM
 	LDA CIA_1_BASE + CIA_INT_MASK	; Acknowledge interrupt
 
-	PLA
-	TAY
-	PLA
-	TAX
-	PLA
-	RTI	
-	
-.align $100	
+	#RESTOREREGS
+	RTI
+
+.align $100
 
 PlayRoutine							; 7
-	PHA
-	TXA
-	PHA
-	TYA
-	PHA
+	#SAVEREGS
 
 	INC VIC_BORDER_COLOR			; 6
 	LDA PLAYSTATE					; 3
 	BNE PlayFromBuffer				; 2 - 3
 
-	LDA #PP_CONFIG_DEFAULT			; 2
-	STA PROCESSOR_PORT	 			; 3
+	#SETBANK PP_CONFIG_DEFAULT
 
 	LDA MODULATION_ADDRESS			; 4
 	NOP								; 2
@@ -181,17 +158,12 @@ PlayRoutine							; 7
 	LDX #STREAMINGBUFFERHALF		; 2
 +	
 	STX PLAYINDEX
-	LDA #PP_CONFIG_RAM_ON_ROM		; 2
-	STA PROCESSOR_PORT				; 4
-	LDA CIA_1_BASE + CIA_INT_MASK	; 4 - Acknowledge interrupt		
-	
-	PLA
-	TAY
-	PLA
-	TAX
-	PLA
+	#SETBANK PP_CONFIG_RAM_ON_ROM
+	LDA CIA_1_BASE + CIA_INT_MASK	; 4 - Acknowledge interrupt
+
+	#RESTOREREGS
 	RTI
-		
+
 PlayFromBuffer	
 	LDX PLAYINDEX
 	LDA READBUFFER, X				; 4+ (if page crossed)
@@ -204,32 +176,22 @@ PlayFromBuffer
 	LDX #STREAMINGBUFFERHALF		; 2
 +	
 	STX PLAYINDEX
-	LDA #PP_CONFIG_RAM_ON_ROM		; 2
-	STA PROCESSOR_PORT				; 4
-	LDA CIA_1_BASE + CIA_INT_MASK	; 4 - Acknowledge interrupt	
+	#SETBANK PP_CONFIG_RAM_ON_ROM
+	LDA CIA_1_BASE + CIA_INT_MASK	; 4 - Acknowledge interrupt
 
-	PLA
-	TAY
-	PLA
-	TAX
-	PLA
+	#RESTOREREGS
 	RTI								; 6
-		
+
 .align $100	
 
 PlayDigimax							; 7
-	PHA
-	TXA
-	PHA
-	TYA
-	PHA
+	#SAVEREGS
 
 	INC VIC_BORDER_COLOR			; 6
 	LDA PLAYSTATE					; 3
 	BNE PlayFromBufferDigimax		; 2 - 3
 
-	LDA #PP_CONFIG_DEFAULT			; 2
-	STA PROCESSOR_PORT	 			; 3
+	#SETBANK PP_CONFIG_DEFAULT
 
 	LDA MODULATION_ADDRESS			; 4
 	NOP								; 2
@@ -244,17 +206,12 @@ PlayDigimax							; 7
 	LDX #STREAMINGBUFFERHALF		; 2
 +	
 	STX PLAYINDEX
-	LDA #PP_CONFIG_RAM_ON_ROM		; 2
-	STA PROCESSOR_PORT				; 4
-	LDA CIA_1_BASE + CIA_INT_MASK	; 4 - Acknowledge interrupt		
+	#SETBANK PP_CONFIG_RAM_ON_ROM
+	LDA CIA_1_BASE + CIA_INT_MASK	; 4 - Acknowledge interrupt
 
-	PLA
-	TAY
-	PLA
-	TAX
-	PLA
+	#RESTOREREGS
 	RTI
-		
+
 PlayFromBufferDigimax
 	LDX PLAYINDEX
 	LDA READBUFFER, X				; 4+ (if page crossed)
@@ -265,34 +222,15 @@ PlayFromBufferDigimax
 	LDX #STREAMINGBUFFERHALF		; 2
 +	
 	STX PLAYINDEX
-	LDA #PP_CONFIG_RAM_ON_ROM		; 2
-	STA PROCESSOR_PORT				; 4
-	LDA CIA_1_BASE + CIA_INT_MASK	; 4 - Acknowledge interrupt	
+	#SETBANK PP_CONFIG_RAM_ON_ROM
+	LDA CIA_1_BASE + CIA_INT_MASK	; 4 - Acknowledge interrupt
 
-	PLA
-	TAY
-	PLA
-	TAX
-	PLA
-	RTI				
-	
-	
+	#RESTOREREGS
+	RTI
+
+
 PlayDigimaxSimple					; 7
-	
-	
-	PHA
-	
-	
-	TXA
-	
-	
-	PHA
-	
-	
-	TYA
-	
-	
-	PHA
+	#SAVEREGS
 	
 	
 
@@ -301,10 +239,7 @@ PlayDigimaxSimple					; 7
 	INC VIC_BORDER_COLOR			; 6
 	
 	
-	LDA #PP_CONFIG_DEFAULT			; 2
-	
-	
-	STA PROCESSOR_PORT	 		; 3
+	#SETBANK PP_CONFIG_DEFAULT
 	
 	
 
@@ -328,10 +263,7 @@ PlayDigimaxSimple					; 7
 	STA CIA_2_BASE + DATA_B			; 4
 	
 	
-	LDA #PP_CONFIG_RAM_ON_ROM		; 2
-	
-	
-	STA PROCESSOR_PORT			; 4
+	#SETBANK PP_CONFIG_RAM_ON_ROM
 	
 	
 	LDA CIA_1_BASE + CIA_INT_MASK	; 4 - Acknowledge interrupt		
@@ -340,19 +272,7 @@ PlayDigimaxSimple					; 7
 
 	
 	
-	PLA
-	
-	
-	TAY
-	
-	
-	PLA
-	
-	
-	TAX
-	
-	
-	PLA
+	#RESTOREREGS
 	
 	
 	RTI
@@ -394,10 +314,7 @@ PlayBothBuffered:
 
 	
 	
-	LDA #PP_CONFIG_DEFAULT
-	
-	
-	STA PROCESSOR_PORT
+	#SETBANK PP_CONFIG_DEFAULT
 	
 	
 	LDA MODULATION_ADDRESS
@@ -501,28 +418,13 @@ DEX
 PlayBothBuffered_Exit:
 	
 	
-	LDA #PP_CONFIG_RAM_ON_ROM
-	
-	
-	STA PROCESSOR_PORT
+	#SETBANK PP_CONFIG_RAM_ON_ROM
 	
 	
 	LDA CIA_1_BASE + CIA_INT_MASK
 	
 	
-	PLA
-	
-	
-	TAY
-	
-	
-	PLA
-	
-	
-	TAX
-	
-	
-	PLA
+	#RESTOREREGS
 	
 	
 	RTI
@@ -540,10 +442,7 @@ SETUPMUSICTRANSFER
 	SEI
 	
 	
-	LDA #PP_CONFIG_RAM_ON_ROM		
-	
-	
-	STA PROCESSOR_PORT	
+	#SETBANK PP_CONFIG_RAM_ON_ROM
 	
 	
 	
@@ -819,8 +718,7 @@ PREPARESHIFTBIT
 	
 	
 STREAMTEST1
-	LDA #PP_CONFIG_DEFAULT
-	STA PROCESSOR_PORT	
+	#SETBANK PP_CONFIG_DEFAULT
 
 WAIT1
 	JSR minikey
@@ -840,8 +738,7 @@ WAIT1
 	
 	
 STREAMTEST2
-	LDA #PP_CONFIG_DEFAULT
-	STA PROCESSOR_PORT	
+	#SETBANK PP_CONFIG_DEFAULT
 
 WAIT2
 	JSR minikey
