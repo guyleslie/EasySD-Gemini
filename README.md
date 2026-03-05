@@ -2,117 +2,174 @@
 
 **A modern, plugin-driven SD card interface for the Commodore 64.**
 
-EasySD brings SD card support to the C64 through a cartridge-based system combining an Arduino Nano/Pro Mini "file server" with a C64-side menu and plugin architecture. Browse directories and load files directly from a standard FAT-formatted SD card.
+EasySD brings SD card support to the C64 through a cartridge combining an Arduino Nano/Pro Mini file server with a C64-side menu and plugin architecture. Browse FAT-formatted SD cards and load files directly on real hardware.
 
-![EasySD Schematic](Schematic%20EasySD%20v3.png)
+> Current version: **v3.1.1** (2026-02-28)
+
+![EasySD Schematic v3](Schematic%20EasySD%20v3.png)
+
+---
 
 ## Features
 
-- **SD Card File Browser** - Navigate directories and select files from FAT-formatted SD cards
-  - Cursor key navigation, inverse selection highlight, directory header row
-- **Plugin System** - Extensible file type support through dedicated plugins:
-  - **PRG** - Launch C64 programs with KERNAL hooking for BASIC LOAD compatibility
-  - **TAP** - Automatic TAP-to-PRG conversion (convert+run or save to SD)
-  - **KOA** - Display Koala Painter graphics
-  - **PETG** - Render PETSCII art
-  - **WAV** - Stream and play digital audio (double-buffered)
-  - **MUS** - Play Compute's Sidplayer SID music files
-  - **CVID** - Play CVID format video files (VIDEO.CVID)
-- **Status LED** - Visual boot and SD health indicator on pin A5 (3 blinks = OK, 6 = fail)
-- **Production-Ready** - Reliable directory navigation, cold boot retry, memory-safe operations
-- **SdFat 2.x** - Modern SD card library with full API compliance
+### File Browser
+- Directory navigation up to 10 levels deep
+- Cursor key navigation, inverse selection highlight, directory header row
+- Supports 8.3 FAT filenames; SD card hot-swap via menu reset
+
+### Plugin System
+
+| Plugin | File type | Description |
+|--------|-----------|-------------|
+| **KernalBridge** | `.PRG` | Loads C64 programs; hooks KERNAL LOAD/SAVE for full BASIC compatibility |
+| **TAP** | `.TAP` | Automatic TAP-to-PRG conversion — convert+run or save to SD |
+| **KOA** | `.KOA` | Koala Painter full-screen graphics viewer |
+| **PETG** | `.PET` | PETSCII art renderer |
+| **WAV** | `.WAV` | Digital audio streaming (double-buffered, up to 16 KB/s) |
+| **MUS** | `.MUS` | Compute's Sidplayer SID music playback |
+| **CVID** | `.CVID` | CVID video playback (Bad Apple!! at ~10 KB/s) |
+
+Plugins are standalone 6502 programs loaded from `/PLUGINS/` on the SD card.
+
+### Hardware
+- **Status LED** on pin A5 — 3 blinks = SD OK, 6 = SD fail
+- **Cold boot retry** — automatic SD reinitialisation on startup
+- **ISP programming** support (USBTinyISP) for blank-chip flashing
+
+---
 
 ## Hardware Requirements
 
 - **Commodore 64** (PAL or NTSC)
-- **Arduino Nano 3.x** (ATmega328P)
-- **SD card module** (SPI interface)
-- **EasySD cartridge PCB** (see schematic above for circuit design)
+- **Arduino Nano 3.x** (ATmega328P, 32 KB flash, 2 KB SRAM)
+- **SD card** — FAT16/FAT32 formatted, standard SPI module
+- **EasySD cartridge PCB** (see schematic above)
+- **10–100 µF electrolytic capacitor** across SD VCC/GND (required for SPI stability)
 - **Status LED** on pin A5 (optional but recommended)
+
+---
 
 ## Quick Start
 
 ### Prerequisites
 
-- **Python 3.7+** - Build system
-- **64tass** - 6502 cross-assembler (in PATH)
-- **petcat** (from VICE) - BASIC stub generation (in PATH)
-- **arduino-cli** - Arduino compilation and upload
+| Tool | Purpose |
+|------|---------|
+| Python 3.7+ | Build system |
+| [64tass](https://sourceforge.net/projects/tass64/) | 6502 cross-assembler (must be in PATH) |
+| `petcat` (VICE) | BASIC stub generation (must be in PATH) |
+| `arduino-cli` | Arduino compilation and upload |
+
+Install arduino-cli: `winget install Arduino.ArduinoCLI`
 
 ### Build & Flash
 
 ```bash
-# First-time Arduino setup (install libraries)
+# First-time setup: install Arduino libraries
 python Tools/build.py arduino-setup
 
 # Full release build (C64 + Arduino)
 python Tools/build.py release
 
-# Upload firmware to Arduino (USB serial)
+# Upload firmware via USB serial
 python Tools/build.py arduino-upload COM4
 
-# Or: upload via ISP programmer (USBTinyISP)
-python Tools/build.py arduino-upload-isp
+# Upload via ISP programmer (blank chip)
+python Tools/build.py arduino-upload-isp --isp-sck 100
 
-# Or: debug build for development
-python Tools/build.py debug-arduino
+# Debug build for VICE emulator (no Arduino needed)
+python Tools/build.py debug-vice
 ```
 
-See [Tools/README.md](Tools/README.md) for all build commands and options.
+See [Tools/README.md](Tools/README.md) for all build targets and options.
+
+---
+
+## Architecture
+
+EasySD consists of two cooperating halves connected through the C64 expansion port.
+
+### Arduino Firmware (`Arduino/IRQHack64/`)
+
+Manages the SD card, FAT filesystem, directory navigation, file streaming, and TAP conversion. Entry point: `IRQHack64.ino`. Command routing: `CartApi.cpp`. Directory logic: `DirFunction.cpp`.
+
+**ATmega328P constraints:** 2 KB SRAM (~415 bytes free at boot). No dynamic allocation, no Arduino `String` class, all buffers statically sized.
+
+### C64 Software (`IRQHack64/`)
+
+Cartridge ROM with communication library (`Loader/`), file browser menu (`Menus/EasySD/`), and plugin system (`Plugins/`). Built with 64tass assembler.
+
+**Include hierarchy** (strict linear chain):
+```
+CartLibStream.s → CartLibHi.s → CartLib.s → CartLibCommon.s → System.inc / EasySD.inc
+```
+
+**Two-tier macro system:**
+- Tier 1 — `SystemMacros.s`: hardware access patterns (`SETBANK`, `WAITFOR`, `SAVEREGS`, `READCART_MODULATED`) — arrives via the include chain
+- Tier 2 — `APIMacros.s`: file API helpers (`OPENFILE`, `GETFILEINFO`, `EXTRACTFILESIZE`) — explicit include at plugin top
+
+### Data Transfer Mechanisms
+
+Two distinct protocols share the expansion port signals:
+
+| Mechanism | Trigger | Data path | Rate | Used by |
+|-----------|---------|-----------|------|---------|
+| **NMI transfer** | Arduino asserts /NMI (D8) | ROML latch → `$80AB` | ~40 KB/s | File loading (menu, plugins, KernalBridge) |
+| **IO2 streaming** | C64 reads `$DF00` → /IO2 pulse | Arduino ISR → IO1 latch → `$DE00` | ~13.5 KB/s | WavPlayer, CvidPlayer |
+
+See [docs/architecture/CARTRIDGE_PROTOCOL.md](docs/architecture/CARTRIDGE_PROTOCOL.md) for full hardware and timing details.
+
+---
 
 ## Project Structure
 
 ```
 EasySD Gemini/
-├── Arduino/IRQHack64/     # Arduino firmware (C++, SdFat 2.x)
-├── IRQHack64/             # C64 assembly source (6502, 64tass)
-│   ├── Loader/            # Cartridge ROM & communication library
-│   ├── Menus/EasySD/      # Main file browser menu
-│   └── Plugins/           # File-type plugins
-├── Tools/                 # Python build system
-├── docs/                  # Documentation
-│   ├── architecture/      # Technical architecture docs
-│   ├── plugins/           # Plugin documentation
-│   ├── sprints/           # Development sprint records
-│   ├── arduino/           # Arduino-specific docs
-│   └── build/             # Build system docs
-└── Archive/               # Historical reference & legacy files
+├── Arduino/IRQHack64/          # Arduino firmware (C++, SdFat 2.x)
+│   ├── IRQHack64.ino           # Entry point
+│   ├── CartApi.cpp             # Command routing
+│   └── DirFunction.cpp         # Directory navigation
+├── IRQHack64/                  # C64 assembly source (6502, 64tass)
+│   ├── Loader/                 # Cartridge ROM & communication library
+│   │   ├── Bridges/KernalBridge/ # KERNAL bridge plugin
+│   │   ├── CartLib.s           # NMI transfer, IRQ handlers
+│   │   ├── CartLibStream.s     # IO2 streaming, SafeStream
+│   │   ├── CartZpMap.inc       # Zero page allocation (single source of truth)
+│   │   └── SystemMacros.s      # Tier 1 assembly macros
+│   ├── Menus/EasySD/           # Main file browser menu
+│   └── Plugins/                # File-type plugins (KOA, WAV, MUS, CVID, TAP)
+├── Tools/                      # Python build system + test tools
+├── docs/                       # Documentation
+│   ├── architecture/           # Technical architecture docs
+│   ├── build/                  # Build system docs
+│   ├── testing/                # Test suite docs
+│   ├── arduino/                # Arduino API docs
+│   ├── plugins/                # Plugin docs
+│   └── archive/                # Superseded documents
+└── Archive/                    # Historical reference & legacy files
 ```
+
+---
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [CLAUDE.md](CLAUDE.md) | Developer guide for AI-assisted development |
-| [GEMINI.md](GEMINI.md) | Detailed AI developer guide with architectural rules |
-| [CHANGELOG.md](CHANGELOG.md) | Complete version history |
-| [docs/build/](docs/build/) | Build system documentation |
-| [docs/architecture/](docs/architecture/) | Technical architecture docs |
-| [docs/plugins/](docs/plugins/) | Plugin documentation |
+| [docs/architecture/CARTRIDGE_PROTOCOL.md](docs/architecture/CARTRIDGE_PROTOCOL.md) | Hardware signals, transfer mechanisms, timing |
+| [docs/architecture/MACRO_ARCHITECTURE.md](docs/architecture/MACRO_ARCHITECTURE.md) | Two-tier macro system |
+| [docs/build/BUILD_SYSTEM.md](docs/build/BUILD_SYSTEM.md) | Build system deep-dive |
 | [docs/testing/VICE_MENU_TEST.md](docs/testing/VICE_MENU_TEST.md) | Automated VICE C64 menu test suite |
+| [docs/arduino/DIR_NAVIGATION_API.md](docs/arduino/DIR_NAVIGATION_API.md) | Directory navigation API reference |
+| [CHANGELOG.md](CHANGELOG.md) | Version history |
+| [CLAUDE.md](CLAUDE.md) | AI developer guide (Claude Code) |
+| [GEMINI.md](GEMINI.md) | AI developer guide (Gemini) |
 
-## Architecture Overview
-
-The system is split into two cooperating halves:
-
-**Arduino Firmware** manages the SD card, FAT filesystem, directory navigation, file streaming, and TAP conversion. Communication uses a custom protocol: software serial (C64 → Arduino) and NMI-driven byte transfer (Arduino → C64).
-
-**C64 Software** provides the cartridge ROM with communication library, the file browser menu, and the plugin system. Plugins are standalone 6502 programs loaded from `/PLUGINS/` on the SD card.
-
-Key design principles:
-- Strict linear include hierarchy (no duplicate definitions in 64tass)
-- Centralized Zero Page map (`CartZpMap.inc`) as single source of truth
-- Centralized APIs: `LoadFileBySize`, `SafeStream`, `StreamLargeFile`
-- State save/restore pattern for all plugins
+---
 
 ## Credits
 
-EasySD Gemini is based on the original **IRQHack64/EasySD** project. This fork adds SdFat 2.x support, a Python build system, production-quality directory navigation, and extensive documentation.
+EasySD Gemini is based on the original **IRQHack64/EasySD** project. This fork adds SdFat 2.x support, a Python build system, KernalBridge plugin architecture, production-quality directory navigation, a two-tier macro system, and extensive documentation.
 
 ## License
 
 See original project for license terms.
-
----
-
-*Current version: v3.1.1 (2026-02-28)*
