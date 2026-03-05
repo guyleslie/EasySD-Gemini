@@ -43,11 +43,7 @@ STREAM_DATA_PORT       = $DE00 ; Cartridge data register (reads byte from Arduin
 
 StreamLargeFile:
     SEI                     ; Disable interrupts to ensure timing integrity
-    PHA                     ; Save registers
-    TXA
-    PHA
-    TYA
-    PHA
+    #SAVEREGS
 
     ; Step 1: Copy 32-bit file size to our countdown timer
     LDA STREAM_FILE_SIZE_0
@@ -129,11 +125,7 @@ _stream_done:
     NOP
     NOP
 
-    PLA                     ; Restore registers
-    TAY
-    PLA
-    TAX
-    PLA
+    #RESTOREREGS
     
     CLI                     ; Re-enable interrupts
     CLC                     ; Return CARRY CLEAR for success
