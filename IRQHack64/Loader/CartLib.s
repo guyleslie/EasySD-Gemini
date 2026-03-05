@@ -13,6 +13,7 @@
 ;----------------------------------------------------------------------------------------------------------
 
 .include "CartLibCommon.s"
+.include "SystemMacros.s"
 
 ;----------- Utility routines ----------------------
 
@@ -90,10 +91,9 @@ IRQ_EndTalking
 	SEI
 	JSR IRQ_DisableCIAInterrupts
 		
-	LDA #PP_CONFIG_DEFAULT
-	STA PROCESSOR_PORT
-	CLI	
-	RTS	
+	#SETBANK PP_CONFIG_DEFAULT
+	CLI
+	RTS
 	
 
 	
@@ -259,18 +259,15 @@ IRQ_ReceiveFragment
 	LDA #$00
 	STA ZP_IRQ_STATE_WAITHANDLE
 	
-	LDA #PP_CONFIG_DEFAULT
-	STA PROCESSOR_PORT
+	#SETBANK PP_CONFIG_DEFAULT
 
 	LDX ZP_IRQ_API_DATA_LENGTH
-   	LDY #$00	;Setup for transfer routine  	
-	
-	CLV	
--
-	BIT ZP_IRQ_STATE_WAITHANDLE	
-	BVC -		
+   	LDY #$00	;Setup for transfer routine
 
-	
+	CLV
+	#WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC
+
+
 	; Do a fake RTS
 	LDA ZP_IRQ_API_CALLBACK_HI
 	PHA
@@ -303,20 +300,17 @@ IRQ_ReceiveFragmentNoCallback
 	LDA #$00
 	STA ZP_IRQ_STATE_WAITHANDLE
 	
-	LDA #PP_CONFIG_DEFAULT
-	STA PROCESSOR_PORT
+	#SETBANK PP_CONFIG_DEFAULT
 
 	LDX ZP_IRQ_API_DATA_LENGTH
-   	LDY #$00	;Setup for transfer routine  	
-	
-	CLV	
--
-	BIT ZP_IRQ_STATE_WAITHANDLE	
-	BVC -		
+   	LDY #$00	;Setup for transfer routine
 
-	LDA #0	
+	CLV
+	#WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC
+
+	LDA #0
 	CLC		;Indicate successful execution of command that invoked this (instead of using callback)
-	RTS	
+	RTS
 	
 	
 ;FE43   78         SEI			;2
