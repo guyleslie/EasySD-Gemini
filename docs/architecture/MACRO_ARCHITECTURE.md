@@ -17,7 +17,6 @@ EasySD uses a two-tier macro system in 64tass assembly.
 | `SAVEREGS` / `RESTOREREGS` | Preserve A/X/Y on stack | PHA/TXA/PHA/TYA/PHA and reverse |
 | `WAITFOR addr, branch` | BIT-based status poll loop | - / BIT addr / branch - |
 | `WAITVALUE addr, val` | Poll until addr == val | - / LDA addr / CMP #val / BNE - |
-| `SETADDR label, zp_lo` | Load 16-bit address into ZP pair | LDA #<label / STA zp / LDA #>label / STA zp+1 |
 | `COUNTLOOP n` / `ENDLOOP` | X-register countdown loop | LDX #n / body / DEX / BNE |
 
 ---
@@ -35,7 +34,7 @@ EasySD uses a two-tier macro system in 64tass assembly.
 | `CLOSEFILE` | Close current file | JSR IRQ_CloseFile |
 | `SETADDR label, zp_lo` | 16-bit ZP pointer setup | LDA #<label / STA zp / LDA #>label / STA zp+1 (4 lines) |
 
-`SETADDR` appears in both tiers with identical expansion. APIMacros.s defines it for files that include APIMacros.s before CartLibStream.s; 64tass silently accepts the later duplicate from SystemMacros.s.
+`SETADDR` is defined only in APIMacros.s (Tier 2). Files that include both APIMacros.s and CartLibStream.s get `SETADDR` via APIMacros.s; SystemMacros.s does not define it.
 
 ---
 
@@ -56,9 +55,11 @@ EasySD uses a two-tier macro system in 64tass assembly.
 
 | File | Tier 1 macros used | Tier 2 macros used |
 |------|-------------------|-------------------|
-| `CvidPlayer/NMI.s` | READCART_MODULATED (×400) | — |
-| `Loader/CartLib*.s` | SETBANK, SAVEREGS, RESTOREREGS, WAITFOR, WAITVALUE | — |
-| `Loader/Bridges/KernalBridge/KernalBridge.s` | SETADDR | OPENFILE, GETFILEINFO, EXTRACTFILESIZE, CLOSEFILE, SETADDR |
+| `Loader/CartLib.s` | SETBANK (×3), WAITFOR (×2) | — |
+| `Loader/CartLibStream.s` | SAVEREGS (×1), RESTOREREGS (×1) | — |
+| `Loader/Bridges/KernalBridge/KernalBridge.s` | — | OPENFILE, GETFILEINFO, EXTRACTFILESIZE, CLOSEFILE, SETADDR |
+| `Plugins/WavPlayer/WavPlayer.s` | SETBANK (×17), SAVEREGS (×6+), RESTOREREGS (×6+) | OPENFILE |
+| `Plugins/CvidPlayer/NMI.s` | READCART_MODULATED (×400) | — |
 
 ---
 
