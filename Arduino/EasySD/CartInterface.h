@@ -3,7 +3,7 @@
 #define _CARTINTERFACE_
 #include "Arduino.h"
 #include "HardwareSerial.h"
-#include "IRQHack64.h"
+#include "EasySD.h"
 #include <ByteQueue.h>
 #include <SPI.h>
 

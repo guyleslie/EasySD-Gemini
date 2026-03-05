@@ -1,7 +1,7 @@
 #include <SdFat.h>
 // #include <SdFatUtil.h>  // Removed: Not available in SdFat 2.x
 #include <FreeStack.h>  // SdFat 2.x: For memory debugging
-#include "IRQHack64.h"
+#include "EasySD.h"
 #include "Arduino.h"
 #include "DirFunction.h"
 #include "EasySDLog.h"
