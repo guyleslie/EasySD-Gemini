@@ -6,7 +6,7 @@ This folder contains the build and deployment tools for the EasySD/IRQHack64 pro
 
 ## Main Tools
 
-### `build.py` - Main Build Script
+### `build.py` - Main Build Script (v3.0.0)
 
 **C64 code + Arduino artifact generation**
 
@@ -30,6 +30,7 @@ python Tools/build.py clean
 # Arduino-specific commands
 python Tools/build.py arduino-compile
 python Tools/build.py arduino-upload COM4
+python Tools/build.py arduino-upload-isp [--isp-sck USEC]
 python Tools/build.py arduino-monitor COM4
 
 # Skip Arduino artifact generation
@@ -51,12 +52,13 @@ python Tools/build.py arduino-setup
 
 **What it does:**
 1. Compiles C64 assembly code (64tass)
-2. Generates Arduino header files (FlashLib.h, BuildConfig.h)
-3. Creates EPROM loader files
+2. Converts PETMATE menu export (`menu.asm` → `menu.bin`)
+3. Generates Arduino header files (`FlashLib.h`, `BuildConfig.h`)
 4. Compiles plugins
 
 **Output:**
 - `IRQHack64/build/irqhack64-debug.prg` - C64 program
+- `IRQHack64/build/plugins/` - Plugin binaries
 - `Arduino/IRQHack64/FlashLib.h` - Arduino header (generated)
 - `Arduino/IRQHack64/BuildConfig.h` - Debug flag (generated)
 
@@ -86,7 +88,15 @@ python Tools/build.py arduino-setup
 python Tools/build.py debug-arduino
 
 # 2. Arduino build + upload
-python Tools/build.py arduino-upload COM3
+python Tools/build.py arduino-upload COM4
+```
+
+### ISP Upload (blank chip):
+
+```bash
+python Tools/build.py arduino-upload-isp              # default speed
+python Tools/build.py arduino-upload-isp --isp-sck 100  # 10kHz, blank chip
+python Tools/build.py arduino-upload-isp --isp-sck 10   # 100kHz, with firmware
 ```
 
 ### Full Clean Build:
@@ -94,7 +104,7 @@ python Tools/build.py arduino-upload COM3
 ```bash
 python Tools/build.py clean
 python Tools/build.py debug-arduino
-python Tools/build.py arduino-upload COM3
+python Tools/build.py arduino-upload COM4
 ```
 
 ---
@@ -163,35 +173,32 @@ See `docs/testing/VICE_MENU_TEST.md` for full documentation.
 
 ---
 
+### `cvid_convert.py` - CVID Video Converter
+
+Converts MP4/AVI video files to the C64 CVID format used by CvidPlayer (Bad Apple!! decoder).
+
+---
+
+### `test_directory_navigation.py` / `test_file_io.py` - Legacy Test Scripts
+
+Older manual/semi-automated test scripts. Superseded by `test_arduino_comm.py`.
+
+---
+
 ## File Structure
 
 ```
 Tools/
-├── build.py                    # Main build script (v2.2.0)
-├── README.md                   # This file
-├── prepare_test_sd.py          # SD card test file preparation
-├── test_arduino_comm.py        # PC-side Arduino serial test runner
-├── test_vice_menu.py           # VICE automated C64 menu tests
-├── test_directory_navigation.py # Directory navigation tests (legacy)
-└── test_file_io.py             # File I/O tests (legacy)
-
-IRQHack64/
-├── build/                      # Build output (generated)
-│   ├── irqhack64-debug.prg    # C64 program
-│   ├── plugins/               # Plugin binaries
-│   └── symbol/                # Debug symbols (.txt + .vs VICE labels)
-└── ...                        # Assembly source files
-
-Arduino/
-├── IRQHack64/                 # Arduino sketch
-│   ├── IRQHack64.ino         # Main sketch
-│   ├── FlashLib.h            # Generated (build.py)
-│   ├── BuildConfig.h         # Generated (build.py)
-│   ├── CartApi.cpp           # API implementation
-│   └── ...
-└── libraries/                 # Project-specific libraries
-    ├── SdFat/                # SD card library (v2.3.0)
-    └── ByteQueue/            # Queue implementation
+├── build.py                      # Main build script (v3.0.0)
+├── README.md                     # This file
+├── prepare_test_sd.py            # SD card test file preparation
+├── test_arduino_comm.py          # PC-side Arduino serial test runner
+├── test_vice_menu.py             # VICE automated C64 menu tests
+├── cvid_convert.py               # CVID video converter
+├── ComputeSidPlayer.prg          # SID computation helper (C64 binary)
+├── test_directory_navigation.py  # Legacy directory navigation tests
+├── test_file_io.py               # Legacy file I/O tests
+└── archive/                      # Completed one-shot scripts (sprint tools, old docs)
 ```
 
 ---
@@ -212,7 +219,7 @@ Or see `docs/build/ARDUINO_CLI_SETUP.md` for detailed setup.
 
 Install VICE emulator and add its tools to PATH.
 
-### `Port COM3 not found`
+### `Port COM4 not found`
 
 Check available ports: `python Tools/build.py arduino-upload --list-ports`
 On Windows: Device Manager → Ports (COM & LPT)
@@ -227,5 +234,5 @@ On Windows: Device Manager → Ports (COM & LPT)
 
 ---
 
-*Last updated: 2025-12-26*
-*Build system version: v2.2.0*
+*Last updated: 2026-03-05*
+*Build system version: v3.0.0*
