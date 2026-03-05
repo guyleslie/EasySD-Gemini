@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """
-EasySD / IRQHack64 - Unified Professional Build System
+EasySD - Unified Professional Build System
 
 Supports C64 and Arduino builds from a single command-line interface.
 
@@ -52,14 +52,14 @@ def is_windows() -> bool:
 
 def find_repo_root(start: Path) -> Path:
     """
-    Find repo root by locating sibling directories: Tools + Arduino + IRQHack64.
+    Find repo root by locating sibling directories: Tools + Arduino + EasySD.
     """
     p = start.resolve()
     for candidate in [p, *p.parents]:
-        if (candidate / "Tools").is_dir() and (candidate / "Arduino").is_dir() and (candidate / "IRQHack64").is_dir():
+        if (candidate / "Tools").is_dir() and (candidate / "Arduino").is_dir() and (candidate / "EasySD").is_dir():
             return candidate
     raise SystemExit(
-        "ERROR: Could not locate repo root. Expected directories: Tools/, Arduino/, IRQHack64/.\n"
+        "ERROR: Could not locate repo root. Expected directories: Tools/, Arduino/, EasySD/.\n"
         "Run from inside the repo."
     )
 
@@ -71,8 +71,8 @@ def find_repo_root(start: Path) -> Path:
 @dataclass(frozen=True)
 class Context:
     repo_root: Path
-    irq_root: Path         # <repo_root>/IRQHack64
-    arduino_root: Path     # <repo_root>/Arduino/IRQHack64
+    irq_root: Path         # <repo_root>/EasySD
+    arduino_root: Path     # <repo_root>/Arduino/EasySD
     tools_dir: Path        # <repo_root>/Tools
     build_dir: Path        # <irq_root>/build
     sym_dir: Path
@@ -83,8 +83,8 @@ class Context:
 def make_context() -> Context:
     here = Path(__file__).resolve()
     repo_root = find_repo_root(here.parent)
-    irq_root = repo_root / "IRQHack64"
-    arduino_root = repo_root / "Arduino" / "IRQHack64"
+    irq_root = repo_root / "EasySD"
+    arduino_root = repo_root / "Arduino" / "EasySD"
     tools_dir = repo_root / "Tools"
     build_dir = irq_root / "build"
     return Context(
@@ -470,7 +470,7 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
 
         if ctx.arduino_root.exists():
             shutil.copyfile(flashlib_h, ctx.arduino_root / "FlashLib.h")
-            print(f"[CORE] Copied to: Arduino/IRQHack64/FlashLib.h")
+            print(f"[CORE] Copied to: Arduino/EasySD/FlashLib.h")
 
             # Generate BuildConfig.h based on target
             buildconfig_h = ctx.arduino_root / "BuildConfig.h"
@@ -667,7 +667,7 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
 
     avrdude_exe, avrdude_conf = find_avrdude(ctx)
 
-    hex_file = ctx.arduino_root / "build" / "arduino.avr.nano" / "IRQHack64.ino.hex"
+    hex_file = ctx.arduino_root / "build" / "arduino.avr.nano" / "EasySD.ino.hex"
     if not hex_file.exists():
         raise SystemExit(f"ERROR: HEX file not found: {hex_file}")
 
@@ -743,7 +743,7 @@ def arduino_clean(ctx: Context) -> None:
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         prog="build.py",
-        description="EasySD / IRQHack64 Unified Professional Build System",
+        description="EasySD Unified Professional Build System",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
