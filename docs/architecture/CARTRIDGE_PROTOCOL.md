@@ -292,9 +292,6 @@ Arduino A4 (SEL, pin 18) is connected to the C64 /RESET line on the
 expansion port (pin 30). `HandleStream()` polls this pin and aborts
 streaming if it goes LOW.
 
-This is a **test/debug feature**: in the released cartridge housing the
-reset line is not accessible during normal use.
-
 ---
 
 ## Implementation Files
