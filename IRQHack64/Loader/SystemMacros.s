@@ -278,48 +278,8 @@ WAITVALUE .macro
 	BNE -
 	.endm
 
-;-----------------------------------------------
-; SETADDR - Set 16-bit address in zero page pointer
-;-----------------------------------------------
-; Loads a 16-bit address into a zero page pointer pair.
-; Common pattern for setting up indirect addressing.
-;
-; ARCHITECTURAL CONTRACT:
-;   - Always sets low byte first, then high byte
-;   - Uses immediate addressing mode
-;   - Target must be zero page addresses
-;
-; Parameters:
-;   \1 = 16-bit address (label or absolute value)
-;   \2 = Zero page pointer low byte
-;
-; Registers affected: A
-; Flags affected: N, Z
-; Bytes: 8 (LDA imm = 2, STA zp = 2, LDA imm = 2, STA zp = 2)
-;
-; Example:
-;   #SETADDR FILEBUFFER, ZP_IRQ_API_DATA_LO
-;   ; Sets ZP_IRQ_API_DATA_LO = <FILEBUFFER
-;   ;      ZP_IRQ_API_DATA_HI = >FILEBUFFER
-;
-;   #SETADDR $C000, ZP_STREAM_API_TARGET_LO
-;   ; Sets pointer to $C000
-;
-; Replaces:
-;   LDA #<\1
-;   STA \2
-;   LDA #>\1
-;   STA \2+1
-;
-; Common usage: File API, stream setup, indirect addressing
-; Frequency: 20 occurrences in codebase
-;-----------------------------------------------
-SETADDR .macro
-	LDA #<\1
-	STA \2
-	LDA #>\1
-	STA \2+1
-	.endm
+; NOTE: SETADDR is defined in APIMacros.s (Tier 2). Not redefined here to avoid
+;       duplicate errors when both SystemMacros.s and APIMacros.s are in scope.
 
 ;-----------------------------------------------
 ; COUNTLOOP - Register-based countdown loop
