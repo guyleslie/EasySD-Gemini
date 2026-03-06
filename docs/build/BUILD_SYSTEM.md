@@ -1,4 +1,4 @@
-# EasySD IRQHack64 Build System
+# EasySD Build System
 
 **Version:** 2.2.0
 **Last Updated:** 2025-12-26
@@ -8,7 +8,7 @@
 
 ## Overview
 
-The EasySD IRQHack64 build system is a unified Python-based build tool that handles both C64 (6502 assembly) and Arduino (AVR C++) compilation. The system supports multiple build targets, artifact management, and automated testing.
+The EasySD build system is a unified Python-based build tool that handles both C64 (6502 assembly) and Arduino (AVR C++) compilation. The system supports multiple build targets, artifact management, and automated testing.
 
 **Key Features:**
 - Unified build script for C64 + Arduino
@@ -131,7 +131,7 @@ python build.py arduino-monitor COM4
 **Process:**
 1. Check FlashLib.h freshness (warns if stale)
 2. Generate BuildConfig.h with intent tracking
-3. Copy artifacts from `build/artifacts/` to `Arduino/IRQHack64/`
+3. Copy artifacts from `build/artifacts/` to `Arduino/EasySD/`
 4. Compile using arduino-cli
 
 **Output:**
@@ -209,12 +209,12 @@ python build.py arduino-monitor COM4
 
 ```
 C:\EasySD Gemini\
-├── IRQHack64/                  # C64 source code
+├── EasySD/                     # C64 source code
 │   ├── Loader/                 # Cartridge loader
 │   ├── Menus/                  # Menu systems
 │   ├── Plugins/                # File type plugins
 │   └── build/                  # Build output
-│       ├── irqhack64.prg       # Main C64 binary
+│       ├── easysd.prg          # Main C64 binary
 │       ├── plugins/            # Plugin binaries
 │       ├── symbol/             # Debug symbols (.txt labels + .vs VICE labels)
 │       ├── listing/            # Assembly listings
@@ -222,8 +222,8 @@ C:\EasySD Gemini\
 │           ├── FlashLib.h      # C64 binary as Arduino header
 │           ├── BuildConfig.h   # Arduino config with intent tracking
 │           └── IRQLoaderRom.bin # EPROM loader binary
-├── Arduino/IRQHack64/          # Arduino source code (workspace)
-│   ├── IRQHack64.ino           # Main sketch
+├── Arduino/EasySD/             # Arduino source code (workspace)
+│   ├── EasySD.ino              # Main sketch
 │   ├── CartApi.cpp/h           # C64 cartridge API
 │   ├── CartInterface.cpp/h     # Low-level interface
 │   ├── DirFunction.cpp/h       # Directory navigation
@@ -259,8 +259,8 @@ The second run outputs the binary to `os.devnull` — only the `.vs` label file 
 build/artifacts/FlashLib.h
 build/artifacts/BuildConfig.h
     ↓ copy_arduino_artifacts()
-Arduino/IRQHack64/FlashLib.h
-Arduino/IRQHack64/BuildConfig.h
+Arduino/EasySD/FlashLib.h
+Arduino/EasySD/BuildConfig.h
 ```
 
 **Phase 3: Arduino Compilation**
@@ -290,10 +290,10 @@ The build system uses a frozen dataclass for configuration:
 @dataclass(frozen=True)
 class Context:
     repo_root: Path           # C:\EasySD Gemini
-    irq_root: Path            # C:\EasySD Gemini\IRQHack64
-    arduino_root: Path        # C:\EasySD Gemini\Arduino\IRQHack64
+    irq_root: Path            # C:\EasySD Gemini\EasySD
+    arduino_root: Path        # C:\EasySD Gemini\Arduino\EasySD
     tools_dir: Path           # C:\EasySD Gemini\Tools
-    build_dir: Path           # C:\EasySD Gemini\IRQHack64\build
+    build_dir: Path           # C:\EasySD Gemini\EasySD\build
     sym_dir: Path             # build/symbol
     lst_dir: Path             # build/listing
     plugins_out_dir: Path     # build/plugins
@@ -669,4 +669,4 @@ python build.py arduino-upload COM3  # Try different port
 
 **Build System Version:** 2.2.0
 **Last Updated:** 2025-12-26
-**Maintainer:** EasySD IRQHack64 Project
+**Maintainer:** EasySD Project

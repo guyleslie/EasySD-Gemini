@@ -159,7 +159,7 @@ Serial.println("Reset to root");
 
 **Example Usage:**
 ```cpp
-// SD error recovery pattern (see recoverSD() in IRQHack64.ino)
+// SD error recovery pattern (see recoverSD() in EasySD.ino)
 dirFunc.CloseDirHandle();
 delay(50);
 sd.begin(chipSelect, SPI_QUARTER_SPEED);
@@ -413,7 +413,7 @@ JMP INPUT_GET
    - Added error handling with proper return codes
    - Enhanced debug logging
 
-4. **IRQHack64.ino** - Added test commands (~70 lines)
+4. **EasySD.ino** - Added test commands (~70 lines)
    - Added 'd', 'r', 'p' test commands
    - Added 3 test functions
 

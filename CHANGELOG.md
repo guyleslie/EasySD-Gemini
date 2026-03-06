@@ -1,4 +1,4 @@
-# EasySD / IRQHack64 - Unified Changelog
+# EasySD - Unified Changelog
 
 > **Last updated:** 2026-02-28
 > **Current version:** v3.1.1

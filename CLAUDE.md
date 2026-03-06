@@ -59,13 +59,13 @@ python Tools/build.py release --skip-arduino
 
 ### Dual-System Design
 
-**Arduino firmware** (`Arduino/IRQHack64/`): Manages SD card, FAT filesystem, directory navigation, file streaming, TAP conversion. Entry point is `IRQHack64.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`.
+**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming, TAP conversion. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`.
 
-**C64 software** (`IRQHack64/`): Cartridge ROM with communication library (`Loader/`), main file browser menu (`Menus/EasySD/IrqLoaderMenuNew.s`), and file-type plugins (`Plugins/`).
+**C64 software** (`EasySD/`): Cartridge ROM with communication library (`Loader/`), main file browser menu (`Menus/EasySD/IrqLoaderMenuNew.s`), and file-type plugins (`Plugins/`).
 
 ### Build Artifact Flow
 
-PETMATE `menu.asm` → `convert_petmate_asm()` → `menu.bin` → C64 assembly (`.binary "menu.bin"`) → 64tass → `.prg` binaries → `bin2ardh` → `build/artifacts/FlashLib.h` → copied to `Arduino/IRQHack64/` → `arduino-cli compile` → firmware HEX. The `debug-vice` target skips Arduino artifact generation entirely.
+PETMATE `menu.asm` → `convert_petmate_asm()` → `menu.bin` → C64 assembly (`.binary "menu.bin"`) → 64tass → `.prg` binaries → `bin2ardh` → `build/artifacts/FlashLib.h` → copied to `Arduino/EasySD/` → `arduino-cli compile` → firmware HEX. The `debug-vice` target skips Arduino artifact generation entirely.
 
 ### C64 Include Hierarchy (strict linear chain, no include guards in 64tass)
 
@@ -75,7 +75,7 @@ CartLibStream.s → CartLibHi.s → CartLib.s → CartLibCommon.s → System.inc
 
 Plugins include the highest-level wrapper they need. For most plugins: `CartLibStream.s`.
 
-### Zero Page Map (`IRQHack64/Loader/CartZpMap.inc`)
+### Zero Page Map (`EasySD/Loader/CartZpMap.inc`)
 
 Single source of truth for all ZP allocation. All labels use `ZP_` prefix.
 
@@ -115,14 +115,14 @@ Built-in plugins: PRG launcher, KOA viewer, PETG viewer, WAV player, MUS player,
 
 | File | Purpose |
 |------|---------|
-| `IRQHack64/Loader/CartZpMap.inc` | Zero Page allocation (single source of truth) |
-| `IRQHack64/Loader/CartLibHi.s` | High-level C64 APIs (LoadFileBySize) |
-| `IRQHack64/Loader/CartLibStream.s` | Streaming API (SafeStream, StreamLargeFile) |
-| `IRQHack64/Menus/EasySD/IrqLoaderMenuNew.s` | Main menu program |
-| `IRQHack64/Menus/EasySD/menu.asm` | PETMATE frame export (edit in PETMATE, re-export here) |
-| `Arduino/IRQHack64/IRQHack64.ino` | Arduino entry point |
-| `Arduino/IRQHack64/CartApi.cpp` | Command routing (new commands register here) |
-| `Arduino/IRQHack64/DirFunction.cpp` | Directory navigation |
+| `EasySD/Loader/CartZpMap.inc` | Zero Page allocation (single source of truth) |
+| `EasySD/Loader/CartLibHi.s` | High-level C64 APIs (LoadFileBySize) |
+| `EasySD/Loader/CartLibStream.s` | Streaming API (SafeStream, StreamLargeFile) |
+| `EasySD/Menus/EasySD/IrqLoaderMenuNew.s` | Main menu program |
+| `EasySD/Menus/EasySD/menu.asm` | PETMATE frame export (edit in PETMATE, re-export here) |
+| `Arduino/EasySD/EasySD.ino` | Arduino entry point |
+| `Arduino/EasySD/CartApi.cpp` | Command routing (new commands register here) |
+| `Arduino/EasySD/DirFunction.cpp` | Directory navigation |
 | `Tools/build.py` | Unified build system (v3.0.0, includes PETMATE conversion) |
 | `Tools/test_arduino_comm.py` | PC-side Arduino serial test runner |
 | `Tools/test_vice_menu.py` | VICE automated C64 menu test suite |

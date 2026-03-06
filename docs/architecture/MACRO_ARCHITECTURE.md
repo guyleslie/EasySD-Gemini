@@ -6,7 +6,7 @@ EasySD uses a two-tier macro system in 64tass assembly.
 
 ## Tier 1 — System Macros
 
-**File:** `IRQHack64/Loader/SystemMacros.s`
+**File:** `EasySD/Loader/SystemMacros.s`
 **Included via:** CartLib.s (part of the CartLibStream.s chain — never directly)
 
 | Macro | Purpose | Expands to |
@@ -23,7 +23,7 @@ EasySD uses a two-tier macro system in 64tass assembly.
 
 ## Tier 2 — API Macros
 
-**File:** `IRQHack64/Loader/APIMacros.s`
+**File:** `EasySD/Loader/APIMacros.s`
 **Included by:** Files that need API macros before CartLibStream.s is pulled in (e.g. KernalBridge).
 
 | Macro | Purpose | Replaces |

@@ -141,5 +141,5 @@ python Tools/build.py plugins    # build all plugins including CvidPlayer
 python Tools/build.py release    # full build
 ```
 
-Source: `IRQHack64/Plugins/CvidPlayer/`
+Source: `EasySD/Plugins/CvidPlayer/`
 Output: `build/plugins/cvidplugin.prg` → deployed to SD card as `PLUGINS/CVIDPLUGIN.PRG`

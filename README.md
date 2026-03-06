@@ -89,13 +89,13 @@ See [Tools/README.md](Tools/README.md) for all build targets and options.
 
 EasySD consists of two cooperating halves connected through the C64 expansion port.
 
-### Arduino Firmware (`Arduino/IRQHack64/`)
+### Arduino Firmware (`Arduino/EasySD/`)
 
-Manages the SD card, FAT filesystem, directory navigation, file streaming, and TAP conversion. Entry point: `IRQHack64.ino`. Command routing: `CartApi.cpp`. Directory logic: `DirFunction.cpp`.
+Manages the SD card, FAT filesystem, directory navigation, file streaming, and TAP conversion. Entry point: `EasySD.ino`. Command routing: `CartApi.cpp`. Directory logic: `DirFunction.cpp`.
 
 **ATmega328P constraints:** 2 KB SRAM (~415 bytes free at boot). No dynamic allocation, no Arduino `String` class, all buffers statically sized.
 
-### C64 Software (`IRQHack64/`)
+### C64 Software (`EasySD/`)
 
 Cartridge ROM with communication library (`Loader/`), file browser menu (`Menus/EasySD/`), and plugin system (`Plugins/`). Built with 64tass assembler.
 
@@ -125,11 +125,11 @@ See [docs/architecture/CARTRIDGE_PROTOCOL.md](docs/architecture/CARTRIDGE_PROTOC
 
 ```
 EasySD Gemini/
-├── Arduino/IRQHack64/          # Arduino firmware (C++, SdFat 2.x)
-│   ├── IRQHack64.ino           # Entry point
+├── Arduino/EasySD/             # Arduino firmware (C++, SdFat 2.x)
+│   ├── EasySD.ino              # Entry point
 │   ├── CartApi.cpp             # Command routing
 │   └── DirFunction.cpp         # Directory navigation
-├── IRQHack64/                  # C64 assembly source (6502, 64tass)
+├── EasySD/                     # C64 assembly source (6502, 64tass)
 │   ├── Loader/                 # Cartridge ROM & communication library
 │   │   ├── Bridges/KernalBridge/ # KERNAL bridge plugin
 │   │   ├── CartLib.s           # NMI transfer, IRQ handlers

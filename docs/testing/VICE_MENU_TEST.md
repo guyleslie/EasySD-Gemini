@@ -24,8 +24,8 @@ Analogous to `test_arduino_comm.py` (which tests Arduino firmware via serial), t
 
 ### Build Artifacts
 The `debug-vice` build target must be run first to generate:
-- `IRQHack64/build/irqhack64-debug.prg` — C64 menu program with mock data
-- `IRQHack64/build/symbol/IrqLoaderMenuNew.vs` — VICE-format symbol file
+- `EasySD/build/easysd-debug.prg` — C64 menu program with mock data
+- `EasySD/build/symbol/easysd.vs` — VICE-format symbol file
 
 ```powershell
 python Tools/build.py debug-vice
@@ -444,8 +444,8 @@ Install VICE 3.9+ and pass the correct path: `--vice-path "C:\path\to\x64sc.exe"
 |------|---------|
 | `Tools/test_vice_menu.py` | Test script (this document) |
 | `Tools/build.py` | Build system (generates PRG + labels) |
-| `IRQHack64/build/symbol/IrqLoaderMenuNew.vs` | VICE-format symbol file |
-| `IRQHack64/build/irqhack64-debug.prg` | Debug C64 binary with mock data |
-| `IRQHack64/Menus/EasySD/IrqLoaderMenuNew.s` | C64 menu source (mock data definitions) |
+| `EasySD/build/symbol/easysd.vs` | VICE-format symbol file |
+| `EasySD/build/easysd-debug.prg` | Debug C64 binary with mock data |
+| `EasySD/Menus/EasySD/EasySDMenu.s` | C64 menu source (mock data definitions) |
 | `docs/build/BUILD_SYSTEM.md` | Build system documentation |
 | `Tools/test_arduino_comm.py` | Arduino serial test suite (similar pattern) |

@@ -1,8 +1,8 @@
-# EasySD / IRQHack64 - Build Tools
+# EasySD - Build Tools
 
 ## Overview
 
-This folder contains the build and deployment tools for the EasySD/IRQHack64 project.
+This folder contains the build and deployment tools for the EasySD project.
 
 ## Main Tools
 
@@ -57,10 +57,10 @@ python Tools/build.py arduino-setup
 4. Compiles plugins
 
 **Output:**
-- `IRQHack64/build/irqhack64-debug.prg` - C64 program
-- `IRQHack64/build/plugins/` - Plugin binaries
-- `Arduino/IRQHack64/FlashLib.h` - Arduino header (generated)
-- `Arduino/IRQHack64/BuildConfig.h` - Debug flag (generated)
+- `EasySD/build/easysd-debug.prg` - C64 program
+- `EasySD/build/plugins/` - Plugin binaries
+- `Arduino/EasySD/FlashLib.h` - Arduino header (generated)
+- `Arduino/EasySD/BuildConfig.h` - Debug flag (generated)
 
 ---
 
@@ -73,7 +73,7 @@ python Tools/build.py arduino-setup
 python Tools/build.py debug-arduino
 
 # 2. Open Arduino IDE
-# File → Open → Arduino/IRQHack64/IRQHack64.ino
+# File → Open → Arduino/EasySD/EasySD.ino
 
 # 3. Upload (Ctrl+U)
 ```

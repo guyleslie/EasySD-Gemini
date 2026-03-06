@@ -1,6 +1,6 @@
 # EasySD Gemini - Developer Assistant Guide (GEMINI.md)
 
-This document is designed for AI assistants (Gemini, Claude, etc.) to understand the development of the EasySD / IRQHack64 project. It contains key technical parameters, conventions, and architectural rules.
+This document is designed for AI assistants (Gemini, Claude, etc.) to understand the development of the EasySD project. It contains key technical parameters, conventions, and architectural rules.
 
 ---
 
@@ -65,7 +65,7 @@ For time-critical continuous data streaming (e.g., audio).
 ## Arduino Firmware (C++)
 
 ### Core Architecture
-- **Main entry point**: Arduino/IRQHack64/IRQHack64.ino
+- **Main entry point**: Arduino/EasySD/EasySD.ino
 - **Command processing**: CartApi.cpp (new commands must be registered here)
 - **SD Management**: DirFunction.cpp (directory iteration and navigation)
 - **Hardware**: Arduino Nano/Pro Mini connects to C64 bus and toggles NMI line for data transfer
@@ -106,7 +106,7 @@ For time-critical continuous data streaming (e.g., audio).
 
 **Critical rule:** Write errors corrupt SdFat internal state. All subsequent operations (including reads and directory listings) will fail until recovery.
 
-**Recovery pattern (see `recoverSD()` in IRQHack64.ino):**
+**Recovery pattern (see `recoverSD()` in EasySD.ino):**
 ```cpp
 dirFunc.CloseDirHandle();   // Close open dir handle first
 delay(50);                  // Let card settle
@@ -257,17 +257,17 @@ python Tools/build.py debug-arduino
 ## Important File Paths
 
 ### C64 Side
-- **ZP Map**: IRQHack64/Loader/CartZpMap.inc
-- **Hardware Constants**: IRQHack64/Loader/Common/IRQHack.inc
-- **Standard C64 Addresses**: IRQHack64/Loader/Common/System.inc
-- **Main Menu Logic**: IRQHack64/Menus/EasySD/IrqLoaderMenuNew.s
+- **ZP Map**: EasySD/Loader/CartZpMap.inc
+- **Hardware Constants**: EasySD/Loader/Common/IRQHack.inc
+- **Standard C64 Addresses**: EasySD/Loader/Common/System.inc
+- **Main Menu Logic**: EasySD/Menus/EasySD/IrqLoaderMenuNew.s
 - **C64 Build System**: Tools/build.py
 
 ### Arduino Side
-- **Main Sketch**: Arduino/IRQHack64/IRQHack64.ino
-- **Directory Navigation**: Arduino/IRQHack64/DirFunction.cpp / .h
-- **SD Command API**: Arduino/IRQHack64/CartApi.cpp
-- **String Buffer**: Arduino/IRQHack64/StringPrint.cpp (32-byte buffer, index < 31)
+- **Main Sketch**: Arduino/EasySD/EasySD.ino
+- **Directory Navigation**: Arduino/EasySD/DirFunction.cpp / .h
+- **SD Command API**: Arduino/EasySD/CartApi.cpp
+- **String Buffer**: Arduino/EasySD/StringPrint.cpp (32-byte buffer, index < 31)
 - **Arduino Build System**: Tools/arduino_build_upload.py
 
 ### Testing

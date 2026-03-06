@@ -44,9 +44,9 @@ Ennek tipikus oka 64tass-ban, hogy a `.`-tal kezdődő név (pl. **`.check`**, *
 
 ## 3) Mely fájlokat módosítottuk / hoztunk létre?
 
-### 3.1 C64 / Menu oldal (IRQHack64)
+### 3.1 C64 / Menu oldal (EasySD)
 
-**Fájl:** `IRQHack64/Menus/EasySD/IrqLoaderMenuNew.s`  
+**Fájl:** `EasySD/Menus/EasySD/EasySDMenu.s`  
 **Változás lényege:**
 - TAP kiválasztás esetén “choice” logika kerül be (Convert+Run vs Save-only).
 - Az `X` regiszterben **flag-eket** adunk át az Arduino felé az `IRQ_InvokeWithName` híváskor.

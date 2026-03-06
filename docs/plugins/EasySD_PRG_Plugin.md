@@ -2,9 +2,9 @@
 
 A **PRG Plugin** az EasySD rendszer legkomplexebb modulja, amely nem csupán egy fájlbetöltő, hanem egy **KERNAL-emulációs réteg**. Feladata, hogy az SD kártyáról betöltött programok számára egy transzparens, 8-as eszközszámú lemezmeghajtó (Commodore 1541) illúziót keltse.
 
-**Forrásfájl:** `IRQHack64/Plugins/PrgPlugin/PrgPlugin.s`
-**Build kimenet:** `IRQHack64/build/plugins/prgplugin.prg` ($C000-$D1xx)
-**Arduino handler:** `Arduino/IRQHack64/CartApi.cpp`
+**Forrásfájl:** `EasySD/Plugins/PrgPlugin/PrgPlugin.s`
+**Build kimenet:** `EasySD/build/plugins/prgplugin.prg` ($C000-$D1xx)
+**Arduino handler:** `Arduino/EasySD/CartApi.cpp`
 
 ## 1. Alapvető Funkciók
 
@@ -491,14 +491,14 @@ Serial.print(F("Filename : ")); Serial.println(fileName);
 ## 8. Hivatkozások és További Olvasmány
 
 **Projekt Fájlok:**
-- C64 plugin: `IRQHack64/Plugins/PrgPlugin/PrgPlugin.s`
-- Arduino API: `Arduino/IRQHack64/CartApi.cpp`, `CartApi.h`
-- Cartridge interface: `Arduino/IRQHack64/CartInterface.cpp`
-- Build listing: `IRQHack64/build/listing/prgpluginLST.txt`
+- C64 plugin: `EasySD/Plugins/PrgPlugin/PrgPlugin.s`
+- Arduino API: `Arduino/EasySD/CartApi.cpp`, `CartApi.h`
+- Cartridge interface: `Arduino/EasySD/CartInterface.cpp`
+- Build listing: `EasySD/build/listing/prgpluginLST.txt`
 
 **Központi API-k:**
-- `LoadFileBySize`: `IRQHack64/Loader/CartLibHi.s`
-- Zero Page Map: `IRQHack64/Loader/CartZpMap.inc`
+- `LoadFileBySize`: `EasySD/Loader/CartLibHi.s`
+- Zero Page Map: `EasySD/Loader/CartZpMap.inc`
 - Main README: `README.MD`
 
 **Külső Referenciák:**

@@ -298,9 +298,9 @@ streaming if it goes LOW.
 
 | File | Role |
 |------|------|
-| `IRQHack64/Loader/CartLib.s` | `TransferHandler` NMI ISR (Mechanism 1) |
-| `IRQHack64/Loader/CartLibStream.s` | `StreamLargeFile` polling loop (Mechanism 2) |
-| `IRQHack64/Loader/CartLibCommon.s` | Address constants (`CARTRIDGE_BANK_VALUE`, `MODULATION_ADDRESS`) |
-| `IRQHack64/Loader/CartZpMap.inc` | ZP allocation ($90–$95 streaming, $64–$77 NMI transfer) |
-| `Arduino/IRQHack64/CartApi.cpp` | `HandleStream()`, `DoubleBufferedStreaming()` ISR |
-| `Arduino/IRQHack64/CartInterface.h` | Arduino pin definitions, timing constants |
+| `EasySD/Loader/CartLib.s` | `TransferHandler` NMI ISR (Mechanism 1) |
+| `EasySD/Loader/CartLibStream.s` | `StreamLargeFile` polling loop (Mechanism 2) |
+| `EasySD/Loader/CartLibCommon.s` | Address constants (`CARTRIDGE_BANK_VALUE`, `MODULATION_ADDRESS`) |
+| `EasySD/Loader/CartZpMap.inc` | ZP allocation ($90–$95 streaming, $64–$77 NMI transfer) |
+| `Arduino/EasySD/CartApi.cpp` | `HandleStream()`, `DoubleBufferedStreaming()` ISR |
+| `Arduino/EasySD/CartInterface.h` | Arduino pin definitions, timing constants |
