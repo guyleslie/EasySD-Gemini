@@ -12,8 +12,7 @@ They share hardware signals but operate independently depending on context.
 | Signal | Direction | C64 Address / Pin | Arduino Pin | Purpose |
 |--------|-----------|-------------------|-------------|---------|
 | /IO2   | C64 → Arduino | $DF00–$DFFF active | D2 (INT0) | Transfer trigger (falling edge) |
-| /IO1   | C64 reads  | $DE00–$DEFF       | — (hardware latch) | Streaming data output |
-| ROML   | C64 reads  | $8000–$9FFF       | — (EEPROM + latch) | NMI transfer data output |
+| ROML   | C64 reads  | $8000–$9FFF       | D4–D7, A0–A3 | Data output (NMI transfer and streaming) |
 | /EXROM | Arduino → C64 | Expansion pin 9 | D3 (output) | Controls ROM visibility |
 | /NMI   | Arduino → C64 | Expansion pin 28 | D8 (output) | Triggers NMI on C64 |
 | /RESET | C64 → Arduino | Expansion pin 30 | A4 / SEL (input) | Detects C64 reset (test use) |
@@ -28,13 +27,10 @@ They share hardware signals but operate independently depending on context.
 
 All timing figures in this document use PAL unless stated otherwise.
 
-### /IO1 and /IO2 Signal Characteristics
+### /IO2 Signal Characteristics
 
-- Both signals are **active-low**
+- /IO2 is **active-low**, buffered LS TTL output on the C64 expansion port
 - /IO2 goes LOW for the duration of any CPU access to $DF00–$DFFF (~1 µs = 1 cycle)
-- /IO1 goes LOW for the duration of any CPU access to $DE00–$DEFF
-- /IO2 is a buffered LS TTL output on the C64 expansion port
-- /IO1 is unbuffered TTL
 
 ### Processor Port $01
 
@@ -46,7 +42,7 @@ The C64's 6510 processor port controls which ROMs/IO are visible in the address 
 | `$35` | `PP_CONFIG_RAM_ON_ROM` | hidden  | visible | visible |
 | `$34` | `PP_CONFIG_ALL_RAM`    | hidden  | hidden  | hidden  |
 
-I/O must be visible (`$37` or `$35`) for $DE00 (IO1) reads to work.
+I/O must be visible (`$37` or `$35`) for $DE00 reads to work.
 
 ### GAME / EXROM and ROM Mapping
 
@@ -66,8 +62,8 @@ The Arduino controls /EXROM via D3.
 
 | Address | Symbol | Description |
 |---------|--------|-------------|
-| `$80AB` | `CARTRIDGE_BANK_VALUE` | Cartridge data latch — ROML space. Arduino places byte here; C64 reads it via LDA $80AB. Used by NMI transfer and READCART_MODULATED. |
-| `$DE00` | `STREAM_DATA_PORT` | IO1 data register. Arduino writes via `SetPage()`; C64 reads it via LDA $DE00. Used by streaming only. |
+| `$80AB` | `CARTRIDGE_BANK_VALUE` | Arduino data output — ROML space. Arduino drives D4–D7/A0–A3; C64 reads via LDA $80AB. Used by NMI transfer and READCART_MODULATED. |
+| `$DE00` | `STREAM_DATA_PORT` | Arduino data output — $DE00 space. Arduino drives D4–D7/A0–A3 via `SetPage()`; C64 reads via LDA $DE00. Used by streaming only. |
 | `$DF00` | `MODULATION_ADDRESS` / `STREAM_TRIGGER_PORT` | IO2 trigger address. Any CPU read of $DF00 pulses /IO2 (FALLING edge). No data is returned from this read. |
 
 ---
@@ -217,7 +213,7 @@ This is passive termination — no explicit end-of-stream command.
 
 | Property | Value |
 |----------|-------|
-| Data path | Arduino SetPage() → $DE00 (IO1 latch) |
+| Data path | Arduino SetPage() → D4–D7/A0–A3 → C64 data bus → $DE00 |
 | Trigger | C64 reads $DF00, /IO2 FALLING edge → Arduino INT0 ISR |
 | Interrupt state on C64 | SEI — interrupts disabled throughout |
 | Loop overhead | ~73 cycles/byte (PAL, no page crossing) |
@@ -254,9 +250,9 @@ When the C64 reads from an address, valid data must be on the bus within
 for ROM, data setup tDSU = 100 ns before Φ2 falling edge).
 
 For the streaming protocol, the Arduino ISR fires on the /IO2 FALLING edge
-and calls `SetPage()` to write to the IO1 latch. The latched data is then
-read by the next `LDA $DE00` instruction (~4 µs later at PAL). This gives
-the Arduino adequate time.
+and calls `SetPage()` to drive the byte onto the data bus (D4–D7, A0–A3).
+The C64 reads it with the next `LDA $DE00` instruction (~4 µs later at PAL).
+This gives the Arduino adequate time.
 
 ### Arduino ISR Latency
 
@@ -267,8 +263,8 @@ the Arduino adequate time.
 | C64 window between LDA $DF00 and LDA $DE00 | ~4 µs (PAL) |
 
 The ISR fires on the $DF00 read and completes `SetPage()` before the C64
-reaches the next `LDA $DE00`. Margin is tight (~0.5 µs). The design relies
-on the hardware latch holding the byte stable once written.
+reaches the next `LDA $DE00`. Margin is tight (~0.5 µs). The byte remains
+stable on the data bus (Arduino PORTD/PORTC outputs) until the next `SetPage()` call.
 
 ### Streaming Loop Cycle Budget (PAL)
 
