@@ -145,7 +145,7 @@ void CartInterface::SetAddressPinsOutput() {
     DDRC = DDRC | B00001111; // Set Analog pin 0..3 as outputs A8, A9, A10, A11
     #else
     for (int i=0;i<8;i++) {
-      pinMode(addressPins[i], OUTPUT);
+      pinMode(dataPins[i], OUTPUT);
     }  
     #endif
   #endif
@@ -243,7 +243,7 @@ void CartInterface::SetPage(unsigned char value) {
   #else
   unsigned char mask = 1;
   for (int i=0;i<8;i++) {
-    digitalWrite(addressPins[i], value & mask);
+    digitalWrite(dataPins[i], value & mask);
     mask = mask<<1;
   }    
   #endif   
