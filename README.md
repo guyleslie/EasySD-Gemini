@@ -114,8 +114,8 @@ Two distinct protocols share the expansion port signals:
 
 | Mechanism | Trigger | Data path | Rate | Used by |
 |-----------|---------|-----------|------|---------|
-| **NMI transfer** | Arduino asserts /NMI (D8) | ROML latch → `$80AB` | ~40 KB/s | File loading (menu, plugins, KernalBridge) |
-| **IO2 streaming** | C64 reads `$DF00` → /IO2 pulse | Arduino ISR → IO1 latch → `$DE00` | ~13.5 KB/s | WavPlayer, CvidPlayer |
+| **NMI transfer** | Arduino asserts /NMI (D8) | Arduino data bus → `$80AB` | ~40 KB/s | File loading (menu, plugins, KernalBridge) |
+| **IO2 streaming** | C64 reads `$DF00` → /IO2 pulse | Arduino ISR → data bus → `$DE00` | ~13.5 KB/s | WavPlayer, CvidPlayer |
 
 See [docs/architecture/CARTRIDGE_PROTOCOL.md](docs/architecture/CARTRIDGE_PROTOCOL.md) for full hardware and timing details.
 
