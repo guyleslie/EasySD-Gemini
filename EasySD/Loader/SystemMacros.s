@@ -74,7 +74,7 @@ READCART .macro
 ;   LDA CARTRIDGE_BANK_VALUE
 ;   STA \1
 ;
-; Common usage: CvidPlayer NMI handler (411 occurrences)
+; Common usage: CvdPlayer NMI handler (411 occurrences)
 ;-----------------------------------------------
 READCART_MODULATED .macro
 	LDA MODULATION_ADDRESS

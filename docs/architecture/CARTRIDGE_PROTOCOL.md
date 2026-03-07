@@ -104,7 +104,7 @@ TransferHandler:
 ## Mechanism 2 — IO2-Triggered Streaming
 
 Used for continuous media: `StreamLargeFile` in `CartLibStream.s`,
-called by WavPlayer and CvidPlayer.
+called by WavPlayer and CvdPlayer.
 
 ### How It Works
 
@@ -219,13 +219,13 @@ This is passive termination — no explicit end-of-stream command.
 | Loop overhead | ~73 cycles/byte (PAL, no page crossing) |
 | Transfer rate | ~13.5 KB/s @ PAL 0.985 MHz |
 | Timeout | 100 ms (Arduino side) |
-| Use case | CvidPlayer (~10 KB/s), WavPlayer (8–16 KB/s) |
+| Use case | CvdPlayer (~10 KB/s), WavPlayer (8–16 KB/s) |
 
 ---
 
-## Mechanism 2b — READCART_MODULATED (CvidPlayer)
+## Mechanism 2b — READCART_MODULATED (CvdPlayer)
 
-CvidPlayer's `NMI.s` uses a hybrid read that combines the /IO2 trigger with
+CvdPlayer's `NMI.s` uses a hybrid read that combines the /IO2 trigger with
 the ROML latch (not IO1). Used in NMI handlers, not in `StreamLargeFile`.
 
 ```asm
@@ -237,7 +237,7 @@ STA $aXXX                   ; store to video buffer
 
 The Arduino ISR fires on the $DF00 read and prepares the next byte in the
 ROML latch; the subsequent $80AB read retrieves it. This is used 400 times
-per frame in the CVID video decoder.
+per frame in the CVD video decoder.
 
 ---
 

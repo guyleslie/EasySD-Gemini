@@ -1150,7 +1150,7 @@ python build.py debug-arduino    # Arduino testing
 
 ### Problem
 - 16-bit file size limitation (`LoadFileBySize`)
-- 64KB+ files (CVID, WAV) cannot be loaded
+- 64KB+ files (CVD, WAV) cannot be loaded
 
 ### Solution
 

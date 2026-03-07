@@ -173,9 +173,9 @@ See `docs/testing/VICE_MENU_TEST.md` for full documentation.
 
 ---
 
-### `cvid_convert.py` - CVID Video Converter
+### `cvd_convert.py` - CVD Video Converter
 
-Converts MP4/AVI video files to the C64 CVID format used by CvidPlayer (Bad Apple!! decoder).
+Converts MP4/AVI video files to the C64 CVD format used by CvdPlayer (Bad Apple!! decoder).
 
 ---
 
@@ -194,7 +194,7 @@ Tools/
 ├── prepare_test_sd.py            # SD card test file preparation
 ├── test_arduino_comm.py          # PC-side Arduino serial test runner
 ├── test_vice_menu.py             # VICE automated C64 menu tests
-├── cvid_convert.py               # CVID video converter
+├── cvd_convert.py                # CVD video converter
 ├── ComputeSidPlayer.prg          # SID computation helper (C64 binary)
 ├── test_directory_navigation.py  # Legacy directory navigation tests
 ├── test_file_io.py               # Legacy file I/O tests

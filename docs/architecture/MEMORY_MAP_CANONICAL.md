@@ -510,7 +510,7 @@ ARCHITECTURE_CONSOLIDATION_PLAN.md (Master Plan)
 - ✅ BurstLoader moved from `IRQHack64/Plugins/BurstLoader/` to `IRQHack64/Loader/Apps/BurstLoader/`
 - ✅ PrgPlugin renamed to KernalIOShim and moved to `IRQHack64/Loader/Shims/KernalIOShim/`
 - ✅ Plugins directory now contains ONLY Type A plugins (KoalaDisplayer, MusPlayer, PetsciiDisplayer, WavPlayer)
-- ✅ Build artifacts remain unchanged for backward compatibility (prgplugin.prg, cvidplugin.prg)
+- ✅ Build artifacts remain unchanged for backward compatibility (prgplugin.prg, cvdplugin.prg)
 
 **What is CORRECT in v2.0:**
 - ✅ Documents ZP pointer-based API architecture (matches actual code)

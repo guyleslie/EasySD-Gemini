@@ -9,20 +9,20 @@ on the SD card manually after generating or downloading them.
 
 | File | Description | How to generate |
 |------|-------------|-----------------|
-| `VIDEO.CVID` | CVID video file for CvidPlayer | `python Tools/cvid_convert.py input.mp4 VIDEO.CVID` |
+| `VIDEO.CVD` | CVD video file for CvdPlayer | `python Tools/cvd_convert.py input.mp4 VIDEO.CVD` |
 
 ## Subdirectories
 
 ```
 / (SD card root)
-├── VIDEO.CVID          ← CvidPlayer video (place here)
+├── VIDEO.CVD           ← CvdPlayer video (place here)
 └── PLUGINS/
     ├── PRGPLUGIN.PRG
     ├── KOAPLUGIN.PRG
     ├── PETGPLUGIN.PRG
     ├── WAVPLUGIN.PRG
     ├── MUSPLUGIN.PRG
-    └── CVIDPLUGIN.PRG
+    └── CVDPLUGIN.PRG
 ```
 
-Plugin binaries are built by `python Tools/build.py plugins` and output to `IRQHack64/build/plugins/`.
+Plugin binaries are built by `python Tools/build.py plugins` and output to `EasySD/build/plugins/`.

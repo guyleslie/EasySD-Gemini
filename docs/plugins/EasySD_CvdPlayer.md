@@ -1,4 +1,4 @@
-# EasySD – CvidPlayer Plugin
+# EasySD – CvdPlayer Plugin
 
 Plays black-and-white video on the Commodore 64 from an SD card via the EasySD cartridge.
 Video is streamed in real time at 5 fps in multicolor bitmap mode (160×80 effective pixels).
@@ -7,36 +7,36 @@ Video is streamed in real time at 5 fps in multicolor bitmap mode (160×80 effec
 
 ## Quick Start
 
-1. Convert a video to CVID format on your PC:
+1. Convert a video to CVD format on your PC:
    ```
-   python Tools/cvid_convert.py myvideo.mp4 VIDEO.CVID
+   python Tools/cvd_convert.py myvideo.mp4 VIDEO.CVD
    ```
-2. Copy `VIDEO.CVID` to the **root** of the SD card.
-3. On the C64, navigate to `CVIDPLUGIN.PRG` in the EasySD menu and launch it.
+2. Copy `VIDEO.CVD` to the **root** of the SD card.
+3. On the C64, navigate to `CVDPLUGIN.PRG` in the EasySD menu and launch it.
 4. Press **STOP** to exit back to the menu.
 
 ---
 
-## Converting Video — cvid_convert.py
+## Converting Video — cvd_convert.py
 
 Requires **ffmpeg** installed and available in PATH.
 
 ### Basic conversion
 
 ```bash
-python Tools/cvid_convert.py input.mp4 VIDEO.CVID
+python Tools/cvd_convert.py input.mp4 VIDEO.CVD
 ```
 
 ### With Floyd-Steinberg dithering (recommended for videos with gradients or gray areas)
 
 ```bash
-python Tools/cvid_convert.py input.mp4 VIDEO.CVID --dither
+python Tools/cvd_convert.py input.mp4 VIDEO.CVD --dither
 ```
 
 ### Custom brightness threshold
 
 ```bash
-python Tools/cvid_convert.py input.mp4 VIDEO.CVID --threshold 110
+python Tools/cvd_convert.py input.mp4 VIDEO.CVD --threshold 110
 ```
 
 Pixels with grayscale value ≥ threshold are encoded as white; below as black.
@@ -45,7 +45,7 @@ Default is 128. Lower values produce a brighter image; higher values produce a d
 ### Probe input video without converting
 
 ```bash
-python Tools/cvid_convert.py --info input.mp4
+python Tools/cvd_convert.py --info input.mp4
 ```
 
 Prints source FPS, duration, estimated frame count, and output file size.
@@ -66,22 +66,22 @@ The output file size is always an exact multiple of 4000 bytes (one frame = 4000
 
 ```
 / (root)
-├── VIDEO.CVID          ← video file (required, in root)
+├── VIDEO.CVD           ← video file (required, in root)
 └── PLUGINS/
-    └── CVIDPLUGIN.PRG  ← plugin binary (loaded by EasySD menu)
+    └── CVDPLUGIN.PRG   ← plugin binary (loaded by EasySD menu)
 ```
 
-The video filename is hardcoded as `VIDEO.CVID` in the plugin. It must be placed in the
+The video filename is hardcoded as `VIDEO.CVD` in the plugin. It must be placed in the
 SD card root, not in a subdirectory.
 
 ---
 
 ## C64 Side — How It Works
 
-When `CVIDPLUGIN.PRG` is launched from the EasySD menu:
+When `CVDPLUGIN.PRG` is launched from the EasySD menu:
 
 1. The plugin initialises the VIC-II for multicolor bitmap mode (160×80, 5 fps).
-2. It opens `VIDEO.CVID` from the SD card root.
+2. It opens `VIDEO.CVD` from the SD card root.
 3. Playback begins: the Arduino streams 400 bytes per raster frame via NMI-driven
    transfer (non-interrupted stream, 20 KB/s sustained).
 4. Each video frame = 10 consecutive 400-byte blocks. The C64 double-buffers the
@@ -97,18 +97,12 @@ When `CVIDPLUGIN.PRG` is launched from the EasySD menu:
 ### Display area
 
 The video occupies character rows 3–22 (20 rows × 40 columns), centered vertically
-on a black screen with a black border. Each CVID pixel maps to a 2×2 area on the
+on a black screen with a black border. Each CVD pixel maps to a 2×2 area on the
 physical display (multicolor mode).
 
 ---
 
-## CVID File Format (reference)
-
-> **Note:** The "CVID" name is used by EasySD as a convenient abbreviation for
-> "C64 Video". It is **not** related to the Cinepak video codec (also abbreviated
-> CVID) from the 1990s. The EasySD CVID format is a simple, custom binary format
-> with no compression.
-
+## CVD File Format (reference)
 
 | Property       | Value                              |
 |----------------|------------------------------------|
@@ -137,9 +131,9 @@ Each 400-byte block encodes one character-row pair (2 char rows = 16 scan lines)
 The plugin is built automatically by the standard build system:
 
 ```bash
-python Tools/build.py plugins    # build all plugins including CvidPlayer
+python Tools/build.py plugins    # build all plugins including CvdPlayer
 python Tools/build.py release    # full build
 ```
 
-Source: `EasySD/Plugins/CvidPlayer/`
-Output: `build/plugins/cvidplugin.prg` → deployed to SD card as `PLUGINS/CVIDPLUGIN.PRG`
+Source: `EasySD/Plugins/CvdPlayer/`
+Output: `build/plugins/cvdplugin.prg` → deployed to SD card as `PLUGINS/CVDPLUGIN.PRG`

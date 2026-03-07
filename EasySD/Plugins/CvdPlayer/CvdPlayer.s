@@ -1,10 +1,10 @@
-; CvidPlayer — Bad Apple!! video player for EasySD / IRQHack64
+; CvdPlayer — Bad Apple!! video player for EasySD / IRQHack64
 ; Original: 14/07/2016 - Istanbul
 ;
 ;==============================================================================
-; CVID FORMAT SPECIFICATION
+; CVD FORMAT SPECIFICATION
 ;==============================================================================
-; CVID is a custom, C64-optimized video format designed for NMI-driven
+; CVD is a custom, C64-optimized video format designed for NMI-driven
 ; streaming via the EasySD cartridge. Each frame is exactly 400 bytes,
 ; consumed as 50 fragments of 8 bytes each via COMMAND_NI_STREAM (26).
 ;
@@ -23,7 +23,7 @@
 ; Resolution: 160×80 pixels effective (10 character rows × 40 chars wide)
 ;             Each pixel is 2×2 physical pixels; physical size: 320×80.
 ; Position: Starts at PICTUREROW=3 (screen row 3, approx Y=24 on PAL screen)
-; Frame rate: 5 fps (1 video frame = 10 PAL raster frames = 10 CVID blocks)
+; Frame rate: 5 fps (1 video frame = 10 PAL raster frames = 10 CVD blocks)
 ; Throughput: 10 blocks × 400 bytes × 50 Hz = 20 KB/s from SD card
 ; Colors per cell (multicolor):
 ;   00 = Background ($D021)
@@ -31,8 +31,8 @@
 ;   10 = Color RAM ($D800)
 ;   11 = Border color ($D020)
 ;
-; VIDEO FRAME ASSEMBLY (10 consecutive CVID blocks = 1 complete video frame)
-; Each CVID block updates exactly ONE character row (8 scan lines, 40 cells):
+; VIDEO FRAME ASSEMBLY (10 consecutive CVD blocks = 1 complete video frame)
+; Each CVD block updates exactly ONE character row (8 scan lines, 40 cells):
 ;   Block 0 → character row 0 (scan lines 0-7)
 ;   Block 1 → character row 1 (scan lines 8-15)
 ;   ...
@@ -63,12 +63,12 @@
 ; 4. Foreground (FGStuff.s) decompresses the 400-byte block:
 ;    copies the 4 bitmap quadrants to the inactive bank, writes screen color
 ;    data, and accumulates D800 colors in COLORBUFFER for all 10 rows.
-; 5. Playback stops when the CVID file is exhausted and the plugin calls
+; 5. Playback stops when the CVD file is exhausted and the plugin calls
 ;    IRQ_ExitToMenu (drives SEL low, terminating the NI stream on Arduino).
 ;
-; VIDEO FILE: VIDEO.CVID on SD card root (filename hardcoded below)
+; VIDEO FILE: VIDEO.CVD on SD card root (filename hardcoded below)
 ;   "Bad Apple!!" Touhou fan video — approx. 5 fps, ~104 KB total
-;   CVID converter tool is external (not part of this repo).
+;   CVD converter tool is external (not part of this repo).
 ;==============================================================================
 
 INITIALWAITTIME = 150
@@ -118,10 +118,10 @@ DELAYFRAMES	.macro
 	; Compute length of null-terminated path placed in FILE_PATH_BUF by the menu
 	LDX #$00
 -	LDA FILE_PATH_BUF, X
-	BEQ CVID_STRLEN_DONE
+	BEQ CVD_STRLEN_DONE
 	INX
 	BNE -
-CVID_STRLEN_DONE
+CVD_STRLEN_DONE
 	TXA             ; A = path length
 	LDX #<FILE_PATH_BUF
 	LDY #>FILE_PATH_BUF

@@ -27,7 +27,7 @@ EasySD brings SD card support to the C64 through a cartridge combining an Arduin
 | **PETG** | `.PET` | PETSCII art renderer |
 | **WAV** | `.WAV` | Digital audio streaming (double-buffered, up to 16 KB/s) |
 | **MUS** | `.MUS` | Compute's Sidplayer SID music playback |
-| **CVID** | `.CVID` | CVID video playback (Bad Apple!! at ~10 KB/s) |
+| **CVD**  | `.CVD`  | CVD video playback (Bad Apple!! at ~10 KB/s)  |
 
 Plugins are standalone 6502 programs loaded from `/PLUGINS/` on the SD card.
 
@@ -115,7 +115,7 @@ Two distinct protocols share the expansion port signals:
 | Mechanism | Trigger | Data path | Rate | Used by |
 |-----------|---------|-----------|------|---------|
 | **NMI transfer** | Arduino asserts /NMI (D8) | Arduino data bus → `$80AB` | ~40 KB/s | File loading (menu, plugins, KernalBridge) |
-| **IO2 streaming** | C64 reads `$DF00` → /IO2 pulse | Arduino ISR → data bus → `$DE00` | ~13.5 KB/s | WavPlayer, CvidPlayer |
+| **IO2 streaming** | C64 reads `$DF00` → /IO2 pulse | Arduino ISR → data bus → `$DE00` | ~13.5 KB/s | WavPlayer, CvdPlayer |
 
 See [docs/architecture/CARTRIDGE_PROTOCOL.md](docs/architecture/CARTRIDGE_PROTOCOL.md) for full hardware and timing details.
 
@@ -137,7 +137,7 @@ EasySD Gemini/
 │   │   ├── CartZpMap.inc       # Zero page allocation (single source of truth)
 │   │   └── SystemMacros.s      # Tier 1 assembly macros
 │   ├── Menus/EasySD/           # Main file browser menu
-│   └── Plugins/                # File-type plugins (KOA, WAV, MUS, CVID, TAP)
+│   └── Plugins/                # File-type plugins (KOA, WAV, MUS, CVD, TAP)
 ├── Tools/                      # Python build system + test tools
 ├── docs/                       # Documentation
 │   ├── architecture/           # Technical architecture docs

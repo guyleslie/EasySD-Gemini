@@ -1,6 +1,6 @@
-; CvidPlayer test variant — development/debug build for IRQHack64
+; CvdPlayer test variant — development/debug build for IRQHack64
 ; Original: 14/07/2016 - Istanbul
-; See CvidPlayer.s for full CVID format specification.
+; See CvdPlayer.s for full CVD format specification.
 
 ;.enc screen
 
@@ -255,7 +255,7 @@ HEXTOSCREEN
 	.BYTE 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 1, 2, 3, 4, 5, 6
 
 VIDEOFILE	
-	.TEXT "VIDEO.CVID"
+	.TEXT "VIDEO.CVD"
 	.BYTE  0
 
 	

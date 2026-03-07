@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-cvid_convert.py — Convert MP4/AVI to C64 CVID format for EasySD CvidPlayer.
+cvd_convert.py — Convert MP4/AVI to C64 CVD format for EasySD CvdPlayer.
 
 Usage:
-    python Tools/cvid_convert.py input.mp4 VIDEO.CVID
-    python Tools/cvid_convert.py input.mp4 VIDEO.CVID --dither
-    python Tools/cvid_convert.py input.mp4 VIDEO.CVID --threshold 100
-    python Tools/cvid_convert.py --info input.mp4
+    python Tools/cvd_convert.py input.mp4 VIDEO.CVD
+    python Tools/cvd_convert.py input.mp4 VIDEO.CVD --dither
+    python Tools/cvd_convert.py input.mp4 VIDEO.CVD --threshold 100
+    python Tools/cvd_convert.py --info input.mp4
 
-CVID format: flat binary, 4000 bytes/frame (10 blocks x 400 bytes/block).
-See IRQHack64/Plugins/CvidPlayer/CvidPlayer.s for the full format spec.
+CVD format: flat binary, 4000 bytes/frame (10 blocks x 400 bytes/block).
+See EasySD/Plugins/CvdPlayer/CvdPlayer.s for the full format spec.
 """
 
 import argparse
@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 
-# ── CVID format constants ─────────────────────────────────────────────────────
+# ── CVD format constants ─────────────────────────────────────────────────────
 
 FRAME_WIDTH      = 160
 FRAME_HEIGHT     = 80
@@ -42,12 +42,12 @@ COLOR_OFFSET     = 0x168
 
 def parse_args():
     ap = argparse.ArgumentParser(
-        description="Convert video to C64 CVID format for EasySD CvidPlayer.",
+        description="Convert video to C64 CVD format for EasySD CvdPlayer.",
         epilog="Requires ffmpeg and ffprobe in PATH.",
     )
     ap.add_argument("input", help="Input video file (MP4, AVI, etc.)")
     ap.add_argument("output", nargs="?",
-                    help="Output CVID file (e.g. VIDEO.CVID). "
+                    help="Output CVD file (e.g. VIDEO.CVD). "
                          "Omit when using --info.")
     ap.add_argument("--dither", action="store_true",
                     help="Apply Floyd-Steinberg dithering (better gradients)")
@@ -143,11 +143,11 @@ def floyd_steinberg(pixels, threshold):
                 if x + 1 < w:
                     pixels[(y+1)*w + x + 1] += err * 1.0 / 16
 
-# ── CVID encoding ─────────────────────────────────────────────────────────────
+# ── CVD encoding ─────────────────────────────────────────────────────────────
 
 def encode_block(pixels, y_pair, threshold):
     """
-    Encode one 400-byte CVID block for line pair y_pair (0..9).
+    Encode one 400-byte CVD block for line pair y_pair (0..9).
 
     pixels: indexed sequence of grayscale values (int 0-255 or float).
     y_pair: block index within the frame (0 = top, 9 = bottom).
@@ -203,7 +203,7 @@ def encode_block(pixels, y_pair, threshold):
 
 
 def encode_frame(pixels, threshold):
-    """Encode one full video frame → 4000 bytes (10 CVID blocks)."""
+    """Encode one full video frame → 4000 bytes (10 CVD blocks)."""
     return b"".join(
         encode_block(pixels, y_pair, threshold)
         for y_pair in range(BLOCKS_PER_FRAME)
@@ -239,7 +239,7 @@ def convert(input_path, output_path, dither, threshold):
     print(f"Input:     {input_path}")
     print(f"Source:    {fps_str} fps,  {duration:.1f}s")
     print(f"Output:    {output_path}")
-    print(f"CVID:      {FPS} fps, {FRAME_WIDTH}x{FRAME_HEIGHT}, "
+    print(f"CVD:      {FPS} fps, {FRAME_WIDTH}x{FRAME_HEIGHT}, "
           f"{'Floyd-Steinberg dither' if dither else f'threshold={threshold}'}")
     if total_frames > 0:
         print(f"Estimated: {total_frames} frames, "
@@ -279,12 +279,12 @@ def main():
 
     if args.info:
         duration, fps_str = probe_video(args.input)
-        total_cvid = int(duration * FPS) if duration > 0 else 0
+        total_cvd = int(duration * FPS) if duration > 0 else 0
         print(f"File:          {args.input}")
         print(f"Source FPS:    {fps_str}")
         print(f"Duration:      {duration:.1f}s")
-        print(f"CVID frames:   {total_cvid}  (at {FPS} fps)")
-        print(f"CVID size:     {total_cvid * BYTES_PER_FRAME / 1024:.0f} KB")
+        print(f"CVD frames:   {total_cvd}  (at {FPS} fps)")
+        print(f"CVD size:     {total_cvd * BYTES_PER_FRAME / 1024:.0f} KB")
         return
 
     if args.output is None:
