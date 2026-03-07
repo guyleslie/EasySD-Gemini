@@ -5,17 +5,19 @@ This folder mirrors the expected SD card root layout for EasySD.
 Files here are **not committed to git** (too large / generated). Place them
 on the SD card manually after generating or downloading them.
 
-## Required files
+## Video files
 
-| File | Description | How to generate |
-|------|-------------|-----------------|
-| `VIDEO.CVD` | CVD video file for CvdPlayer | `python Tools/cvd_convert.py input.mp4 VIDEO.CVD` |
+CVD files can be placed anywhere on the SD card. The user browses to them in
+the EasySD menu and presses Enter to play. Convert with:
+
+```
+python Tools/cvd_convert.py input.mp4 output.cvd
+```
 
 ## Subdirectories
 
 ```
 / (SD card root)
-├── VIDEO.CVD           ← CvdPlayer video (place here)
 └── PLUGINS/
     ├── PRGPLUGIN.PRG
     ├── KOAPLUGIN.PRG

@@ -9,10 +9,10 @@ Video is streamed in real time at 5 fps in multicolor bitmap mode (160×80 effec
 
 1. Convert a video to CVD format on your PC:
    ```
-   python Tools/cvd_convert.py myvideo.mp4 VIDEO.CVD
+   python Tools/cvd_convert.py myvideo.mp4 myvideo.cvd
    ```
-2. Copy `VIDEO.CVD` to the **root** of the SD card.
-3. On the C64, navigate to `CVDPLUGIN.PRG` in the EasySD menu and launch it.
+2. Copy the `.cvd` file anywhere on the SD card.
+3. On the C64, browse to the `.cvd` file in the EasySD menu and press **Enter**.
 4. Press **STOP** to exit back to the menu.
 
 ---
@@ -24,19 +24,19 @@ Requires **ffmpeg** installed and available in PATH.
 ### Basic conversion
 
 ```bash
-python Tools/cvd_convert.py input.mp4 VIDEO.CVD
+python Tools/cvd_convert.py input.mp4 output.cvd
 ```
 
 ### With Floyd-Steinberg dithering (recommended for videos with gradients or gray areas)
 
 ```bash
-python Tools/cvd_convert.py input.mp4 VIDEO.CVD --dither
+python Tools/cvd_convert.py input.mp4 output.cvd --dither
 ```
 
 ### Custom brightness threshold
 
 ```bash
-python Tools/cvd_convert.py input.mp4 VIDEO.CVD --threshold 110
+python Tools/cvd_convert.py input.mp4 output.cvd --threshold 110
 ```
 
 Pixels with grayscale value ≥ threshold are encoded as white; below as black.
@@ -64,29 +64,30 @@ The output file size is always an exact multiple of 4000 bytes (one frame = 4000
 
 ## SD Card Layout
 
+CVD files can be placed anywhere on the SD card. The EasySD menu passes the selected
+file's path to the plugin — no hardcoded filename.
+
 ```
-/ (root)
-├── VIDEO.CVD           ← video file (required, in root)
+/ (SD card root)
+├── BADAPPLE.CVD        ← example CVD file (any name, any location)
 └── PLUGINS/
     └── CVDPLUGIN.PRG   ← plugin binary (loaded by EasySD menu)
 ```
-
-The video filename is hardcoded as `VIDEO.CVD` in the plugin. It must be placed in the
-SD card root, not in a subdirectory.
 
 ---
 
 ## C64 Side — How It Works
 
-When `CVDPLUGIN.PRG` is launched from the EasySD menu:
+When the user selects a `.cvd` file in the EasySD menu and presses **Enter**:
 
-1. The plugin initialises the VIC-II for multicolor bitmap mode (160×80, 5 fps).
-2. It opens `VIDEO.CVD` from the SD card root.
-3. Playback begins: the Arduino streams 400 bytes per raster frame via NMI-driven
+1. The menu passes the file path to the plugin via `FILE_PATH_BUF`.
+2. The plugin initialises the VIC-II for multicolor bitmap mode (160×80, 5 fps).
+3. It opens the selected CVD file from the SD card.
+4. Playback begins: the Arduino streams 400 bytes per raster frame via NMI-driven
    transfer (non-interrupted stream, 20 KB/s sustained).
-4. Each video frame = 10 consecutive 400-byte blocks. The C64 double-buffers the
+5. Each video frame = 10 consecutive 400-byte blocks. The C64 double-buffers the
    bitmap so one bank displays while the other is being filled — no screen tearing.
-5. Playback stops automatically when the file ends, or immediately when **STOP** is pressed.
+6. Playback stops automatically when the file ends, or immediately when **STOP** is pressed.
 
 ### Controls
 

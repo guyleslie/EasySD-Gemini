@@ -66,9 +66,9 @@
 ; 5. Playback stops when the CVD file is exhausted and the plugin calls
 ;    IRQ_ExitToMenu (drives SEL low, terminating the NI stream on Arduino).
 ;
-; VIDEO FILE: VIDEO.CVD on SD card root (filename hardcoded below)
-;   "Bad Apple!!" Touhou fan video — approx. 5 fps, ~104 KB total
-;   CVD converter tool is external (not part of this repo).
+; VIDEO FILE: path provided by the EasySD menu via FILE_PATH_BUF (null-terminated).
+;   The user selects any .CVD file from the menu and presses Enter.
+;   CVD converter: Tools/cvd_convert.py
 ;==============================================================================
 
 INITIALWAITTIME = 150
