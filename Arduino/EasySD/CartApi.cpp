@@ -15,6 +15,15 @@ extern SdFat  sd;
 extern DirFunction dirFunc;
 extern CartInterface cartInterface;
 
+// EEPROM layout for last-visited directory persistence:
+//   Byte 0: magic 0xE5
+//   Byte 1: magic 0xD0
+//   Bytes 2..N: null-terminated absolute path (max 63 chars + null = 64 bytes)
+// Total used: up to 66 bytes of the ATmega328P's 1 KB internal EEPROM.
+#define EEPROM_LASTDIR_MAGIC_0  0xE5
+#define EEPROM_LASTDIR_MAGIC_1  0xD0
+#define EEPROM_LASTDIR_ADDR     2    // path starts at byte 2
+
 //volatile static uint8_t * streamBuffer;
 // Static buffers for streaming (fix dangling pointer issue)
 volatile static uint8_t streamingBuffer1[DOUBLE_BUFFER_SIZE];
@@ -28,13 +37,56 @@ volatile static unsigned long lastStreamRequestTime = 0;
 //volatile static uint8_t chunkLength;
 //volatile static uint8_t inChunkDelay;  
 
+void CartApi::SaveLastDir() {
+  const char* path = dirFunc.currentPath;
+  uint8_t len = strlen(path);
+  if (len == 0 || len > 63) return;
+  EEPROM.update(0, EEPROM_LASTDIR_MAGIC_0);
+  EEPROM.update(1, EEPROM_LASTDIR_MAGIC_1);
+  for (uint8_t i = 0; i <= len; i++) {  // include null terminator
+    EEPROM.update(EEPROM_LASTDIR_ADDR + i, (uint8_t)path[i]);
+  }
+  LOGD(SYS, "LastDir saved: "); LOG_PRINTLN(path);
+}
+
+void CartApi::RestoreLastDir() {
+  if (EEPROM.read(0) != EEPROM_LASTDIR_MAGIC_0) return;
+  if (EEPROM.read(1) != EEPROM_LASTDIR_MAGIC_1) return;
+
+  char path[64];
+  for (uint8_t i = 0; i < 63; i++) {
+    path[i] = (char)EEPROM.read(EEPROM_LASTDIR_ADDR + i);
+    if (path[i] == '\0') break;
+  }
+  path[63] = '\0';
+
+  // Root or invalid: nothing to restore
+  if (path[0] != '/' || path[1] == '\0') return;
+
+  // Navigate from root, segment by segment
+  char* p = path + 1;  // skip leading '/'
+  while (*p) {
+    char* slash = strchr(p, '/');
+    if (slash) *slash = '\0';
+    bool ok = dirFunc.ChangeDirectory(p);
+    if (slash) *slash = '/';
+    if (!ok) {
+      dirFunc.ToRoot();
+      return;
+    }
+    p = slash ? slash + 1 : p + strlen(p);
+  }
+  LOGI(SYS, "LastDir restored: "); LOG_PRINTLN(dirFunc.currentPath);
+}
+
 void CartApi::Init() {
   eepromIndex = 0;
   /* Not talking at the moment */
-  //TalkStatus = 0;  
-  cartInterface.SetPage(0);  
+  //TalkStatus = 0;
+  cartInterface.SetPage(0);
 
   dirFunc.ReInit();
+  RestoreLastDir();  // navigate to last-visited directory (no-op if EEPROM empty/corrupt)
   dirFunc.Prepare();
 }
 
@@ -409,6 +461,7 @@ void CartApi::HandleChangeDirectory() {
 
   if (success) {
     dirFunc.Prepare();
+    SaveLastDir();
     HandleResponse(SUCCESSFUL, 1);
   } else {
     LOGD(DIR, "CD FAILED");
@@ -1512,9 +1565,10 @@ void CartApi::InvokeSelected(int selected, unsigned int args) {
               #endif
               dirFunc.GoBack();
             } else {
-              dirFunc.ChangeDirectory(dirFunc.CurrentFileName.value);                          
+              dirFunc.ChangeDirectory(dirFunc.CurrentFileName.value);
             }
             dirFunc.Prepare();
+            SaveLastDir();
             CurrentPageIndex = 0;            
             CurrentIndex = 0;
             TransferDirectory(CurrentIndex);

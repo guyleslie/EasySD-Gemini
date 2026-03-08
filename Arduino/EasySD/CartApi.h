@@ -129,6 +129,8 @@ class CartApi {
    void HandleSeekEeprom();
    void HandleWriteEeprom();
    void IncrementEepromAddress();
+   void SaveLastDir();
+   void RestoreLastDir();
    void HandleValueResponse(uint8_t value);
    void HandleSetPort();   
    void HandleSetIO();   

@@ -109,7 +109,7 @@ Intended use: **persistent user settings** (e.g., last directory, preferences).
 
 ### Current status
 
-The API is fully implemented on both sides but **no plugin uses it yet**.
+**In use** — the firmware saves and restores the last-visited directory on boot.
 
 ### Arduino side (`CartApi.cpp`)
 
@@ -140,9 +140,29 @@ void CartApi::HandleReadEeprom() {
 All three communicate via the standard `IRQ_Send` / `IRQ_WaitProcessing`
 protocol (IO2 software serial, C64 → Arduino).
 
-### Potential uses
+### Last-visited directory persistence
 
-- Save last-visited directory path across power cycles
+On every successful directory change (`COMMAND_CHANGE_DIR`, GoBack), the firmware
+writes the current absolute path to the internal EEPROM (`SaveLastDir()`).
+On boot (`CartApi::Init()`), the saved path is read back and the firmware navigates
+there segment by segment before the C64 menu starts (`RestoreLastDir()`).
+
+EEPROM layout:
+
+| Offset | Size | Content |
+|--------|------|---------|
+| 0 | 1 byte | Magic `0xE5` |
+| 1 | 1 byte | Magic `0xD0` |
+| 2–65 | ≤64 bytes | Null-terminated absolute path (e.g. `/GAMES/ACTION`) |
+
+`EEPROM.update()` is used (writes only if value changed) to minimise write cycles
+(100k endurance limit). Max path: 63 chars + null = 64 bytes. Total: 66 bytes used.
+
+If the magic bytes are absent or the path is invalid, restore is silently skipped
+and the menu starts at root — safe for fresh chips and corrupted data.
+
+### Other potential uses
+
 - Store user preferences (e.g., display options, default plugin)
 - Plugin-specific persistent state
 
@@ -157,4 +177,4 @@ protocol (IO2 software serial, C64 → Arduino).
 | Purpose | IRQ loader ROM + streaming data transfer | Persistent settings storage |
 | C64 access | `LDA $80AB` (ROML, via SetPage) | `IRQ_ReadEeprom` / `IRQ_WriteEeprom` |
 | Build artifact | `build/IRQLoaderRom.bin` (flash with programmer) | N/A |
-| Currently used | Yes (streaming, WavPlayer, CvdPlayer) | No (API ready, unused) |
+| Currently used | Yes (streaming, WavPlayer, CvdPlayer) | Yes (last-visited directory) |
