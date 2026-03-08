@@ -336,7 +336,8 @@ PLUGIN_MATRIX = [
 # Standalone VICE test programs (include their own BASIC stub, built as PRG directly)
 VICE_TESTS = [
     # (rel_path_from_irq_root, asm_file, out_basename)
-    ("Plugins/WavPlayer",  "WavPlayerViceTest.s",  "wavtest"),
+    ("Plugins/WavPlayer",                  "WavPlayerViceTest.s",  "wavtest"),
+    ("Loader/Bridges/KernalBridge",        "PrgLoadViceTest.s",    "prgtest"),
 ]
 
 
