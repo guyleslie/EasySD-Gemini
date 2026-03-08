@@ -1,7 +1,7 @@
 # EasySD - Unified Changelog
 
-> **Last updated:** 2026-02-28
-> **Current version:** v3.1.1
+> **Last updated:** 2026-03-08
+> **Current version:** v3.1.2
 > **Project:** EasySD Gemini - C64 Cartridge-based SD card reader
 
 ---
@@ -16,6 +16,7 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
+| **v3.1.2** | 2026-03-08 | WavPlayer EXROM fix, VICE audio test, EasySD rename | ✅ Complete |
 | **v3.1.1** | 2026-02-28 | GOBACK depth-2 crash fix, VICE test suite fixes, test 10 | ✅ Complete |
 | **v3.1.0** | 2026-02-28 | Directory header row in file browser | ✅ Complete |
 | **v3.0.0** | 2026-02-22 | PETMATE menu frame, dynamic build pipeline, charset switch | ✅ Complete |
@@ -53,6 +54,37 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 ---
 
 ## Chronological Changes
+
+### [v3.1.2] - 2026-03-08
+**WavPlayer EXROM Fix, VICE Audio Test, EasySD Rename**
+
+#### Bug Fixes
+
+**WavPlayer silent on real hardware (`CartApi.cpp` `HandleStream()`):**
+- Root cause: after the NMI-based file-open transfer, `DisableCartridge()` leaves EXROM=HIGH (ROML
+  disabled). When WavPlayer's CIA1 Timer A interrupt then executes `LDA $80AB` (`CARTRIDGE_BANK_VALUE`)
+  it reads RAM instead of EEPROM → silence. Fix: `cartInterface.EnableCartridge()` is now called
+  before `attachInterrupt()` in `HandleStream()`, and `cartInterface.DisableCartridge()` is called
+  on exit. EXROM is LOW for the entire streaming session.
+
+**Pre-existing include bug (`CartApi.cpp`, `CartInterface.cpp`):**
+- Both files still referenced `#include "IrqHack64.h"` after the IRQHack64 → EasySD rename.
+  Fixed to `#include "EasySD.h"`. Build was broken for `arduino-compile`.
+
+#### New Features
+
+**WavPlayerViceTest — standalone VICE audio pipeline test:**
+- `EasySD/Plugins/WavPlayer/WavPlayerViceTest.s`: standalone PRG (`*=$0801`) that tests
+  the CIA1 Timer A + SHIFT4BIT lookup + SID master volume chain without Arduino hardware.
+  Generates a ~430 Hz sawtooth tone at 11025 Hz. Border cycles for visual IRQ confirmation.
+  STOP key exits. Build: `python Tools/build.py debug-vice` → `build/vice-tests/wavtest.prg`.
+
+**build.py: VICE test target:**
+- `VICE_TESTS` matrix and `build_vice_tests()` function added. The `debug-vice` target now
+  automatically builds standalone VICE test PRGs to `EasySD/build/vice-tests/`. Unlike plugins,
+  these include their own BASIC stub and are assembled without `-b` (64tass emits PRG header).
+
+---
 
 ### [v3.1.1] - 2026-02-28
 **GOBACK Crash Fix & VICE Test Suite Improvements**
@@ -1302,6 +1334,7 @@ python Tools/build.py clean
 
 ## Version History (Summary)
 
+- **v3.1.2** (2026-03-08): WavPlayer EXROM fix (silence on hardware), VICE audio test PRG, EasySD include rename
 - **v3.1.1** (2026-02-28): GOBACK depth-2 crash fix, VICE test suite fixes, test 10 DIR_DEPTH
 - **v3.1.0** (2026-02-28): Directory header row in file browser
 - **v3.0.0** (2026-02-22): PETMATE menu frame, inverse selection, cursor key nav, uppercase filenames

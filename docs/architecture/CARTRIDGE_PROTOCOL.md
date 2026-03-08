@@ -167,6 +167,12 @@ void CartApi::DoubleBufferedStreaming() {
 **Arduino foreground** — `HandleStream()` refills buffers from SD card:
 
 ```cpp
+// EXROM must be LOW before attaching the ISR.
+// After NMI file transfers, DisableCartridge() leaves EXROM=HIGH (ROML disabled).
+// WavPlayer's CIA1 Timer A interrupt reads CARTRIDGE_BANK_VALUE ($80AB) from ROML —
+// if EXROM is HIGH, it reads RAM instead of EEPROM → silence.
+cartInterface.EnableCartridge(); // EXROM LOW: ROML active at $8000-$9FFF
+
 // Pre-fill buffer 1, attach ISR, then alternate:
 while(1) {
     while(usedBuffer == 0) { check_timeout_and_sel(); }
@@ -174,7 +180,7 @@ while(1) {
     while(usedBuffer == 1) { check_timeout_and_sel(); }
     workingFile.read(streamingBuffer2, DOUBLE_BUFFER_SIZE);  // refill buffer 2
 }
-// on exit: detach ISR, restore TIMSK2
+// on exit: detach ISR, restore TIMSK2, DisableCartridge() (EXROM HIGH)
 ```
 
 ### Zero Page API
