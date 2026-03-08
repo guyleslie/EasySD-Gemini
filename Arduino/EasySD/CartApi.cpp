@@ -5,7 +5,7 @@
 #include "CartApi.h"
 #include "CartInterface.h"
 #include "DirFunction.h"
-#include "IrqHack64.h"
+#include "EasySD.h"
 #include "FlashLib.h"
 #include "petscii.c"
 #include "FreeStack.h"
@@ -908,8 +908,9 @@ void CartApi::HandleStream() {
       streamBufferIndex = 1;             // Next request will get buffer[1]
       lastStreamRequestTime = millis();  // Initialize timeout timer
 
+      cartInterface.EnableCartridge(); // EXROM LOW: ROML ($8000-$9FFF) = EEPROM, needed for CARTRIDGE_BANK_VALUE reads
       TIMSK2 = 0; // Disable timer 2 interrupts
-      attachInterrupt(digitalPinToInterrupt(IO2), CartApi::DoubleBufferedStreaming, FALLING);               
+      attachInterrupt(digitalPinToInterrupt(IO2), CartApi::DoubleBufferedStreaming, FALLING);
 
      
       while(1) {
@@ -924,8 +925,9 @@ void CartApi::HandleStream() {
         }
         workingFile.read(streamingBuffer2, DOUBLE_BUFFER_SIZE);         
       }
-out:      
-      TIMSK2 = 0x02; // Enable timer 2 interrupts (for milliseconds and so on)      
+out:
+      TIMSK2 = 0x02; // Enable timer 2 interrupts (for milliseconds and so on)
+      cartInterface.DisableCartridge(); // EXROM HIGH: clean state before returning to command mode
       cartInterface.StartListening();
   } else {
     HandleResponse(FILE_IS_NOT_OPENED, 0);

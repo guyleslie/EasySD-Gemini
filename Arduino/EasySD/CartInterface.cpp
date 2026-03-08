@@ -1,7 +1,7 @@
 #include <Arduino.h>
 #include <ByteQueue.h>
 #include "CartInterface.h"
-#include "IrqHack64.h"
+#include "EasySD.h"
 
 volatile ByteQueue readQueue;
 volatile uint8_t bitState = BIT_STARTED;
