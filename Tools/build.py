@@ -333,6 +333,12 @@ PLUGIN_MATRIX = [
     ("Loader/Bridges/KernalBridge",     "KernalBridge.s",     "prgplugin"),
 ]
 
+# Standalone VICE test programs (include their own BASIC stub, built as PRG directly)
+VICE_TESTS = [
+    # (rel_path_from_irq_root, asm_file, out_basename)
+    ("Plugins/WavPlayer",  "WavPlayerViceTest.s",  "wavtest"),
+]
+
 
 def clean(ctx: Context) -> None:
     if ctx.build_dir.exists():
@@ -539,6 +545,43 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
         out_bin.unlink(missing_ok=True)
 
     print("[PLUGINS] OK")
+
+
+def build_vice_tests(ctx: Context) -> None:
+    """Build standalone VICE test PRGs (include their own BASIC stub, no easysd.obj prepend)."""
+    ensure_dirs(ctx)
+    tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
+
+    vice_out_dir = ctx.build_dir / "vice-tests"
+    vice_out_dir.mkdir(exist_ok=True)
+
+    print("==============================================================")
+    print("[VICE-TESTS] Building standalone VICE test programs")
+    print("==============================================================")
+
+    for rel_path, asm_file, out_base in VICE_TESTS:
+        src = ctx.irq_root / rel_path / asm_file
+        if not src.exists():
+            print(f"WARNING: VICE test source not found: {src}")
+            continue
+
+        out_prg = vice_out_dir / f"{out_base}.prg"
+        labels = ctx.sym_dir / f"{out_base}.txt"
+        listing = ctx.lst_dir / f"{out_base}LST.txt"
+        print(f"  - {rel_path}/{asm_file} -> build/vice-tests/{out_base}.prg")
+        # No -b flag: 64tass emits 2-byte load address header → valid PRG for VICE
+        run_cmd(
+            [
+                tass, "-c",
+                str(src),
+                "-o", str(out_prg),
+                "--labels", str(labels),
+                "-L", str(listing),
+            ],
+            cwd=ctx.irq_root
+        )
+
+    print("[VICE-TESTS] OK")
 
 
 # ============================================================================
@@ -898,6 +941,8 @@ def main(argv: Sequence[str]) -> int:
         clean(ctx)
         build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=build_arduino, arduino_debug=arduino_debug, menu_prg_name=menu_prg_name)
         build_plugins(ctx, debug=debug, debug_break=debug_break, ensure_core_prereq=False)
+        if args.target == "debug-vice":
+            build_vice_tests(ctx)
         print("==============================================================")
         print(f"BUILD SUCCESSFUL ({args.target.upper()})")
         print(f"Output: {ctx.build_dir / menu_prg_name}")
