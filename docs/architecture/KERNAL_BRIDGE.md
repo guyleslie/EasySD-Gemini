@@ -11,7 +11,7 @@ This is **not a plugin**. It is never invoked by user selection from the menu. I
 ## Location in Codebase
 
 ```
-IRQHack64/Loader/Bridges/KernalBridge/
+EasySD/Loader/Bridges/KernalBridge/
 ├── KernalBridge.s        — active build target
 └── KernalBridgeStub.s    — archived stub (not built)
 ```
@@ -30,14 +30,22 @@ Menu system
   ├─ Loads KernalBridge code to $C000
   ├─ Opens target PRG via EasySD API
   ├─ Reads PRG load address from 2-byte header
-  ├─ Loads PRG body to its load address (via LoadFileBySize)
-  ├─ Closes file, ends protocol session
-  ├─ Calls RESTOR ($FD15) — reinitialises KERNAL RAM vectors
-  ├─ Calls SETVECTORS — patches 5 vectors with bridge routines
-  └─ Jumps to loaded PRG (BASIC or machine language)
+  ├─ Computes ENDADDRESS = STARTADDR + file size
+  │
+  ├─ [Normal path: ENDADDRESS ≤ $C002]
+  │    ├─ Loads PRG body via LoadFileBySize
+  │    ├─ Closes file, ends protocol session
+  │    ├─ Calls RESTOR ($FD15) — reinitialises KERNAL RAM vectors
+  │    ├─ Calls SETVECTORS — patches 5 vectors with bridge routines
+  │    └─ Jumps to loaded PRG (BASIC or machine language)
+  │
+  └─ [P2TK path: ENDADDRESS > $C002 — PRG extends into $C000+]
+       └─ (see "P2TK — Large Program Loader" section below)
 ```
 
-After this point, any file I/O the BASIC program performs on device 8 is handled by the bridge.
+After normal-path launch, any file I/O the BASIC program performs on device 8 is handled by the
+bridge. The P2TK path loads the program and jumps directly to it — KERNAL vectors are NOT patched,
+so no runtime file I/O is available.
 
 ### Replaced KERNAL vectors
 
@@ -72,11 +80,18 @@ JSR IRQ_EndTalking
 KernalBridge is loaded to `$C000` (Type A, cartridge high memory region).
 
 ```
-$C000          JMP MAIN          — entry point
-$C003–$C6FF    (gap)
-$C700          MAIN              — PRG load and launch logic
-$C700+         bridge routines, data buffers
+$C000          JMP MAIN                  — entry point
+$C003          P3_TAIL_CODE (39 bytes)   — Phase 3 data table (tail-write code)
+$C02A          P3_HANDLER   (52 bytes)   — Phase 3 data table (NMI handler)
+$C05D–$C6FF    (gap, zero-filled)
+$C700          MAIN                      — PRG load and launch logic
+$C700+         bridge routines, data buffers (extends past $CFFF — known overflow)
 ```
+
+The data tables at `$C003`/`$C02A` occupy the previously unused gap and are only active when
+Phase 3 is triggered (Phase2_pages = 64). They are placed in the gap specifically because the
+variable section already overflows into `$D000+` (I/O space on real hardware), making reads from
+there unreliable — the `$C003` region is always-accessible RAM.
 
 The 256-byte `GENERALBUFFER` at the end of the image serves dual purpose:
 - During launch: holds file metadata (FAT entry, size)
@@ -103,6 +118,87 @@ KernalBridge.s
 
 ---
 
+---
+
+## P2TK — Large Program Loader
+
+KernalBridge includes a three-phase loader (`DO_P2TK`) for PRGs whose payload extends into
+`$C000+` — which would normally overwrite the running KernalBridge code during loading.
+
+### Trigger
+
+`ENDADDRESS > $C002`, where `ENDADDRESS = STARTADDR + file_size` (computed before any loading).
+Typical cases: large games and demos that fill most of the C64 address space.
+
+### Phase 1 — Load STARTADDR .. $BFFF
+
+Uses `LoadFileBySize` with `SIZE = $C000 - STARTADDR` (skipping the 2-byte PRG header).
+This is a normal EasySD transfer that fills everything below `$C000`.
+
+### Phase 2 — NMI-driven transfer of $C000 .. ENDADDRESS
+
+KernalBridge cannot stay resident at `$C000` during Phase 2 — Phase 2 will overwrite it.
+Before jumping away, the code sets up everything in low RAM and switches memory config.
+
+**Setup (still running from `$C000`):**
+1. Compute `Phase2_pages = ceil((ENDADDRESS - $C002) / 256)`
+2. Write 8-byte BVC wait-stub to `$033B` (FILE_PATH_BUF area — safe, never written by Phase 1/2)
+3. Write 7-byte Launcher to `$0334`: `LDA #$37 / STA $01 / JMP STARTADDR`
+4. [Phase 3 setup if applicable — see below]
+5. Write hardware NMI vector `$FFFA/$FFFB` → `$80AF` (CARTRIDGENMIHANDLERX1 in cartridge ROM)
+6. Set `$01 = $34` (all RAM: I/O still visible, `$E000-$FFFF` writable as RAM)
+7. `JMP $033B` — jump to wait-stub; KernalBridge code is now unreachable
+
+**Transfer (`$C000+` filled via NMI):**
+- `TransferHandler` (at `$80AF` in cartridge ROML, always visible regardless of `$01`) handles
+  each NMI: reads one byte from `$80AB` (cartridge bank), writes it via `STA ($6C),Y`.
+- Arduino pulses `/NMI` once per byte. When all pages are done, TransferHandler sets
+  `ZP_IRQ_STATE_WAITHANDLE = $64`.
+- The BVC loop at `$033B` detects the done flag and falls through to Launcher.
+
+**Launcher (`$0334`):**
+- `LDA #$37 / STA $01` — restore default memory map (KERNAL+BASIC+I/O visible)
+- `JMP STARTADDR` — hand control to the loaded program
+
+**Note:** `CLOSEFILE` and `IRQ_EndTalking` are NOT called before Phase 2 — intentional protocol
+leak. The Arduino returns to `SoftStartListening` and all state resets on the next C64 reset.
+
+### Phase 3 — Tail-Write Protection (Phase2_pages = 64 only)
+
+When `Phase2_pages = 64`, the last transfer page is `$FF00-$FFFF`. At `Y=$FA` the NMI handler
+writes to `$FFFA/$FFFB` — the active NMI vector — with partially-transferred data, causing the
+next NMI to jump to a garbage address → crash.
+
+**Solution (active only when Phase2_pages = 64):**
+- Two data tables stored in the KernalBridge binary gap at `$C003-$C05C` (always-accessible
+  RAM) are pre-copied to the FILE_PATH_BUF area before Phase 2 starts:
+  - `P3_HANDLER` (52 bytes, copied to `$036A`): replacement NMI handler that behaves normally
+    for `$C000-$FFF9` but intercepts `Y >= $FA` on the last page, saving bytes `$FFFA-$FFFF`
+    to `TAIL_BUF ($03BB-$03C0)` instead of writing them directly.
+  - `P3_TAIL_CODE` (39 bytes, copied to `$0343`): runs after transfer; copies
+    `TAIL_BUF → $FFFA-$FFFF`, then jumps to Launcher.
+- NMI vector is set to `$036A` (P3_HANDLER) instead of `$80AF`.
+- BVC loop JMP target is changed from `$0334` (Launcher) to `$0343` (P3_TAIL_CODE).
+
+**FILE_PATH_BUF area layout (with Phase 3 active):**
+```
+$0334-$033A   Launcher        7 bytes   LDA #$37 / STA $01 / JMP STARTADDR
+$033B-$0342   BVC wait-stub   8 bytes   CLV / BIT $64 / BVC loop / JMP $0343
+$0343-$0369   P3_TAIL_CODE   39 bytes   copy TAIL_BUF → $FFFA-$FFFF / JMP $0334
+$036A-$039D   P3_HANDLER     52 bytes   NMI handler with tail-byte interception
+$03BB-$03C0   TAIL_BUF        6 bytes   saved bytes for $FFFA-$FFFF
+```
+
+### Maximum Loadable Range
+
+| Phase | STARTADDR | ENDADDRESS |
+|-------|-----------|------------|
+| Normal | any | ≤ $C002 (up to ~$BFFF) |
+| P2TK (Phase 2) | ≥ $0801 | ≤ $EFFF |
+| P2TK (Phase 3) | ≥ $0801 | $FFFF (full address space) |
+
+---
+
 ## Known Limitations
 
 - **Sequential access only.** No random seek, no relative files.
@@ -110,3 +206,5 @@ KernalBridge.s
 - **16-bit file size.** `FILEINDEX` and `OPENEDFILELENGTH` are 2 bytes — files larger than 64 KB are not supported via the KERNAL bridge interface.
 - **One file at a time.** Only one file can be open simultaneously.
 - **Vectors are not restored on exit.** The patch is one-way. After the BASIC program ends and the user returns to the menu, the menu performs a full KERNAL reinitialisation.
+- **Binary overflow into I/O space.** The variable section (`GENERALBUFFER`, `FILELENGTH`, etc.) extends past `$CFFF` into `$D000+`. On real C64 hardware with `$01=$37`, reads from `$D000+` return I/O register values (VIC-II, SID), not the stored data. Writes reach underlying RAM but reads are unreliable. VICE tests do not expose this (they use a mock PRG load path). P2TK data tables were deliberately placed at `$C003` (within `$C000-$CFFF`) to avoid this issue. A proper fix requires reducing the binary size below 4 KB or using explicit `*=$Cxxx` placement for data buffers.
+- **No runtime I/O after P2TK.** PRGs loaded via the P2TK path receive no patched KERNAL vectors. The loaded program cannot open or read files during execution.

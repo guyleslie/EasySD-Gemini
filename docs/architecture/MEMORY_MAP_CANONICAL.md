@@ -1,11 +1,11 @@
-# Canonical Memory Map - IRQHack64 (Normative)
+# Canonical Memory Map - EasySD (Normative)
 
 **Document Type:** Normative (Architectural Specification)
-**Version:** 2.0
+**Version:** 2.2
 **Created:** 2025-12-29 (Sprint A.2.1)
-**Last Updated:** 2025-12-30 (Sprint A.3.0 - Architectural Research)
+**Last Updated:** 2026-03-09 (v3.1.3 — paths, names, plugin list corrected)
 **Status:** CANONICAL - All code MUST conform to this memory layout
-**Reference:** ARCHITECTURE_CONSOLIDATION_PLAN.md Sprint A.2, A.3.0
+**Reference:** ARCHITECTURE_CONSOLIDATION_PLAN.md Sprint A.2, A.3.0 (archived)
 
 ---
 
@@ -204,7 +204,7 @@ FileBuffer:
 
 ## 4. Program Categories (Type A vs Type B)
 
-**Critical Distinction:** The IRQHack64/Plugins directory contains TWO fundamentally different program types with distinct architectures.
+**Critical Distinction:** The EasySD/Plugins directory contains TWO fundamentally different program types with distinct architectures.
 
 ### 4.1 Type A: True Plugins ($C000+)
 
@@ -223,13 +223,14 @@ FileBuffer:
 - SHOULD use assembler auto-placement for buffers (recommended)
 
 **Examples:**
-- **KernalIOShim** (formerly PrgPlugin) - KERNAL I/O compatibility shim for BASIC programs
-- **KoalaDisplayer** - Koala image viewer
-- **PetsciiDisplayer** - PETSCII art viewer
-- **WavPlayer** - WAV audio player (dual-mode, can also run as Type B)
-- **MusPlayer** - Music player
+- **KernalBridge** (`EasySD/Loader/Bridges/KernalBridge/`) — KERNAL I/O bridge + large PRG loader; NOT in Plugins/
+- **KoalaDisplayer** — Koala image viewer
+- **PetsciiDisplayer** — PETSCII art viewer
+- **WavPlayer** — WAV audio player
+- **MusPlayer** — MUS/SID music player
+- **CvdPlayer** — CVD video player (Bad Apple!!, NMI-driven frame streaming)
 
-**Source Location:** `IRQHack64/Plugins/` (Type A plugins only)
+**Source Location:** Plugins at `EasySD/Plugins/`. KernalBridge at `EasySD/Loader/Bridges/KernalBridge/` (loaded by menu as prgplugin.prg but architecturally separate — it launches PRGs rather than returning to menu).
 
 **Calling Convention:**
 ```assembly
@@ -269,7 +270,7 @@ Main:
 - **WavPlayer** (legacy mode) - Audio playback application ($080E, commented out)
 - **BurstLoaderTest** - Test/debug version
 
-**Source Location:** `IRQHack64/Loader/Apps/` (Type B standalone applications)
+**Source Location:** `EasySD/Loader/Apps/` (Type B standalone applications)
 
 **Calling Convention:**
 ```assembly
@@ -287,11 +288,14 @@ AppEntry:
 
 ---
 
-### 4.3 BurstLoader Memory Layout (Type B Example)
+### 4.3 Type B Example — BurstLoader (Archived / Not Present in Current Codebase)
 
-**BurstLoader is NOT a plugin** - it is a **standalone application** (Type B).
+> **Note (2026-03-09):** BurstLoader does not exist in the current EasySD codebase. This section
+> is retained as an architectural reference for the Type B pattern only.
 
-**Source Location:** `IRQHack64/Loader/Apps/BurstLoader/` (relocated from Plugins/ on 2026-01-01)
+**BurstLoader is NOT a plugin** — it is a **standalone application** (Type B).
+
+**Source Location (archived):** `EasySD/Loader/Apps/BurstLoader/`
 
 **Transfer Buffer:** $A000-$A18F (400 bytes)
 
@@ -439,22 +443,15 @@ MyBuffer:
 **Check Type A plugins:**
 ```bash
 # Verify entry point at $C000
-grep -n "\*=\$C000" IRQHack64/Plugins/*/*.s
+grep -n "\*=\$C000" EasySD/Plugins/*/*.s
 
-# Verify RTS return (not IRQ_ExitToMenu) - check KernalIOShim shim
-grep -c "IRQ_ExitToMenu" IRQHack64/Loader/Shims/KernalIOShim/*.s  # Should be 0
+# Verify KernalBridge does NOT call IRQ_ExitToMenu (it launches programs, never returns to menu)
+grep -c "IRQ_ExitToMenu" EasySD/Loader/Bridges/KernalBridge/*.s  # Should be 0
 ```
 
-**Check Type B apps:**
-```bash
-# Verify entry point at $080E
-grep -n "\*=\$080E" IRQHack64/Loader/Apps/*/*.s
-
-# Verify IRQ_ExitToMenu usage
-grep -c "IRQ_ExitToMenu" IRQHack64/Loader/Apps/BurstLoader/*.s  # Should be > 0
-```
-
-**Note (2026-01-01):** Paths updated to reflect directory restructuring. Type A plugins remain in `IRQHack64/Plugins/`, Type B apps in `IRQHack64/Loader/Apps/`, shims in `IRQHack64/Loader/Shims/`.
+**Note (2026-03-09):** Type A plugins are in `EasySD/Plugins/`. KernalBridge is in
+`EasySD/Loader/Bridges/KernalBridge/` and is a special case (launches PRGs, not a conventional plugin).
+There are no active Type B standalone apps in this codebase.
 
 ---
 
@@ -504,24 +501,24 @@ ARCHITECTURE_CONSOLIDATION_PLAN.md (Master Plan)
 - ❌ Treated BurstLoader as a "plugin exception" (FALSE - it's a Type B standalone app)
 - ❌ Assumed fixed buffer addresses (FALSE - API uses ZP pointers)
 
-### Version 2.1 Update (2026-01-01)
+### Version 2.2 Update (2026-03-09)
 
-**Directory Restructuring:**
-- ✅ BurstLoader moved from `IRQHack64/Plugins/BurstLoader/` to `IRQHack64/Loader/Apps/BurstLoader/`
-- ✅ PrgPlugin renamed to KernalIOShim and moved to `IRQHack64/Loader/Shims/KernalIOShim/`
-- ✅ Plugins directory now contains ONLY Type A plugins (KoalaDisplayer, MusPlayer, PetsciiDisplayer, WavPlayer)
-- ✅ Build artifacts remain unchanged for backward compatibility (prgplugin.prg, cvdplugin.prg)
+**Corrections to reflect actual codebase (EasySD v3.1.3):**
+- ✅ All `IRQHack64/` paths replaced with `EasySD/` (project was renamed)
+- ✅ `KernalBridge` is the correct name — was never renamed to KernalIOShim
+- ✅ `KernalBridge` location: `EasySD/Loader/Bridges/KernalBridge/` (NOT `Loader/Shims/`)
+- ✅ BurstLoader does NOT exist in this codebase — removed/archived. Type B section retained for architectural reference only.
+- ✅ Plugin list updated: added `CvdPlayer`; build artifacts: `prgplugin.prg`, `koaplugin.prg`, `musplugin.prg`, `petgplugin.prg`, `wavplugin.prg`, `cvdplugin.prg`
 
-**What is CORRECT in v2.0:**
+**What is CORRECT in v2.0/v2.1:**
 - ✅ Documents ZP pointer-based API architecture (matches actual code)
 - ✅ Categorizes programs as Type A (plugins @ $C000) vs Type B (apps @ $080E)
 - ✅ Recommends assembler auto-placement (matches existing plugin practices)
-- ✅ Acknowledges BurstLoader as standalone app, not plugin
 
-**Research Foundation:**
+**Research Foundation (Sprint A, archived):**
 - A.3.0_PLUGIN_ARCHITECTURE_RESEARCH.md (plugin loader analysis, buffer location mapping)
 - A.3.0_REFACTORING_DECISION.md (NO-GO decision on v1.0-based refactoring)
-- Compiled symbol files (PrgPlugin.txt, koala.txt, petg.txt, mus.txt, wav.txt)
+- Compiled symbol files (koala.txt, petg.txt, mus.txt, wav.txt)
 - Source code analysis (IrqLoaderMenuNew.s, CartLib.s, BurstLoader.s)
 
 ---

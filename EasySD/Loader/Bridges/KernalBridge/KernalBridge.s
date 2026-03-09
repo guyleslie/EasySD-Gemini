@@ -88,6 +88,95 @@ ADD16	.macro
 	*=$C000
 	JMP MAIN
 
+;-----------------------------------------------
+; Phase 3 data tables at $C003 (KernalBridge gap, always-accessible RAM).
+; Placed here rather than after variables because the variable section overflows
+; into $D000+ I/O space, making reads from there unreliable on real hardware.
+;-----------------------------------------------
+
+P3_TAIL_CODE
+	; 39 bytes: copy TAIL_BUF ($03BB-$03C0) → $FFFA-$FFFF, then jump to Launcher
+	.BYTE $AD, $BB, $03, $8D, $FA, $FF  ; LDA $03BB : STA $FFFA
+	.BYTE $AD, $BC, $03, $8D, $FB, $FF  ; LDA $03BC : STA $FFFB
+	.BYTE $AD, $BD, $03, $8D, $FC, $FF  ; LDA $03BD : STA $FFFC
+	.BYTE $AD, $BE, $03, $8D, $FD, $FF  ; LDA $03BE : STA $FFFD
+	.BYTE $AD, $BF, $03, $8D, $FE, $FF  ; LDA $03BF : STA $FFFE
+	.BYTE $AD, $C0, $03, $8D, $FF, $FF  ; LDA $03C0 : STA $FFFF
+	.BYTE $4C, $34, $03                 ; JMP $0334  (Launcher)
+
+P3_HANDLER
+	; 52-byte NMI handler (installed at $036A).
+	; X = pages remaining (NMI page counter); Y = byte index within page.
+	; For non-last pages (X > 1): behaves identically to CartLib.s TransferHandler.
+	; For last page (X = 1), Y >= $FA: saves byte to TAIL_BUF[$03BB + Y-$FA] instead
+	; of writing to $FFFA+, preventing corruption of the active NMI vector.
+	;
+	; Offsets (relative to $036A):
+	;  +0  AD AB 80   LDA $80AB          read byte from cartridge
+	;  +3  E0 01      CPX #$01           last page?
+	;  +5  F0 11      BEQ +17 → +24      yes → .phase3
+	;  +7  91 6C      STA ($6C),Y        no  → normal write
+	;  +9  C8         INY
+	;  +10 F0 01      BEQ +1  → +13      end of page? → .endofblock
+	;  +12 40         RTI
+	;  +13 E6 6D      INC $6D            .endofblock: advance target page
+	;  +15 CA         DEX                pages remaining--
+	;  +16 F0 01      BEQ +1  → +19      all pages done? → .endoftransfer
+	;  +18 40         RTI
+	;  +19 A9 64      LDA #$64           .endoftransfer: signal done
+	;  +21 85 64      STA $64            ZP_IRQ_STATE_WAITHANDLE = $64
+	;  +23 40         RTI
+	;  +24 C0 FA      CPY #$FA           .phase3: tail region? (Y >= $FA)
+	;  +26 B0 04      BCS +4  → +32      yes → .save_tail
+	;  +28 91 6C      STA ($6C),Y        no  → normal write ($FF00-$FFF9)
+	;  +30 C8         INY
+	;  +31 40         RTI
+	;  +32 84 77      STY $77            .save_tail: preserve Y
+	;  +34 AA         TAX                preserve byte in X
+	;  +35 98         TYA
+	;  +36 38         SEC
+	;  +37 E9 FA      SBC #$FA           compute TAIL_BUF offset (0..5)
+	;  +39 A8         TAY
+	;  +40 8A         TXA                restore byte
+	;  +41 99 BB 03   STA $03BB,Y        save to TAIL_BUF
+	;  +44 A4 77      LDY $77            restore Y
+	;  +46 A2 01      LDX #$01           restore X (still last page)
+	;  +48 C8         INY                advance byte counter
+	;  +49 F0 DA      BEQ -38 → +13      Y wrapped ($FF→$00)? → .endofblock
+	;  +51 40         RTI
+	.BYTE $AD, $AB, $80  ; +0  LDA $80AB
+	.BYTE $E0, $01       ; +3  CPX #$01
+	.BYTE $F0, $11       ; +5  BEQ +17 → .phase3
+	.BYTE $91, $6C       ; +7  STA ($6C),Y
+	.BYTE $C8            ; +9  INY
+	.BYTE $F0, $01       ; +10 BEQ +1  → .endofblock
+	.BYTE $40            ; +12 RTI
+	.BYTE $E6, $6D       ; +13 INC $6D            (.endofblock)
+	.BYTE $CA            ; +15 DEX
+	.BYTE $F0, $01       ; +16 BEQ +1  → .endoftransfer
+	.BYTE $40            ; +18 RTI
+	.BYTE $A9, $64       ; +19 LDA #$64           (.endoftransfer)
+	.BYTE $85, $64       ; +21 STA $64
+	.BYTE $40            ; +23 RTI
+	.BYTE $C0, $FA       ; +24 CPY #$FA           (.phase3)
+	.BYTE $B0, $04       ; +26 BCS +4  → .save_tail
+	.BYTE $91, $6C       ; +28 STA ($6C),Y
+	.BYTE $C8            ; +30 INY
+	.BYTE $40            ; +31 RTI
+	.BYTE $84, $77       ; +32 STY $77            (.save_tail)
+	.BYTE $AA            ; +34 TAX
+	.BYTE $98            ; +35 TYA
+	.BYTE $38            ; +36 SEC
+	.BYTE $E9, $FA       ; +37 SBC #$FA
+	.BYTE $A8            ; +39 TAY
+	.BYTE $8A            ; +40 TXA
+	.BYTE $99, $BB, $03  ; +41 STA $03BB,Y
+	.BYTE $A4, $77       ; +44 LDY $77
+	.BYTE $A2, $01       ; +46 LDX #$01
+	.BYTE $C8            ; +48 INY
+	.BYTE $F0, $DA       ; +49 BEQ -38 → .endofblock
+	.BYTE $40            ; +51 RTI
+
 	*=$C700
 MAIN
 	JSR INIT		;Clears screen, disables interrupts.
@@ -392,17 +481,23 @@ FD
 ; KernalBridge lives at $C000-$CFFF; a normal single-phase load would overwrite
 ; the running code.  P2TK solves this by:
 ;   Phase 1 — load STARTADDR..$BFFF using the normal LoadFileBySize path
-;   Phase 2 — relocate the NMI wait loop to an 8-byte stub at $E000 (RAM),
-;             switch to $01=$35 (KERNAL hidden → $E000 RAM visible), and let
-;             TransferHandler at $80AF fill $C000+ via NMI pulses.
+;   Phase 2 — relocate the NMI wait loop to an 8-byte stub at $033B (FILE_PATH_BUF area),
+;             switch to $01=$34 (all RAM — I/O hidden, $D000-$FFFF writable as RAM),
+;             and let TransferHandler at $80AF fill $C000+ via NMI pulses.
+;   Phase 3 — if Phase2_pages = 64 (data fills $FF00-$FFFF), swap in a special NMI
+;             handler (P3_HANDLER at $036A) that intercepts tail bytes $FFFA-$FFFF and
+;             saves them to TAIL_BUF ($03BB-$03C0) to prevent mid-transfer corruption
+;             of the active NMI vector. After transfer, P3_TAIL_CODE ($0343) copies
+;             TAIL_BUF → $FFFA-$FFFF and falls through to Launcher.
 ;
 ; Entry conditions:
 ;   ENDADDRESS > $C002 (guaranteed by caller)
 ;   ZP_IRQ_API_DATA_LO/HI = STARTADDRESSLO/HI (set at "Step 2: Parse load address")
 ;   Active IRQ_StartTalking session; file open, position at start of data.
 ;
-; Exit: JMP $E000 → stub polls ZP_IRQ_STATE_WAITHANDLE until done →
-;       JMP $0334 (Launcher) → LDA #$37 / STA $01 / JMP STARTADDR
+; Exit (normal, <64 pages): JMP $033B → poll ZP_IRQ_STATE_WAITHANDLE → JMP $0334 (Launcher)
+; Exit (Phase3, 64 pages): JMP $033B → poll → JMP $0343 (P3_TAIL_CODE) → copy $FFFA-$FFFF →
+;                          JMP $0334 (Launcher) → LDA #$37 / STA $01 / JMP STARTADDR
 ;
 ; Note: CLOSEFILE / IRQ_EndTalking are NOT called — intentional protocol leak.
 ;       The Arduino returns to SoftStartListening; all state resets on next C64
@@ -443,27 +538,34 @@ DO_P2TK:
 p2tk_no_partial:
 	; Y = Phase2_pages
 
-	; Write P2TK stub to $E000 (8 bytes)
-	; Writes go to RAM even with $01=$37 (KERNAL ROM shadows underlying RAM for reads
-	; but writes always reach RAM; the stub becomes visible when $01 switches to $35)
+	; Write P2TK wait-stub to $033B (FILE_PATH_BUF area — safe from Phase 1 and Phase 2)
+	; Phase 2 writes $C000-$FEFF and would overwrite anything at $E000+, so the stub
+	; MUST live below $C000.  The FILE_PATH_BUF area ($0334-$03FB) is safe as long as
+	; STARTADDR >= $0800 (true for all BASIC and typical machine-code programs).
+	; Byte values are identical to the old $E000 stub; relative BVC offset (-4) is
+	; address-independent and the absolute JMP target ($0334) is unchanged.
+	;   $033B: B8          CLV
+	;   $033C: 24 64       BIT ZP_IRQ_STATE_WAITHANDLE
+	;   $033E: 50 FC       BVC $033C   (loop)
+	;   $0340: 4C 34 03    JMP $0334   (Launcher)
 	LDA #$B8
-	STA $E000                    ; CLV
+	STA $033B                    ; CLV
 	LDA #$24
-	STA $E001                    ; BIT zp
+	STA $033C                    ; BIT zp
 	LDA #$64
-	STA $E002                    ;   operand: ZP_IRQ_STATE_WAITHANDLE ($64)
+	STA $033D                    ;   operand: ZP_IRQ_STATE_WAITHANDLE ($64)
 	LDA #$50
-	STA $E003                    ; BVC rel
+	STA $033E                    ; BVC rel
 	LDA #$FC
-	STA $E004                    ;   offset: -4 -> loops back to BIT at $E001
+	STA $033F                    ;   offset: -4 -> loops back to BIT at $033C
 	LDA #$4C
-	STA $E005                    ; JMP abs
+	STA $0340                    ; JMP abs
 	LDA #$34
-	STA $E006                    ;   lo: $0334
+	STA $0341                    ;   lo: $0334
 	LDA #$03
-	STA $E007                    ;   hi: $0334
+	STA $0342                    ;   hi: $0334
 
-	; Write Launcher to $0334 (cassette buffer — safe at this stage, 7 bytes)
+	; Write Launcher to $0334 (FILE_PATH_BUF area — safe at this stage, 7 bytes)
 	; On invocation: restores normal memory map and jumps to PRG entry point
 	LDA #$A9
 	STA $0334                    ; LDA #imm
@@ -480,12 +582,49 @@ p2tk_no_partial:
 	LDA STARTADDRESSHI
 	STA $033A                    ;   PRG entry point hi
 
+	; --- Phase 3: protection when Phase2_pages = 64 (last page fills $FF00-$FFFF) ---
+	; Without protection, TransferHandler writes to $FFFA/$FFFB mid-transfer, corrupting
+	; the active NMI vector before all bytes in that page are received → crash.
+	; Fix: pre-copy P3_TAIL_CODE and P3_HANDLER to FILE_PATH_BUF area; change NMI vector
+	; to P3_HANDLER ($036A) which saves $FFFA-$FFFF bytes to TAIL_BUF instead of writing
+	; them directly; after transfer, P3_TAIL_CODE ($0343) restores those 6 bytes.
+	CPY #$40
+	BNE p2tk_normal_nmi
+
+	; Copy P3_TAIL_CODE (39 bytes) → $0343
+	LDX #38
+-	LDA P3_TAIL_CODE, X
+	STA $0343, X
+	DEX
+	BPL -
+
+	; Copy P3_HANDLER (52 bytes) → $036A
+	LDX #51
+-	LDA P3_HANDLER, X
+	STA $036A, X
+	DEX
+	BPL -
+
+	; Override BVC loop JMP lo: $0341 ← $43 (target $0343 tail write, not $0334 Launcher)
+	LDA #$43
+	STA $0341
+
+	; NMI vector → P3_HANDLER at $036A
+	LDA #$6A
+	STA $FFFA                    ; NMI vector lo = $6A
+	LDA #$03
+	STA $FFFB                    ; NMI vector hi = $03
+	BNE p2tk_after_nmi           ; always branch (A=$03, Z=0)
+
+p2tk_normal_nmi:
 	; Write hardware NMI vector to RAM at $FFFA/$FFFB
-	; (writes always reach RAM; CPU reads RAM when $01=$35 because HIRAM=0)
+	; (writes reach RAM regardless of $01 setting — HIRAM=0 doesn't block writes)
 	LDA #<CARTRIDGENMIHANDLERX1
 	STA $FFFA                    ; NMI vector lo = $AF
 	LDA #>CARTRIDGENMIHANDLERX1
 	STA $FFFB                    ; NMI vector hi = $80
+
+p2tk_after_nmi:
 
 	; Setup ZP for TransferHandler (same layout as IRQ_ReceiveFragmentNoCallback)
 	LDA #$00
@@ -506,9 +645,9 @@ p2tk_no_partial:
 	LDX ZP_IRQ_API_DATA_LENGTH   ; X = Phase2_pages (NMI handler page counter)
 	LDY #0                       ; Y = byte index within current page
 	CLV                          ; clear V so BVC loop enters correctly
-	LDA #PP_CONFIG_RAM_ON_ROM    ; $35: HIRAM=0 -> $E000 shows RAM, KERNAL hidden
+	LDA #PP_CONFIG_ALL_RAM       ; $34: all RAM — I/O hidden, $D000-$FFFF writable as RAM
 	STA $01
-	JMP $E000                    ; enter P2TK stub — never returns here
+	JMP $033B                    ; enter P2TK wait-stub in FILE_PATH_BUF area — never returns here
 
 
 TALK_STATUS

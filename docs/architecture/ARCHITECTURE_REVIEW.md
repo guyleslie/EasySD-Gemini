@@ -76,7 +76,7 @@ The main menu program ties all the components together.
 
 *   **Architectural Patterns:** The project correctly uses modern design patterns, including the **Wrapper/Implementation** pattern (`SafeStream`) to create a stable API, and centralized memory mapping (`CartZpMap.inc`) to prevent Zero Page conflicts.
 *   **Code Quality (DRY Principle):** The centralization of debug macros (`DebugMacros.s`) and strings (`DebugStrings.s`) demonstrates a professional commitment to the "Don't Repeat Yourself" principle, which drastically improves maintainability.
-*   **Robustness & Correctness:** The code shows a deep understanding of the C64 platform. The KERNAL-replacement routines in `PrgPlugin.s` correctly handle I/O status flags, and the graphics plugins correctly manage VIC-II state. This indicates that solutions are based on research and platform knowledge, not assumptions.
+*   **Robustness & Correctness:** The code shows a deep understanding of the C64 platform. The KERNAL-replacement routines in `KernalBridge.s` correctly handle I/O status flags, and the graphics plugins correctly manage VIC-II state. This indicates that solutions are based on research and platform knowledge, not assumptions.
 
 ---
 

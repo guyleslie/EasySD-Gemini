@@ -2,8 +2,8 @@
 
 A **PRG Plugin** az EasySD rendszer legkomplexebb modulja, amely nem csupán egy fájlbetöltő, hanem egy **KERNAL-emulációs réteg**. Feladata, hogy az SD kártyáról betöltött programok számára egy transzparens, 8-as eszközszámú lemezmeghajtó (Commodore 1541) illúziót keltse.
 
-**Forrásfájl:** `EasySD/Plugins/PrgPlugin/PrgPlugin.s`
-**Build kimenet:** `EasySD/build/plugins/prgplugin.prg` ($C000-$D1xx)
+**Forrásfájl:** `EasySD/Loader/Bridges/KernalBridge/KernalBridge.s`
+**Build kimenet:** `EasySD/build/plugins/prgplugin.prg` ($C000-$D2xx)
 **Arduino handler:** `Arduino/EasySD/CartApi.cpp`
 
 ## 1. Alapvető Funkciók
@@ -22,7 +22,7 @@ A plugin folyamata négy fázisra osztható:
 
 **Kód:** `PrgPlugin.s:50-64` (MAIN)
 
-1.  A Menü átadja a kiválasztott fájl nevét (31 karakter a CASSETTEBUFFER-ben, $033C)
+1.  A Menü átadja a kiválasztott fájl nevét (31 karakter a FILE_PATH_BUF-ban, $033C)
 2.  `IRQ_SetName`: Fájlnév regisztrálása
 3.  `IRQ_OpenFile`: Fájl megnyitása az Arduinón (flags=1, read mode)
 4.  Arduino oldal: `CartApi::HandleOpenFile()` - SdFat `sd.open()` hívás
@@ -56,7 +56,30 @@ JSR LoadFileBySize   ; Központi betöltő rutin
 
 **Előny:** Pontos bájtszámú olvasás, nem page-alapú, támogatja a nagy fájlokat (>64KB).
 
-### D. Rendszer Visszaállítás és KERNAL Hooking
+### D. Nagy Programok Betöltése (P2TK — Phase 2 Transfer Kernel)
+
+Ha `ENDADDRESS > $C002` (a program adatai benyúlnak a `$C000+` tartományba, ahol maga a
+KernalBridge fut), a normál `LoadFileBySize` hívás felülírná a futó kódot. Ilyenkor a
+`DO_P2TK` rutin veszi át a vezérlést:
+
+**1. fázis:** `LoadFileBySize` betölti a `STARTADDR..$BFFF` részt (a PRG fejléc kihagyásával).
+
+**2. fázis:** Az NMI-alapú TransferHandler (`$80AF` cartridge ROM) tölti a `$C000+` részt:
+- BVC várakozó hurok (`$033B`, FILE_PATH_BUF terület) és Launcher (`$0334`) a low RAM-ba kerül
+- `$01 = $34` (all RAM: `$D000-$FFFF` írható RAM)
+- Az Arduino NMI-pulzusokkal tölti fel a memóriát; a Launcher végül `JMP STARTADDR`-t hajt végre
+
+**3. fázis** (csak ha Phase2\_pages = 64, azaz a program eléri a `$FFFF`-et):
+- A `$FFFA/$FFFB` NMI vektor felülírásának megakadályozása érdekében a `P3_HANDLER` (`$036A`)
+  menti a `$FFFA-$FFFF` bájtokat a `TAIL_BUF ($03BB)` területre az átvitel alatt.
+- Az átvitel után a `P3_TAIL_CODE` (`$0343`) visszaírja azokat a megfelelő helyre.
+
+**Fontos:** P2TK esetén a KERNAL vektorok NEM kerülnek átírásra — a betöltött program nem
+tud futás közben fájlokat megnyitni az EasySD API-n keresztül.
+
+Részletes dokumentáció: `docs/architecture/KERNAL_BRIDGE.md` — P2TK szekció.
+
+### E. Rendszer Visszaállítás és KERNAL Hooking
 
 **Kód:** `PrgPlugin.s:143-186`
 
@@ -509,11 +532,18 @@ Serial.print(F("Filename : ")); Serial.println(fileName);
 
 ---
 
-**Verzió:** 2.0.1
-**Utolsó frissítés:** 2025-12-22
+**Verzió:** 3.1.3
+**Utolsó frissítés:** 2026-03-09
 **Státusz:** Működő implementáció, production ready
 
 ## Változtatások Története
+
+### v3.1.3 (2026-03-09)
+- **Forrásfájl:** `PrgPlugin.s` → `KernalBridge.s` (`EasySD/Loader/Bridges/KernalBridge/`)
+- **BUGFIX:** `$01=$35` → `$01=$34` a DO_P2TK-ban: `$D000-$DFFF` tartományba írás most helyesen RAM-ba kerül
+- **BUGFIX:** BVC várakozó hurok `$E000`-ről `$033B`-re helyezve (FILE_PATH_BUF terület) — a korábbi hely felülíródott `$E000+`-ra nyúló programoknál
+- **ÚJ FUNKCIÓ:** P2TK 3. fázis — `$FFFA-$FFFF` tail-write védelemmel a teljes `$0801-$FFFF` tartomány betölthető
+- **Névkonvenció:** `CASSETTEBUFFER` → `FILE_PATH_BUF` az összes kommentben
 
 ### v2.0.1 (2025-12-22)
 - **BUGFIX:** Relative path támogatás hozzáadva a többlemezes játékokhoz

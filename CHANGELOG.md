@@ -1,7 +1,7 @@
 # EasySD - Unified Changelog
 
-> **Last updated:** 2026-03-08
-> **Current version:** v3.1.2
+> **Last updated:** 2026-03-09
+> **Current version:** v3.1.3
 > **Project:** EasySD Gemini - C64 Cartridge-based SD card reader
 
 ---
@@ -16,6 +16,7 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
+| **v3.1.3** | 2026-03-09 | P2TK Phase 3: full-range PRG load up to $FFFF, 3 bug fixes | ✅ Complete |
 | **v3.1.2** | 2026-03-08 | WavPlayer EXROM fix, VICE audio test, EasySD rename | ✅ Complete |
 | **v3.1.1** | 2026-02-28 | GOBACK depth-2 crash fix, VICE test suite fixes, test 10 | ✅ Complete |
 | **v3.1.0** | 2026-02-28 | Directory header row in file browser | ✅ Complete |
@@ -54,6 +55,59 @@ This document contains all significant changes to the EasySD/IRQHack64 project i
 ---
 
 ## Chronological Changes
+
+### [v3.1.3] - 2026-03-09
+**P2TK Phase 3: Full-Range PRG Loading to $FFFF + Three Critical Bug Fixes**
+
+#### Bug Fixes
+
+**`$01=$35` → `$01=$34` in DO_P2TK (`KernalBridge.s`):**
+- Root cause: Phase 2 used `PP_CONFIG_RAM_ON_ROM = $35` (CHAREN=1, HIRAM=0), which keeps I/O
+  visible at `$D000-$DFFF`. Writes to that range went to VIC-II/SID/CIA chips — not to underlying
+  RAM. Programs loading data into `$D000-$DFFF` had their bytes silently discarded.
+- Fix: Changed to `PP_CONFIG_ALL_RAM = $34` (HIRAM=0, LORAM=0, CHAREN=1). I/O still visible;
+  `$E000-$FFFF` is now writable RAM instead of (hidden) KERNAL ROM.
+
+**BVC wait-stub relocated from `$E000` to `$033B` (`KernalBridge.s`):**
+- Root cause: The Phase 2 wait-stub (CLV / BIT ZP / BVC loop / JMP Launcher) lived at `$E000`.
+  Phase 2 writes `$C000` upward — for PRGs extending to `$E000+`, Phase 2 overwrites the running
+  wait-stub mid-transfer → crash.
+- Fix: Stub relocated to `$033B` (FILE_PATH_BUF area). Phase 1 writes `STARTADDR+` (≥$0800) and
+  Phase 2 writes `$C000+`, so `$033B` is never touched by either transfer. BVC offset (-4) is
+  address-independent; JMP target (`$0334` Launcher) is unchanged.
+
+**FILE_PATH_BUF naming consistency:**
+- `PATHBUFFER = $033C ; Cassette buffer` comment in `EasySDMenu.s` renamed to
+  `; FILE_PATH_BUF area ($033C-$03FB, re-used as path buffer — not tape I/O)`.
+- All "cassette buffer" references in `KernalBridge.s` replaced with "FILE_PATH_BUF area".
+
+#### New Features
+
+**P2TK Phase 3 — tail-write protection for programs filling `$FF00-$FFFF`:**
+- Scenario: when `Phase2_pages = 64`, the last transfer page covers `$FF00-$FFFF`. The NMI
+  handler (`TransferHandler` at `$80AF`) writes bytes via `STA ($6C),Y`. At `Y=$FA` it would
+  overwrite `$FFFA/$FFFB` (active NMI vector) with half-transferred data → next NMI fires to a
+  garbage address → crash.
+- Solution: if `Phase2_pages = 64`, two data tables are pre-copied from `$C003/$C02A` (KernalBridge
+  gap, always-accessible RAM) to the FILE_PATH_BUF area before Phase 2 starts:
+  - `P3_HANDLER` (52 bytes → `$036A`): replacement NMI handler that saves bytes `$FFFA-$FFFF` to
+    `TAIL_BUF ($03BB-$03C0)` instead of writing them directly, preventing vector corruption.
+  - `P3_TAIL_CODE` (39 bytes → `$0343`): tail-write routine that copies `TAIL_BUF → $FFFA-$FFFF`
+    after transfer completes, then falls through to Launcher.
+  - BVC loop JMP target overridden from `$0334` (Launcher) to `$0343` (P3_TAIL_CODE).
+  - NMI vector overridden from `$80AF` (CARTRIDGENMIHANDLERX1) to `$036A` (P3_HANDLER).
+- Tables placed at `$C003/$C02A`: in the previously unused KernalBridge gap (`$C003-$C6FF`), always
+  readable as `$C000` range RAM regardless of `$01` setting — avoids the known binary overflow into
+  `$D000+` I/O space.
+- Effective maximum loadable range: `STARTADDR` (typically `$0801`) through `$FFFF` — the full
+  usable 6502 address space up to the vector table.
+
+#### Files Changed
+
+- `EasySD/Loader/Bridges/KernalBridge/KernalBridge.s` — Phase 3 implementation, all three bug fixes
+- `EasySD/Menus/EasySD/EasySDMenu.s` — FILE_PATH_BUF comment fix
+
+---
 
 ### [v3.1.2] - 2026-03-08
 **WavPlayer EXROM Fix, VICE Audio Test, EasySD Rename**

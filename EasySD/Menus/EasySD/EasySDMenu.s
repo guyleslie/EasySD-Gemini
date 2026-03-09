@@ -22,7 +22,7 @@ COLLOW           = $FD
 COLHIGH          = $FE
 
 ; --- Menu RAM Variables ---
-PATHBUFFER       = $033C ; Cassette buffer
+PATHBUFFER       = $033C ; FILE_PATH_BUF area ($033C-$03FB, re-used as path buffer — not tape I/O)
 FILENAMESHADOW   = $0200 
 DIRSTACKTEMP     = $FD00 
 
