@@ -1,5 +1,5 @@
 ;----------------------------------------------------------------------------------------------------------
-; High level interface to the IRQHack64 cartridge.
+; High level interface to the EasySD cartridge.
 ;----------------------------------------------------------------------------------------------------------
 ; This interface will deal with opening / closing files. writing / reading them and a bunch of other stuff.
 ; Each command to the cartridge will have
@@ -68,16 +68,16 @@ IRQ_ReadErrorOrByte
 	BEQ -						; Wait response being switched from zero to non zero value
 
 	BPL +						; If its a non negative value than its an error
-	LSR							; Put the least significant bit in the carry
+	LSR						; Put the least significant bit in the carry
 
 -
 	LDA CARTRIDGE_BANK_VALUE	
 	BMI -						; Wait till the micro switches to the non zero response
-	ASL                         ; Combine the least significant bit into the response
+	ASL                                             ; Combine the least significant bit into the response
 	CLC 						; Successful
 	RTS
 +
-	SEC							; Specify error condition A register contains the error
+	SEC						; Specify error condition A register contains the error
 	RTS
 
 ;-----------------------------------------
@@ -585,7 +585,7 @@ LoadFileBySize:
 	STA ZP_IRQ_API_SEEK_HI
 	LDX #SEEK_DIRECTION_START
 	JSR IRQ_SeekFile
-	BCS LoadFileBySize_Error	; If error, return
+	BCS LoadFileBySize_Error	        ; If error, return
 +
 	; Step 2: Calculate payload size = file_size - skip_bytes
 	; WARNING: This is a 16-bit subtraction. It ignores the upper 16 bits of the
@@ -609,7 +609,7 @@ LoadFileBySize:
 	STA ZP_IRQ_API_DATA_LENGTH		; Store page count
 
 	; Step 4: Read file data
-	BEQ LoadFileBySize_Done		; If 0 pages, we're done
+	BEQ LoadFileBySize_Done		        ; If 0 pages, we're done
 	JSR IRQ_ReadFileNoCallback
 	BCS LoadFileBySize_Error
 
@@ -619,9 +619,9 @@ LoadFileBySize_Done:
 	JSR DEBUG_DumpFirst16Bytes
 	LDA #$00
 	JSR DEBUG_SetError
-	JSR DEBUG_Break			; Optional BRK
+	JSR DEBUG_Break			        ; Optional BRK
 .endif
-	CLC						; Success
+	CLC					; Success
 	RTS
 
 LoadFileBySize_Error:
@@ -630,5 +630,5 @@ LoadFileBySize_Error:
 	JSR DEBUG_SetError
 	JSR DEBUG_Break
 .endif
-	SEC						; Error
+	SEC					; Error
 	RTS

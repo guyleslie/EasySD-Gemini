@@ -35,20 +35,20 @@
 ;==============================================================================
 ; Zero-page variables ($FB-$FE: plugin-safe range per CartZpMap.inc)
 ;==============================================================================
-ZP_DEST_LO   = $FB          ; destination pointer lo (= parsed load address)
-ZP_DEST_HI   = $FC          ; destination pointer hi
-ZP_SRC_LO    = $FD          ; source pointer lo      (into MOCK_PRG payload)
-ZP_SRC_HI    = $FE          ; source pointer hi
+ZP_DEST_LO   = $FB         	; destination pointer lo (= parsed load address)
+ZP_DEST_HI   = $FC          	; destination pointer hi
+ZP_SRC_LO    = $FD          	; source pointer lo      (into MOCK_PRG payload)
+ZP_SRC_HI    = $FE          	; source pointer hi
 
 ;==============================================================================
 ; Hardware / KERNAL addresses
 ;==============================================================================
-CIA1_PRA     = $DC00        ; Port A: keyboard column select (output, active-low)
-CIA1_PRB     = $DC01        ; Port B: keyboard row read (input, active-low)
+CIA1_PRA     = $DC00    	; Port A: keyboard column select (output, active-low)
+CIA1_PRB     = $DC01	        ; Port B: keyboard row read (input, active-low)
 VIC_BORDER   = $D020
 VIC_BG       = $D021
-CHROUT       = $FFD2        ; KERNAL: character output
-GETIN        = $FFE4        ; KERNAL: get character from keyboard
+CHROUT       = $FFD2        	; KERNAL: character output
+GETIN        = $FFE4        	; KERNAL: get character from keyboard
 
 ;==============================================================================
 ; Screen layout
@@ -71,11 +71,11 @@ MOCK_LOAD_ADDR = $C000          ; target address of mock payload after copy
 ; BASIC stub at $0801: 10 SYS 2061  ($080D)
 ;
 ; $0801: next-line ptr -> $080B
-; $0803: line number  -> 10
-; $0805: SYS token    -> $9E
-; $0806: "2061"       -> 4 bytes ASCII  (= $080D decimal)
-; $080A: EOL          -> $00
-; $080B: BASIC end    -> $0000
+; $0803: line number   -> 10
+; $0805: SYS token     -> $9E
+; $0806: "2061"        -> 4 bytes ASCII  (= $080D decimal)
+; $080A: EOL           -> $00
+; $080B: BASIC end     -> $0000
 ; $080D: machine code start
 ;==============================================================================
 *=$0801
@@ -246,7 +246,7 @@ MSG_RETURN_LEN = * - MSG_RETURN
 ;   10      $C00A  AD 01 DC       LDA $DC01    ; read keyboard rows
 ;   13      $C00D  29 80          AND #$80     ; bit 7 = STOP row (0 = pressed)
 ;   15      $C00F  D0 F4          BNE $C005    ; loop while STOP not pressed
-;              (offset $F4 = -12 from PC=$C011 -> $C005)
+;   (offset $F4 = -12 from PC=$C011 -> $C005)
 ;   17      $C011  60             RTS          ; return -> AFTER_RETURN via stack
 ;==============================================================================
 MOCK_PRG:
@@ -254,10 +254,10 @@ MOCK_PRG:
 
 MOCK_PAYLOAD_START = *
     .byte $A9, $05              ; LDA #5
-    .byte $8D, $20, $D0        ; STA $D020         (green border)
+    .byte $8D, $20, $D0         ; STA $D020         (green border)
     .byte $A9, $7F              ; LDA #$7F
-    .byte $8D, $00, $DC        ; STA $DC00         (assert STOP column)
-    .byte $AD, $01, $DC        ; LDA $DC01         (read keyboard rows)
+    .byte $8D, $00, $DC         ; STA $DC00         (assert STOP column)
+    .byte $AD, $01, $DC         ; LDA $DC01         (read keyboard rows)
     .byte $29, $80              ; AND #$80          (isolate STOP bit)
     .byte $D0, $F4              ; BNE $C005         (loop while not pressed)
     .byte $60                   ; RTS               (-> AFTER_RETURN)

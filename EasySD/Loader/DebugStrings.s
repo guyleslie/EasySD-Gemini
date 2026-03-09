@@ -7,9 +7,7 @@
 ; Usage in plugin:
 ;   .include "../../Loader/DebugStrings.s"
 ;   PRINTSTATUSANDWAIT OPENINGFILE, 100
-;
-; Created: 2025-12-17
-; Part of Phase 2A refactoring
+
 ;===============================================
 
 .enc "screen"
@@ -64,7 +62,7 @@ TALKINGSTARTED:
 ; Plugin-Specific Strings
 ;-----------------------------------------------
 KOALA_HEADER:
-	.TEXT "IRQHACK64V2 KOALA PLUGIN"
+	.TEXT "EASYSD KOALA PLUGIN"
 	.BYTE 0
 
 ;-----------------------------------------------
