@@ -134,6 +134,23 @@ OPENINGCONT
 	STA STARTADDRESSHI
 	STA ZP_IRQ_API_DATA_HI
 
+	; Compute ENDADDRESS early (STARTADDR + FILELENGTH) before branching
+	ADD16 STARTADDRESS, FILELENGTH16BIT, ENDADDRESS
+
+	; P2TK detection: data reaches $C000+ iff ENDADDRESS > $C002
+	; (last data byte = ENDADDRESS - 3; P2TK needed iff ENDADDRESS - 3 >= $C000)
+	LDA ENDADDRESSHI
+	CMP #$C0
+	BCC NORMAL_LOAD        ; hi < $C0: definitely normal path
+	BNE p2tk_trigger       ; hi > $C0: P2TK needed
+	; hi == $C0: check lo ($C000/$C001/$C002 have no data at $C000+)
+	LDA ENDADDRESSLO
+	CMP #$03
+	BCC NORMAL_LOAD
+p2tk_trigger:
+	JMP DO_P2TK            ; two-phase load path
+
+NORMAL_LOAD:
 	; Step 3: Setup parameters for LoadFileBySize
 	; Copy 32-bit file size from local FILELENGTH to ZP locations
 	LDA FILELENGTH
@@ -155,8 +172,7 @@ OPENINGCONT
 	JSR LoadFileBySize
 	JSR ERROR_GATE
 
-	; Recalculate ENDADDRESS for the LAUNCH logic
-	ADD16 STARTADDRESS, FILELENGTH16BIT, ENDADDRESS
+	; (ENDADDRESS already computed above)
 
 RESUMEFULLLOAD
 	DELAYFRAMES  2
@@ -172,7 +188,7 @@ RESUMEFULLLOAD
 	STX $D016					; Turn on VIC for PAL / NTSC check
 	JSR $FDA3					; IOINIT - Init CIA chips
 	;JSR $FD50					; RANTAM - Clear/test system RAM
-	;JSR ALTRANTAM				; Metallic's fast alternative to RANTAM
+	;JSR ALTRANTAM				        ; Metallic's fast alternative to RANTAM
 	JSR $FD15					; RESTOR - Init KERNAL RAM vectors
 	JSR $FF5B					; CINT   - Init VIC and screen editor
 	JSR SETVECTORS
@@ -227,7 +243,7 @@ MACHINELANG
 	STA $FB
 	LDA STARTADDRESSHI
 	STA $FC
-	JMP ($00FB)				; Leave control to loaded stuff
+	JMP ($00FB)				        ; Leave control to loaded stuff
 
 
 
@@ -244,9 +260,9 @@ ERROR_GATE
 
 
 INPUT_GET
-	JSR SCNKEY		; Call kernal's key scan routine
- 	JSR GETIN		; Get the pressed key by the kernal routine
-  	BEQ INPUT_GET		; If zero then no key is pressed so repeat
+	JSR SCNKEY		                        ; Call kernal's key scan routine
+ 	JSR GETIN					; Get the pressed key by the kernal routine
+  	BEQ INPUT_GET					; If zero then no key is pressed so repeat
 
 ; --------------------------------------------------
 ; MAIN_ERROR_EXIT: Cleanup handler for MAIN section errors
@@ -259,7 +275,7 @@ MAIN_ERROR_EXIT
 EXITFAIL
 .if DEBUG = 1
 	LDA #$02
-	STA DEBUG_ERROR_CODE		; Store error code for debugging
+	STA DEBUG_ERROR_CODE				; Store error code for debugging
 .endif
 	LDA #$02
 	STA BORDER
@@ -305,7 +321,7 @@ SETVECTORS
 	RTS
 
 
-INIT		; Input : None, Changed : A
+INIT							; Input : None, Changed : A
 	CLD
 	LDA #$93
 	JSR CHROUT
@@ -330,11 +346,11 @@ KILLCIA
 	RTS
 
 DISABLEINTERRUPTS
-    LDY #$7f    				; $7f = %01111111
-    STY $dc0d   				; Turn off CIAs Timer interrupts
-    STY $dd0d  				; Turn off CIAs Timer interrupts
-    LDA $dc0d  				; cancel all CIA-IRQs in queue/unprocessed
-    LDA $dd0d   				; cancel all CIA-IRQs in queue/unprocessed
+    LDY #$7f    					; $7f = %01111111
+    STY $dc0d   					; Turn off CIAs Timer interrupts
+    STY $dd0d  						; Turn off CIAs Timer interrupts
+    LDA $dc0d  						; cancel all CIA-IRQs in queue/unprocessed
+    LDA $dd0d   					; cancel all CIA-IRQs in queue/unprocessed
 
 
 ; 	Change interrupt routines
@@ -344,7 +360,7 @@ DISABLEINTERRUPTS
 	RTS
 
 DISABLEDISPLAY
-	LDA #$0B				;%00001011 ; Disable VIC display until the end of transfer
+	LDA #$0B					;%00001011 ; Disable VIC display until the end of transfer
 	STA $D011
 	RTS
 
@@ -367,6 +383,132 @@ FD
 	DEX
 	BNE FD
 	RTS
+
+
+;================================================================================
+; DO_P2TK — Phase 2 Transfer Kernel
+;
+; Two-phase loader for machine-code PRGs whose payload extends into $C000+.
+; KernalBridge lives at $C000-$CFFF; a normal single-phase load would overwrite
+; the running code.  P2TK solves this by:
+;   Phase 1 — load STARTADDR..$BFFF using the normal LoadFileBySize path
+;   Phase 2 — relocate the NMI wait loop to an 8-byte stub at $E000 (RAM),
+;             switch to $01=$35 (KERNAL hidden → $E000 RAM visible), and let
+;             TransferHandler at $80AF fill $C000+ via NMI pulses.
+;
+; Entry conditions:
+;   ENDADDRESS > $C002 (guaranteed by caller)
+;   ZP_IRQ_API_DATA_LO/HI = STARTADDRESSLO/HI (set at "Step 2: Parse load address")
+;   Active IRQ_StartTalking session; file open, position at start of data.
+;
+; Exit: JMP $E000 → stub polls ZP_IRQ_STATE_WAITHANDLE until done →
+;       JMP $0334 (Launcher) → LDA #$37 / STA $01 / JMP STARTADDR
+;
+; Note: CLOSEFILE / IRQ_EndTalking are NOT called — intentional protocol leak.
+;       The Arduino returns to SoftStartListening; all state resets on next C64
+;       hardware reset.
+;================================================================================
+DO_P2TK:
+	; --- Phase 1: Load STARTADDR .. ~$BFFF ---
+	; SIZE = $C000 - STARTADDR  (payload = SIZE-2 fills STARTADDR..ceil boundary)
+	SEC
+	LDA #$00
+	SBC STARTADDRESSLO
+	STA ZP_LOADFILE_API_SIZE0
+	LDA #$C0
+	SBC STARTADDRESSHI
+	STA ZP_LOADFILE_API_SIZE1
+	LDA #0
+	STA ZP_LOADFILE_API_SIZE2
+	STA ZP_LOADFILE_API_SIZE3
+	LDA #2
+	STA ZP_LOADFILE_API_SKIP_LO
+	LDA #0
+	STA ZP_LOADFILE_API_SKIP_HI
+	JSR LoadFileBySize
+	JSR ERROR_GATE
+
+	; --- Phase 2: Compute page count = ceil((ENDADDRESS - $C002) / 256) ---
+	; ENDADDRESS - $C002 = number of data bytes that belong at $C000+
+	SEC
+	LDA ENDADDRESSLO
+	SBC #$02
+	TAX                          ; X = Phase2_bytes lo
+	LDA ENDADDRESSHI
+	SBC #$C0
+	TAY                          ; Y = Phase2_bytes hi = floor page count
+	TXA
+	BEQ p2tk_no_partial
+	INY                          ; round up for partial last page
+p2tk_no_partial:
+	; Y = Phase2_pages
+
+	; Write P2TK stub to $E000 (8 bytes)
+	; Writes go to RAM even with $01=$37 (KERNAL ROM shadows underlying RAM for reads
+	; but writes always reach RAM; the stub becomes visible when $01 switches to $35)
+	LDA #$B8
+	STA $E000                    ; CLV
+	LDA #$24
+	STA $E001                    ; BIT zp
+	LDA #$64
+	STA $E002                    ;   operand: ZP_IRQ_STATE_WAITHANDLE ($64)
+	LDA #$50
+	STA $E003                    ; BVC rel
+	LDA #$FC
+	STA $E004                    ;   offset: -4 -> loops back to BIT at $E001
+	LDA #$4C
+	STA $E005                    ; JMP abs
+	LDA #$34
+	STA $E006                    ;   lo: $0334
+	LDA #$03
+	STA $E007                    ;   hi: $0334
+
+	; Write Launcher to $0334 (cassette buffer — safe at this stage, 7 bytes)
+	; On invocation: restores normal memory map and jumps to PRG entry point
+	LDA #$A9
+	STA $0334                    ; LDA #imm
+	LDA #$37
+	STA $0335                    ;   $37 = PP_CONFIG_DEFAULT (KERNAL+BASIC visible)
+	LDA #$85
+	STA $0336                    ; STA zp
+	LDA #$01
+	STA $0337                    ;   $01 = PROCESSOR_PORT
+	LDA #$4C
+	STA $0338                    ; JMP abs
+	LDA STARTADDRESSLO
+	STA $0339                    ;   PRG entry point lo
+	LDA STARTADDRESSHI
+	STA $033A                    ;   PRG entry point hi
+
+	; Write hardware NMI vector to RAM at $FFFA/$FFFB
+	; (writes always reach RAM; CPU reads RAM when $01=$35 because HIRAM=0)
+	LDA #<CARTRIDGENMIHANDLERX1
+	STA $FFFA                    ; NMI vector lo = $AF
+	LDA #>CARTRIDGENMIHANDLERX1
+	STA $FFFB                    ; NMI vector hi = $80
+
+	; Setup ZP for TransferHandler (same layout as IRQ_ReceiveFragmentNoCallback)
+	LDA #$00
+	STA ZP_IRQ_STATE_WAITHANDLE  ; clear done flag ($64 = pending)
+	STA ZP_IRQ_API_DATA_LO       ; target address lo = $00  -> $C000
+	LDA #$C0
+	STA ZP_IRQ_API_DATA_HI       ; target address hi = $C0
+	STY ZP_IRQ_API_DATA_LENGTH   ; Phase2_pages (also used for LDX below)
+
+	; Send COMMAND_READ_FILE for Phase 2 (inside the active IRQ_StartTalking session)
+	LDA #COMMAND_READ_FILE
+	JSR IRQ_Send
+	TYA                          ; Y = Phase2_pages (IRQ_Send preserves Y)
+	JSR IRQ_Send
+	JSR IRQ_WaitProcessing       ; wait for Arduino ACK (1 ms before streaming starts)
+
+	; Load TransferHandler page counter, reset byte index, enter P2TK
+	LDX ZP_IRQ_API_DATA_LENGTH   ; X = Phase2_pages (NMI handler page counter)
+	LDY #0                       ; Y = byte index within current page
+	CLV                          ; clear V so BVC loop enters correctly
+	LDA #PP_CONFIG_RAM_ON_ROM    ; $35: HIRAM=0 -> $E000 shows RAM, KERNAL hidden
+	STA $01
+	JMP $E000                    ; enter P2TK stub — never returns here
 
 
 TALK_STATUS
@@ -449,8 +591,8 @@ NEW_CHKIN
 +
 	STX TALK_FILE
 	LDA #$00
-	STA TALK_DIRECTION		; Program wants to read
-	STA KERNAL_STATUS		; Clear status (success)
+	STA TALK_DIRECTION				; Program wants to read
+	STA KERNAL_STATUS				; Clear status (success)
 	CLC						; Clear carry (no error)
 	RTS
 
@@ -511,7 +653,7 @@ NEW_CHRIN
 	LDA #$40					; EOF bit (bit 6 of STATUS)
 	STA KERNAL_STATUS
 	LDA #$00					; Return null byte (KERNAL EOF convention)
-	CLC							; No error
+	CLC						; No error
 	RTS
 +
 	LDA FILEINDEXLOW
@@ -532,7 +674,7 @@ NEW_CHRIN
 	JSR IRQ_EndTalking
 	LDA #128					; Read error flag
 	STA KERNAL_STATUS
-	SEC							; Set carry (error)
+	SEC						; Set carry (error)
 	RTS
 +
 	DELAYFRAMES 2
@@ -541,7 +683,7 @@ NEW_CHRIN
 	; EndTalking error handling
 	LDA #128					; Communication error flag
 	STA KERNAL_STATUS
-	SEC							; Set carry (error)
+	SEC						; Set carry (error)
 	RTS
 +
 	LDA #$00
@@ -629,13 +771,13 @@ GetLow
 
 minikey:
 	lda #$0
-	sta $dc03	; port b ddr (input)
+	sta $dc03					; port b ddr (input)
 	lda #$ff
-	sta $dc02	; port a ddr (output)
+	sta $dc02					; port a ddr (output)
 
 	lda #$00
-	sta $dc00	; port a
-	lda $dc01       ; port b
+	sta $dc00					; port a
+	lda $dc01       				; port b
 	cmp #$ff
 	beq nokey
 	; got column
@@ -646,14 +788,14 @@ minikey:
 	ldx #8
 nokey2:
 	lda #0
-	sta $dc00	; port a
+	sta $dc00					; port a
 
 	sec
 	ror nokey2+1
 	dex
 	bmi nokey
 
-	lda $dc01       ; port b
+	lda $dc01       				; port b
 	cmp #$ff
 	beq nokey2
 
@@ -684,7 +826,7 @@ GENERALBUFFER
 	.FILL 256
 
 ; Attributes of launched initial program file
-FILELENGTH16BIT	; F9 36
+FILELENGTH16BIT						; F9 36
 FILELENGTH
 	.FILL 4
 
@@ -694,7 +836,7 @@ STARTADDRESSLO
 STARTADDRESSHI
 	.BYTE 0
 
-ENDADDRESS		; FA 3E
+ENDADDRESS						; FA 3E
 ENDADDRESSLO
 	.BYTE 0
 ENDADDRESSHI
@@ -702,11 +844,11 @@ ENDADDRESSHI
 
 
 ; Attributes of opened files
-OPENEDFILELENGTH16BIT	; FA 3E
+OPENEDFILELENGTH16BIT					; FA 3E
 OPENEDFILELENGTH
 	.FILL 4
 
-FILEINDEX		; FF FF ; We are supporting only files with 16 bit size at the moment
+FILEINDEX						; FF FF ; We are supporting only files with 16 bit size at the moment
 FILEINDEXLOW
 	.FILL 1
 FILEINDEXHIGH
@@ -716,5 +858,3 @@ FILEINDEXHIGH
 ; DEBUG Status Strings moved to DebugStrings.s
 ; (Common file shared across plugins)
 ;-----------------------------------------------
-
-
