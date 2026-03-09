@@ -104,7 +104,7 @@ TransferHandler:
 ## Mechanism 2 — IO2-Triggered Streaming
 
 Used for continuous media: `StreamLargeFile` in `CartLibStream.s`,
-called by WavPlayer and CvdPlayer.
+called by WavPlayer. CvdPlayer uses Mechanism 2b (READCART_MODULATED), not this path.
 
 ### How It Works
 
@@ -225,7 +225,7 @@ This is passive termination — no explicit end-of-stream command.
 | Loop overhead | ~73 cycles/byte (PAL, no page crossing) |
 | Transfer rate | ~13.5 KB/s @ PAL 0.985 MHz |
 | Timeout | 100 ms (Arduino side) |
-| Use case | CvdPlayer (~10 KB/s), WavPlayer (8–16 KB/s) |
+| Use case | WavPlayer (8–16 KB/s) |
 
 ---
 

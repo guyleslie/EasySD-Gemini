@@ -11,7 +11,7 @@ EasySD is an SD card interface for the Commodore 64, consisting of an Arduino-ba
 - **Arduino Side**: C++ (Arduino Nano/Pro Mini, ATmega328P).
 - **SD Library**: SdFat 2.x (migrated from 1.x in v2.0.4, full P1 API compliance in v2.0.5).
 - **Communication**: Custom PWM-like software serial (C64 -> Arduino) and NMI-driven byte transfer (Arduino -> C64).
-- **Current Version**: v3.1.1 (dir header row, GOBACK depth-2 crash fix - 2026-02-28)
+- **Current Version**: v3.1.3 (P2TK Phase 3 tail-write protection, KernalBridge I/O vectors corrected - 2026-03-09)
 
 ---
 
@@ -277,11 +277,8 @@ python Tools/build.py debug-arduino
 - **VICE Test Docs**: docs/testing/VICE_MENU_TEST.md
 
 ### Documentation
-- **Unified Changelog**: CHANGELOG_UNIFIED.md (v1.x to v2.0.5)
-- **Sprint 1 Results**: SPRINT1_COMPLETION.md (v2.0.4)
-- **Sprint 2 Results**: SPRINT2_COMPLETION.md (v2.0.5)
-- **Sprint 2 Planning**: SPRINT2_PLAN.md, SPRINT2_TESTING_GUIDE.md
-- **SdFat Migration**: SDFAT2_MIGRATION_ROADMAP.md (complete status)
+- **Changelog**: CHANGELOG.md (current, all versions)
+- **Sprint history**: Archive/ (legacy sprint docs, SdFat migration — historical reference only)
 
 ---
 
@@ -350,7 +347,7 @@ Root reset:    345 bytes ← Returns to baseline
 3. Avoid `strtok()`, use manual parsing (see DirFunction.cpp for pattern)
 4. Use modern SdFat 2.x API (`File` type, 1-param `openNext()`)
 5. Build: `python Tools/build.py debug-arduino` (recommended for full system)
-6. Upload: `python Tools/arduino_build_upload.py upload COM4`
+6. Upload: `python Tools/build.py arduino-upload COM4`
 7. Monitor serial output (57600 baud) for memory leaks with `FreeStack()`
 
 ### When modifying C64 code:
@@ -360,12 +357,12 @@ Root reset:    345 bytes ← Returns to baseline
 4. Build with `python Tools/build.py release` for production
 
 ### Documentation updates:
-- Always update `CHANGELOG_UNIFIED.md` for version changes
+- Always update `CHANGELOG.md` for version changes
 - Create sprint completion docs for major milestones (see SPRINT1_COMPLETION.md, SPRINT2_COMPLETION.md)
 - Update `GEMINI.md` when adding new architectural rules
 - Use baseline + regression testing strategy for API changes (see SPRINT2_TESTING_GUIDE.md)
 
 ---
 
-**Last Updated**: 2026-02-22 (v3.0.0 - PETMATE frame, inverse selection, cursor key nav, 7/8 Arduino tests)
-**Status**: Production-ready, SdFat 2.x write/delete API verified, self-test suite operational (7/8 on breadboard, WR_DEL=SPI hw limit)
+**Last Updated**: 2026-03-09 (v3.1.3 - P2TK Phase 3, KernalBridge renamed from PrgPlugin, APIMacros adoption)
+**Status**: Production-ready. VICE: 9/9 tests pass. Arduino: 7/8 (WR_DEL = SPI hardware limit on breadboard). KernalBridge supports full $0000–$FFFF load range via P2TK Phase 3.

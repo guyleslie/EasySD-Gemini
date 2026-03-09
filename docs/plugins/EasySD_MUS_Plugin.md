@@ -1,7 +1,7 @@
 # EasySD – MUS Player Plugin
 
-Dátum: 2025-12-19  
-Projekt: **IrqHack64 / EasySD**
+Dátum: 2026-03-09
+Projekt: **EasySD Gemini**
 
 Ez a dokumentum az **MUS Player plugin** működését, fájlstruktúráját és integrációját írja le.
 

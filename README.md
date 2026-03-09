@@ -4,7 +4,7 @@
 
 EasySD brings SD card support to the C64 through a cartridge combining an Arduino Nano/Pro Mini file server with a C64-side menu and plugin architecture. Browse FAT-formatted SD cards and load files directly on real hardware.
 
-> Current version: **v3.1.1** (2026-02-28)
+> Current version: **v3.1.3** (2026-03-09)
 
 ![EasySD Schematic v3](Schematic%20EasySD%20v3.png)
 
@@ -21,15 +21,16 @@ EasySD brings SD card support to the C64 through a cartridge combining an Arduin
 
 | Plugin | File type | Description |
 |--------|-----------|-------------|
-| **KernalBridge** | `.PRG` | Loads C64 programs; hooks KERNAL LOAD/SAVE for full BASIC compatibility |
-| **TAP** | `.TAP` | Automatic TAP-to-PRG conversion — convert+run or save to SD |
+| **KernalBridge** | `.PRG` | Loads C64 programs; hooks KERNAL I/O (OPEN/CLOSE/GET#) for full BASIC compatibility; loads large programs via P2TK (up to $FFFF) |
 | **KOA** | `.KOA` | Koala Painter full-screen graphics viewer |
 | **PETG** | `.PET` | PETSCII art renderer |
 | **WAV** | `.WAV` | Digital audio streaming (double-buffered, up to 16 KB/s) |
 | **MUS** | `.MUS` | Compute's Sidplayer SID music playback |
 | **CVD**  | `.CVD`  | CVD video playback (Bad Apple!! at ~10 KB/s)  |
 
-Plugins are standalone 6502 programs loaded from `/PLUGINS/` on the SD card.
+File-type plugins are standalone 6502 programs loaded from `/PLUGINS/` on the SD card.
+
+> **TAP support** (`.TAP` files) is built into the Arduino firmware and menu — automatic TAP-to-PRG conversion without a separate plugin file.
 
 ### Hardware
 - **Status LED** on pin A5 — 3 blinks = SD OK, 6 = SD fail
@@ -137,7 +138,7 @@ EasySD Gemini/
 │   │   ├── CartZpMap.inc       # Zero page allocation (single source of truth)
 │   │   └── SystemMacros.s      # Tier 1 assembly macros
 │   ├── Menus/EasySD/           # Main file browser menu
-│   └── Plugins/                # File-type plugins (KOA, WAV, MUS, CVD, TAP)
+│   └── Plugins/                # File-type plugins (KOA, WAV, MUS, CVD)
 ├── Tools/                      # Python build system + test tools
 ├── docs/                       # Documentation
 │   ├── architecture/           # Technical architecture docs
