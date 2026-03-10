@@ -372,10 +372,17 @@ cmp_handler_ok:
     LDA MISMATCH_CNT
     STA SEN_P3_MISMATCH
 
+    ; $FFFA/$FFFB are in KERNAL ROM space — must disable KERNAL to read RAM values
+    SEI
+    LDA #$34
+    STA $01
     LDA $FFFA
     STA SEN_P3_NMI_LO
     LDA $FFFB
     STA SEN_P3_NMI_HI
+    LDA #$37
+    STA $01
+    CLI
     LDA $0341
     STA SEN_P3_JMP_LO
 
@@ -409,10 +416,17 @@ p3_done:
     LDY #$10
     JSR DO_P2TK_SETUP
 
+    ; $FFFA/$FFFB are in KERNAL ROM space — must disable KERNAL to read RAM values
+    SEI
+    LDA #$34
+    STA $01
     LDA $FFFA
     STA SEN_NRM_NMI_LO
     LDA $FFFB
     STA SEN_NRM_NMI_HI
+    LDA #$37
+    STA $01
+    CLI
     LDA $0341
     STA SEN_NRM_JMP_LO
 

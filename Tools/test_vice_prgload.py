@@ -151,8 +151,8 @@ class VicePrgLoadTester:
             return False
 
         print(f"[INIT] Launching VICE with prgtest.prg...")
-        self.proc = ViceProcess(str(PRGTEST_PRG), self.vice_path, self.port)
-        self.proc.start()
+        self.proc = ViceProcess(self.vice_path, self.port, self.verbose)
+        self.proc.start(PRGTEST_PRG)
 
         print(f"[INIT] Connecting to binary monitor on port {self.port}...")
         self.mon = ViceBinaryMonitor("127.0.0.1", self.port)
@@ -183,7 +183,7 @@ class VicePrgLoadTester:
 
     # ── helpers ───────────────────────────────────────────────────────────────
     def _read(self, addr: int, count: int = 1) -> bytes:
-        data = self.mon.memory_get(addr, count)
+        data = self.mon.memory_get(addr, addr + count - 1)
         self.mon.exit_monitor()
         if self.verbose:
             hex_str = " ".join(f"{b:02X}" for b in data)
@@ -397,8 +397,13 @@ class VicePrgLoadTester:
             return 1
 
         try:
-            print("\n[WAIT] Waiting for prgtest.prg to complete (max 15s)...")
+            # Clear sentinel area ($CF60-$CF8F) before polling.
+            # VICE default RAM may have $FF at odd addresses, which would
+            # confuse the SEN_DONE poll before the program actually runs.
+            self.mon.memory_set(SEN_PARSE, bytes(SEN_DONE - SEN_PARSE + 1))
             self.mon.exit_monitor()
+
+            print("\n[WAIT] Waiting for prgtest.prg to complete (max 15s)...")
             if not self._poll_done(timeout=15.0):
                 print(f"{RED}[ERR] Timeout: SEN_DONE never set to $FF{RESET}")
                 return 1
