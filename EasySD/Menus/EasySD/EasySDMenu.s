@@ -833,55 +833,18 @@ SPECIALCMD
 
 	
 GOBACK
-	; Go to root.. Traverse stack starting from root... Change directories
-	; Change directory to root
+	; Send ".." to the Arduino. GoBack() on the Arduino navigates one level up
+	; via sd.chdir(parentAbsPath) — a single command is sufficient.
+	; The DIRSTACK is maintained by PUSHDIRNAME/POPDIRNAME for display purposes only.
 	LDA #>PARENTDIR
 	TAY
 	LDA #<PARENTDIR
 	TAX
-	JSR IRQ_SetNameZ			
-.if DEBUG = 0	
-	JSR IRQ_ChangeDirectory
-.else
-	LDA #00
-	STA	DIRLEVEL
-.endif
-	DELAYFRAMES 2
-	
-	; From 0 to CURRENTDIRINDEX change dirs (current dir will be popped of stack beforehand)
-	LDY CURRENTDIRINDEX
-	BEQ _RestoreLoopDone
-	LDY #00
--		
-	TYA
-	PHA
-	LDA DIRNAMESLO, Y
-	TAX
-	LDA DIRNAMESHI, Y
-	TAY
 	JSR IRQ_SetNameZ
 .if DEBUG = 0
 	JSR IRQ_ChangeDirectory
-+	; Alignment label for consistent forward jump target
-.else
-+	; Alignment label for consistent forward jump target
-	INC DIRLEVEL
-	; DEBUG mock supports DIRLEVEL 0..2 only (MOCK_DIR1..DIR3)
-	LDA DIRLEVEL
-	CMP #3
-	BCC +	; Forward jump to skip clamp
-	LDA #2
-	STA DIRLEVEL
-+	; Clamp skip target
 .endif
 	DELAYFRAMES 2
-	PLA
-	TAY
-	INY
-	CPY CURRENTDIRINDEX
-	BNE -
-
-_RestoreLoopDone
 	RTS
 	
 	

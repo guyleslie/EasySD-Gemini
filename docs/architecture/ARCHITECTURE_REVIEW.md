@@ -47,10 +47,13 @@ The communication protocol is the heart of the system and is implemented symmetr
 The system uses a **split-responsibility model** for navigating the directory hierarchy.
 
 *   **Mechanism:**
-    1.  The C64-side Menu maintains the full current path in a stack (`DIRSTACK`).
-    2.  When a user enters a directory, the name is pushed to the C64 stack, and a simple `chdir` command is sent to the Arduino.
-    3.  When a user goes back (`..`), the C64 pops from its stack and instructs the Arduino to first go to the root (`/`) and then sends a series of `chdir` commands to rebuild the path from the root to the new parent directory.
-*   **Assessment:** This is a **very intelligent design trade-off**. It keeps the Arduino firmware incredibly simple and memory-light, as it does not need to manage a complex directory stack. The processing load is shifted to the C64, which has more resources. While slightly less efficient than a stateful server-side stack, it prioritizes firmware stability, which is an excellent choice in an embedded context.
+    1.  The C64-side Menu maintains the full current path in a stack (`DIRSTACK`), used exclusively for display (header row) and for building absolute file paths when launching plugins.
+    2.  When a user enters a directory, the name is pushed to the C64 stack via `PUSHDIRNAME`, and a single `chdir` command is sent to the Arduino.
+    3.  When a user goes back (`..`), `POPDIRNAME` decrements the stack pointer, and a single `".."` command is sent to the Arduino. The Arduino's `GoBack()` navigates one level up by truncating its internal `currentPath` string and calling `sd.chdir(parentAbsPath)`. No path replay is needed.
+
+*   **Note on SdFat 2.x:** Professional C64 projects such as SD2IEC and Pi1541 use ChaN's FatFS library, which natively resolves `f_chdir("..")` through the FAT dotdot cluster chain. SdFat 2.x does not handle `".."` the same way in its path parser, so the Arduino side maintains an explicit `currentPath` string and uses absolute-path navigation for `GoBack()`. This is the correct workaround for the library in use.
+
+*   **Assessment:** The model is **clean and efficient**. The `DIRSTACK` serves a well-defined display/path-building role on the C64 side, while the Arduino handles actual filesystem state. A single command suffices for both entering and leaving directories.
 
 #### File Loading (`LoadFileBySize`)
 
