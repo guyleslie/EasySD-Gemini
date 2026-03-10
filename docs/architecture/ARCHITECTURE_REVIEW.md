@@ -1,4 +1,4 @@
-# EasySD / IRQHack64: A Deep-Dive Technical Analysis
+# EasySD : A Deep-Dive Technical Analysis
 
 This document provides a deep-dive technical review of the EasySD / IRQHack64 project. The analysis covers the C64-side 6502 assembly codebase and the Arduino-side C++ firmware, with the goal of assessing the system's architecture, correctness, and overall engineering quality.
 
