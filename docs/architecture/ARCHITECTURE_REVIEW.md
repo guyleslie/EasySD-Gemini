@@ -59,7 +59,7 @@ This centralized function in `CartLibHi.s` is a cornerstone of the project's mod
 *   **Mechanism:** It abstracts the entire file loading process. It takes a file size and skip-byte count, handles seeking past headers, calculates the correct number of pages to read (using a mathematically sound rounding algorithm: `(payload + 255) / 256`), and performs the blocking read.
 *   **Assessment:** This function is **excellently implemented**. It replaces brittle, error-prone manual calculations in multiple places with a single, robust, and reusable function. Its adoption in the Menu and various plugins significantly improves the reliability and maintainability of the entire project.
 
-### 3.3. Application & Dispatch Logic (`IrqLoaderMenuNew.s`)
+### 3.3. Application & Dispatch Logic (`EasySDMenu.s`)
 
 The main menu program ties all the components together.
 
