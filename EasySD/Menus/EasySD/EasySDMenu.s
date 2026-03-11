@@ -223,11 +223,7 @@ ENTER
 	JSR ISPREVIOUSDIRECTORY
 	BCS NOPREV
 .if DEBUG = 1
-	; Prevent DIRLEVEL underflow
-	LDA DIRLEVEL
-	BEQ +
-	DEC DIRLEVEL
-+
+	JSR MOCK_GoBack
 .endif
 	JSR GOBACK
 	;JMP NEWCONTENT
@@ -1318,6 +1314,9 @@ PRINTDIRHEADER
 .if DEBUG = 0
 	; Ask Arduino for current path → PATHBUFFER[0..63]
 	JSR IRQ_GetCurrentPath
+.else
+	JSR MOCK_GetCurrentPath
+.endif
 	; Check if at root: PATHBUFFER[1] == 0 means path is just "/"
 	LDA PATHBUFFER+1
 	BNE _pdh_subdir
@@ -1338,11 +1337,6 @@ _pdh_subdir
 	; Extract last directory component from PATHBUFFER
 	; NAMELOW/NAMEHIGH will point to it after the call
 	JSR ExtractLastDirname
-
-.else
-	JSR MOCK_SetDirname
-	BCS _pdh_done_copy
-.endif
 
 	LDY #$00
 _pdh_copy
@@ -1398,10 +1392,14 @@ _pdh_col
 ;   Modifies: A, X, Y, NAMELOW, NAMEHIGH, $08, $09, $0A
 ; ------------------------------------------------------------
 PrepareFileNameParameter:
+	; 1. Save current row, fetch current path → PATHBUFFER[0..63]
 .if DEBUG = 0
-	; 1. Save current row, ask Arduino for current path → PATHBUFFER
 	STX $08
 	JSR IRQ_GetCurrentPath		; PATHBUFFER[0..63] = "/GAMES/ACTION\0..."
+.else
+	STX $08
+	JSR MOCK_GetCurrentPath		; PATHBUFFER[0..63] = MOCK_CURRENT_PATH copy
+.endif
 	LDX $08				; restore row
 
 	; 2. Point NAMELOW/NAMEHIGH to selected filename (source)
@@ -1449,9 +1447,6 @@ _pfp_null_term
 	STA ($09), Y			; null-terminate
 	CLC
 	RTS
-.else
-	JMP MOCK_PrepareFilePath
-.endif
 
 ; PUSHDIRNAME and POPDIRNAME removed: Arduino is now the single source
 ; of truth for the current path. C64 queries via IRQ_GetCurrentPath.

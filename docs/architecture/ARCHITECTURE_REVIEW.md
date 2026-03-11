@@ -64,6 +64,15 @@ This centralized function in `CartLibHi.s` is a cornerstone of the project's mod
 *   **Mechanism:** It abstracts the entire file loading process. It takes a file size and skip-byte count, handles seeking past headers, calculates the correct number of pages to read (using a mathematically sound rounding algorithm: `(payload + 255) / 256`), and performs the blocking read.
 *   **Assessment:** This function is **excellently implemented**. It replaces brittle, error-prone manual calculations in multiple places with a single, robust, and reusable function. Its adoption in the Menu and various plugins significantly improves the reliability and maintainability of the entire project.
 
+#### P2TK — Phase 2 Transfer Kernel (`KernalBridge.s`)
+
+PRG files that extend into `$C000+` would overwrite the running `KernalBridge` code during loading. P2TK solves this with a three-phase approach:
+
+*   **Phase 1:** Load `STARTADDR → $BFFF` via the normal `LoadFileBySize` call (skip 2-byte PRG header).
+*   **Phase 2:** Relocate an NMI wait-stub to `$033B` (the `FILE_PATH_BUF` area, which is free at this point), switch `$01 = $34` (all RAM — `$D000–$FFFF` writable), and stream `$C000+` via NMI at `$80AF`.
+*   **Phase 3 (conditional):** If the data fills `$FF00–$FFFF`, an intercept handler at `$036A` captures the tail bytes (`$FFFA–$FFFF`) into `TAIL_BUF` (`$03BB–$03C0`) to prevent mid-transfer corruption of the active NMI vector. The tail bytes are written after the transfer completes.
+*   Data tables for Phase 3 (`P3_TAIL_CODE`/`P3_HANDLER`) are stored in the `KernalBridge` gap at `$C003/$C02A` — always-readable RAM that avoids the VIC-II I/O space overflow problem.
+
 ### 3.3. Application & Dispatch Logic (`EasySDMenu.s`)
 
 The main menu program ties all the components together.
@@ -73,13 +82,35 @@ The main menu program ties all the components together.
     *   It uses a clear, **convention-over-configuration** approach: to handle `.koa` files, it looks for a plugin at `/PLUGINS/KOAPLUGIN.BIN` (or `.PRG`).
     *   This makes the system predictable and easy for users to manage.
     *   The fallback from `.bin` (loaded with the new, robust loader) to `.prg` is a flexible design choice.
+*   **Built-in plugins:** PRG launcher, KOA viewer (Koala Painter), PETG viewer (PETSCII art), WAV player (IO2 streaming ~13.5 KB/s), MUS player (SID music), and **CvdPlayer** — an NMI-driven CVD (Commodore Video Digital) format player for full-motion video (Bad Apple!!). CVD files are produced by `Tools/cvd_convert.py`. The player uses `READCART_MODULATED` triggered at `STARTRASTER=241` rather than IO2 streaming.
 *   **Assessment:** The application logic is **robust and well-structured**. It correctly separates concerns, gracefully handles different file types, and provides a clear path for future expansion.
+
+### 3.4. Debug & Test Infrastructure
+
+The project includes a substantial debug and test infrastructure that runs the same production code paths under VICE emulation.
+
+*   **CartLibDebug.s:** Provides a `$CF00–$CF4F` dump area visible in the VICE monitor. Stores loader state, error codes, and break-point sentinels for interactive debugging.
+
+*   **EasySDMenuMock.s** (included when `DEBUG=1`): A C64-side mock of the Arduino API, enabling VICE emulator testing without real hardware.
+    *   `MOCK_CURRENT_PATH` — a live 65-byte buffer mirroring the format of Arduino's `currentPath` (`"/"`, `"/games"`, `"/games/demos"` — no trailing slash except root).
+    *   `MOCK_GetCurrentPath` — simulates `COMMAND_GET_PATH`; copies `MOCK_CURRENT_PATH` into `PATHBUFFER`, making the mock transparent to callers.
+    *   `MOCK_EnterDir` — increments `DIRLEVEL` (capped at 2 for the three mock directories), then appends the selected dirname to `MOCK_CURRENT_PATH` with correct `'/'` separator logic.
+    *   `MOCK_GoBack` — decrements `DIRLEVEL` and truncates `MOCK_CURRENT_PATH` to its parent path, exactly mirroring Arduino's `GoBack()`.
+    *   `SETDIR1/2/3` — reproduce Arduino's `HandleReadDirectory` wire protocol by copying hardcoded directory blocks into the `DIRLOAD` area.
+    *   **Key design principle:** only the path-fetch step differs between debug and release (one JSR). `PRINTDIRHEADER` and `PrepareFileNameParameter` run the same logic (`ExtractLastDirname`, path-append) in both modes.
+
+*   **test_vice_menu.py:** Six automated navigation tests executed via VICE's binary monitor protocol (TCP port 6510).
+    *   Tests: `INIT`, `NAV_DOWN`, `NAV_UP`, `NAV_WRAP`, `ENTER_DIR`, `GO_BACK`
+    *   Verifies cursor movement, directory entry, directory header update, and go-back behaviour using memory reads against defined sentinel addresses.
 
 ---
 
 ## 4. Identified Strengths & Professional Practices
 
 *   **Architectural Patterns:** The project correctly uses modern design patterns, including the **Wrapper/Implementation** pattern (`SafeStream`) to create a stable API, and centralized memory mapping (`CartZpMap.inc`) to prevent Zero Page conflicts.
+*   **Two-tier macro system:** Assembly-time abstractions are organised in two layers:
+    *   **Tier 1 — `SystemMacros.s`** (included automatically via `CartLib.s`): Hardware-access patterns shared across the whole codebase — `READCART`, `READCART_MODULATED`, `SETBANK`, `SAVEREGS`/`RESTOREREGS`, `WAITFOR`.
+    *   **Tier 2 — `APIMacros.s`** (explicit include at plugin top): High-level API wrappers — `OPENFILE`, `GETFILEINFO`, `EXTRACTFILESIZE`, `CLOSEFILE`, `SETADDR`. Kept separate to avoid duplicate-macro errors in 64tass and to signal intentional API-level use.
 *   **Code Quality (DRY Principle):** The centralization of debug macros (`DebugMacros.s`) and strings (`DebugStrings.s`) demonstrates a professional commitment to the "Don't Repeat Yourself" principle, which drastically improves maintainability.
 *   **Robustness & Correctness:** The code shows a deep understanding of the C64 platform. The KERNAL-replacement routines in `KernalBridge.s` correctly handle I/O status flags, and the graphics plugins correctly manage VIC-II state. This indicates that solutions are based on research and platform knowledge, not assumptions.
 

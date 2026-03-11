@@ -5,6 +5,12 @@
 ; Replaces Arduino SD card communication with hardcoded directory data
 ; (MOCK_DIR1/2/3) for VICE emulator testing.
 ;
+; MOCK_CURRENT_PATH mirrors Arduino's currentPath format:
+;   "/" (root), "/games", "/games/demos" — no trailing slash except root.
+; MOCK_GetCurrentPath / MOCK_EnterDir / MOCK_GoBack maintain it so that
+; PRINTDIRHEADER and PrepareFileNameParameter run the same production logic
+; in both DEBUG and release modes.
+;
 ; Forward references to main-file labels (DIRLOAD, INPUT_GET,
 ; DEBUG_PRG_REACHED, MSG_VICE_DEBUG, etc.) are resolved by
 ; 64tass multi-pass assembly.
@@ -29,17 +35,62 @@ MOCK_InitReadDirectory
 ; ------------------------------------------------------------
 ; MOCK_EnterDir
 ;   Called from ENTERDIR (replaces block 6 .else)
-;   Increments DIRLEVEL, caps at 2 (MOCK_DIR1..DIR3 only)
+;   Increments DIRLEVEL (capped at 2), then appends the selected
+;   dirname to MOCK_CURRENT_PATH, mirroring Arduino's ENTERDIR.
+;   On entry: X = current row (from GETCURRENTROW, still valid)
+;   Temp ZP: $08/$09 = source ptr (dirname), $0B/$0C = dest ptr
 ; ------------------------------------------------------------
 MOCK_EnterDir
 	INC DIRLEVEL
 	; DEBUG mock supports DIRLEVEL 0..2 only (MOCK_DIR1..DIR3)
 	LDA DIRLEVEL
 	CMP #3
-	BCC +
+	BCC _med_path
 	LDA #2
 	STA DIRLEVEL
-+
+
+_med_path
+	; --- Append dirname to MOCK_CURRENT_PATH ---
+	; 1. Find null terminator of MOCK_CURRENT_PATH → Y = path length
+	LDY #0
+_med_find_null
+	LDA MOCK_CURRENT_PATH, Y
+	BEQ _med_found_null
+	INY
+	BNE _med_find_null		; path < 64 bytes, safe
+_med_found_null
+	; 2. If Y > 1 (not root "/"), insert '/' separator first
+	CPY #1
+	BEQ _med_skip_slash
+	LDA #$2F			; '/'
+	STA MOCK_CURRENT_PATH, Y
+	INY
+_med_skip_slash
+	; 3. $0B/$0C = MOCK_CURRENT_PATH + Y (destination write position)
+	TYA
+	CLC
+	ADC #<MOCK_CURRENT_PATH
+	STA $0B
+	LDA #>MOCK_CURRENT_PATH
+	ADC #0
+	STA $0C
+	; 4. $08/$09 = pointer to selected entry's dirname string
+	LDA NAMESLO, X
+	STA $08
+	LDA NAMESHI, X
+	STA $09
+	; 5. Copy dirname from ($08/$09) into ($0B/$0C), null-terminate
+	LDY #0
+_med_copy
+	LDA ($08), Y
+	BEQ _med_end
+	STA ($0B), Y
+	INY
+	CPY #32				; max dirname length safety
+	BNE _med_copy
+_med_end
+	LDA #0
+	STA ($0B), Y			; null-terminate
 	RTS
 
 ; ------------------------------------------------------------
@@ -103,112 +154,57 @@ SETDIR3
 	RTS
 
 ; ------------------------------------------------------------
-; MOCK_SetDirname
-;   Called from PRINTDIRHEADER (replaces block 14 .else)
-;   Convention:
-;     Carry SET   → root case fully handled (writes "ROOT" chars,
-;                   sets Y=4); caller JMPs to _pdh_done_copy
-;     Carry CLEAR → subdir case; NAMELOW/NAMEHIGH set to dirname;
-;                   caller falls through to _pdh_copy
+; MOCK_GetCurrentPath
+;   Mirrors what IRQ_GetCurrentPath (COMMAND_GET_PATH) delivers.
+;   Copies MOCK_CURRENT_PATH (64 bytes) into PATHBUFFER.
+;   Carry: always clear on return.
 ; ------------------------------------------------------------
-MOCK_SetDirname
-	LDA DIRLEVEL
-	BNE _msd_sub
-	; Root: write "ROOT" reversed at $042D-$0430
-	LDA #$D2		; R ($52|$80)
-	STA $042D
-	LDA #$CF		; O ($4F|$80)
-	STA $042E
-	LDA #$CF		; O
-	STA $042F
-	LDA #$D4		; T ($54|$80)
-	STA $0430
-	LDY #$04		; Y=4 → place ─■ at col 9-10
-	SEC			; carry set = root handled
-	RTS
-_msd_sub
-	CMP #1
-	BNE _msd_l2
-	LDA #<MOCK_DIRNAME_L1
-	STA NAMELOW
-	LDA #>MOCK_DIRNAME_L1
-	STA NAMEHIGH
-	CLC			; carry clear = subdir, fall through to copy loop
-	RTS
-_msd_l2
-	LDA #<MOCK_DIRNAME_L2
-	STA NAMELOW
-	LDA #>MOCK_DIRNAME_L2
-	STA NAMEHIGH
+MOCK_GetCurrentPath
+	LDX #0
+_mgcp_copy
+	LDA MOCK_CURRENT_PATH, X
+	STA PATHBUFFER, X
+	INX
+	CPX #64
+	BNE _mgcp_copy
 	CLC
 	RTS
 
 ; ------------------------------------------------------------
-; MOCK_PrepareFilePath
-;   Tail-jumped from PrepareFileNameParameter (replaces block 15 .else)
-;   Builds mock absolute path: DIRLEVEL=0→"/file",
-;   DIRLEVEL=1→"/games/file", DIRLEVEL=2→"/games/demos/file"
-;   Output: PATHBUFFER = null-terminated absolute path
-;   Carry: always clear on return
+; MOCK_GoBack
+;   Called before JSR GOBACK (replaces DIRLEVEL decrement block).
+;   Decrements DIRLEVEL (with underflow protection), then truncates
+;   MOCK_CURRENT_PATH to its parent, mirroring Arduino's GoBack().
+;   "/games/demos" → "/games",  "/games" → "/"
 ; ------------------------------------------------------------
-MOCK_PrepareFilePath
-	LDA NAMESLO, X
-	STA NAMELOW
-	LDA NAMESHI, X
-	STA NAMEHIGH
-	; Select path prefix pointer into $08/$09
+MOCK_GoBack
+	; 1. Decrement DIRLEVEL, protect from underflow
 	LDA DIRLEVEL
-	BNE _mpfp_notroot
-	LDA #<MOCK_PATH_L0
-	STA $08
-	LDA #>MOCK_PATH_L0
-	STA $09
-	JMP _mpfp_copy_prefix
-_mpfp_notroot
-	CMP #1
-	BNE _mpfp_l2
-	LDA #<MOCK_PATH_L1
-	STA $08
-	LDA #>MOCK_PATH_L1
-	STA $09
-	JMP _mpfp_copy_prefix
-_mpfp_l2
-	LDA #<MOCK_PATH_L2
-	STA $08
-	LDA #>MOCK_PATH_L2
-	STA $09
-_mpfp_copy_prefix
-	; Copy prefix ($08/$09) → PATHBUFFER; Y = null position = prefix length
+	BEQ _mgb_path
+	DEC DIRLEVEL
+_mgb_path
+	; 2. Find last '/' in MOCK_CURRENT_PATH
 	LDY #0
-_mpfp_pfx_loop
-	LDA ($08), Y
-	STA PATHBUFFER, Y
-	BEQ _mpfp_pfx_done
-	INY
-	BNE _mpfp_pfx_loop
-_mpfp_pfx_done
-	; Y = prefix length (position of null in PATHBUFFER)
-	; Set $09/$0A = PATHBUFFER + Y (start of filename write position)
+	LDX #0				; X = position of last '/'
+_mgb_scan
+	LDA MOCK_CURRENT_PATH, Y
+	BEQ _mgb_truncate
+	CMP #$2F			; '/'
+	BNE _mgb_next
 	TYA
-	CLC
-	ADC #<PATHBUFFER
-	STA $09
-	LDA #>PATHBUFFER
-	ADC #0
-	STA $0A
-	; Append filename from (NAMELOW/NAMEHIGH) into ($09/$0A)
-	LDY #0
-_mpfp_fname_loop
-	LDA (NAMELOW), Y
-	BEQ _mpfp_null_term
-	STA ($09), Y
+	TAX				; X = position of this '/'
+_mgb_next
 	INY
-	CPY #MAXFILENAMELENGTH
-	BNE _mpfp_fname_loop
-_mpfp_null_term
+	BNE _mgb_scan
+_mgb_truncate
+	; X == 0 → parent is root: null-terminate at pos 1 → "/"
+	; X > 0 → null-terminate at pos X → parent path
+	CPX #0
+	BNE _mgb_not_root
+	INX				; X = 1
+_mgb_not_root
 	LDA #0
-	STA ($09), Y			; null-terminate
-	CLC
+	STA MOCK_CURRENT_PATH, X
 	RTS
 
 ; ------------------------------------------------------------
@@ -283,19 +279,11 @@ _mpe_copy
 
 DIRLEVEL	.BYTE 0
 
-; Mock directory names for PRINTDIRHEADER debug display
-MOCK_DIRNAME_L1		.TEXT "games"
-			.BYTE 0
-MOCK_DIRNAME_L2		.TEXT "demos"
-			.BYTE 0
-
-; Path prefixes for PrepareFileNameParameter debug mode
-MOCK_PATH_L0		.TEXT "/"
-			.BYTE 0
-MOCK_PATH_L1		.TEXT "/games/"
-			.BYTE 0
-MOCK_PATH_L2		.TEXT "/games/demos/"
-			.BYTE 0
+; Live path buffer — mirrors Arduino's currentPath.
+; Format: "/" (root) or "/games" or "/games/demos" — no trailing slash except root.
+; Updated by MOCK_EnterDir and MOCK_GoBack.
+MOCK_CURRENT_PATH	.BYTE $2F		; '/' — initialized to root
+			.FILL 64, 0		; null terminator + 63 zeros
 
 ; --- Root directory (DIRLEVEL=0) — 5 entries -----------------
 MOCK_DIR1
