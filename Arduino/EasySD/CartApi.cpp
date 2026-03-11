@@ -351,6 +351,21 @@ void CartApi::HandleGetInfoForFile() {
 
 }
 
+void CartApi::HandleGetPath() {
+  LOGD(DIR, "HandleGetPath");
+  GetArgumentsStatic(0);
+  const char* path = dirFunc.currentPath;
+  HandleResponse(SUCCESSFUL, 1);
+  noInterrupts();
+  // Send 256 bytes: currentPath[64] (zero-padded) + 192 zero pad bytes
+  // The C64 receives 1 full page (256 bytes) via the standard NMI mechanism.
+  for (uint8_t i = 0; i < 256; i++) {
+    cartInterface.TransmitByteFast((uint8_t)(i < 64 ? path[i] : 0));
+  }
+  interrupts();
+  delayMicroseconds(20);
+}
+
 inline void CartApi::HandleReadDirectory() {
   LOGD(DIR, "HandleReadDirectory");
   GetArgumentsStatic(3);
@@ -1192,6 +1207,7 @@ void CartApi::HandleApi() {
           case COMMAND_SEEK_FILE : HandleSeekFile(); break;
           case COMMAND_LONG_SEEK_FILE : HandleLongSeekFile(); break;
           case COMMAND_GET_INFO_FOR_FILE : HandleGetInfoForFile(); break;
+          case COMMAND_GET_PATH : HandleGetPath(); break;
           case COMMAND_READ_DIR : HandleReadDirectory(); break;
           case COMMAND_CHANGE_DIR : HandleChangeDirectory(); break;
           case COMMAND_DELETE_DIR : HandleDeleteDirectory(); break;

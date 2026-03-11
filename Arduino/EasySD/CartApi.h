@@ -43,6 +43,7 @@
 #define COMMAND_SEEK_FILE  6
 #define COMMAND_LONG_SEEK_FILE  7
 #define COMMAND_GET_INFO_FOR_FILE  8
+#define COMMAND_GET_PATH  9
 
 #define COMMAND_READ_DIR  10
 #define COMMAND_CHANGE_DIR  11
@@ -121,6 +122,7 @@ class CartApi {
    void HandleSeekFile();
    void HandleLongSeekFile();
    void HandleGetInfoForFile();
+   void HandleGetPath();
    void HandleReadDirectory();
    void HandleChangeDirectory();
    void HandleDeleteDirectory();

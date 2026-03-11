@@ -23,8 +23,6 @@ COLHIGH          = $FE
 
 ; --- Menu RAM Variables ---
 PATHBUFFER       = $033C ; FILE_PATH_BUF area ($033C-$03FB, re-used as path buffer — not tape I/O)
-FILENAMESHADOW   = $0200 
-DIRSTACKTEMP     = $FD00 
 
 ; --- External Routine Aliases ---
 SIDPLAY          = $E003 ; SIDLOAD + 3 (SIDLOAD is from System.inc)
@@ -236,15 +234,12 @@ ENTER
 	DEC DIRLEVEL
 +
 .endif
-	JSR POPDIRNAME
 	JSR GOBACK
 	;JMP NEWCONTENT
 	JMP DOREADDIRECTORY
-	
-NOPREV	
-	JSR PUSHDIRNAME
-	
-	; Enter directory
+
+NOPREV
+	; Enter directory (Arduino updates currentPath authoritatively)
 	JMP ENTERDIR
 ; ------------------------------------------------------------
 ; IRQ_SetNameZ
@@ -276,84 +271,79 @@ _isnz_done
 
 
 ; ------------------------------------------------------------
-; BuildAbsolutePathFromPtr
-;   Input : $06/$07 = pointer to selected basename (0-terminated)
-;   Output: PATHBUFFER filled with "/dir1/dir2/file.ext" (0-term)
-;           A = length (excluding terminator)
-;           C = 0 success, C = 1 path too long
-;   Uses  : A,X,Y,$08,$09,$0A
-; Notes  : Uses CURRENTDIRINDEX + DIRSTACK entries as path stack.
+; IRQ_GetCurrentPath
+;   No input. Sends COMMAND_GET_PATH to Arduino, receives 256
+;   bytes into PLUGIN_HEADER (safe 256-byte scratch buffer),
+;   then copies first 64 bytes into PATHBUFFER.
+;   On return: PATHBUFFER[0..63] = null-terminated current path.
+;   Carry: clear on success, set on error.
+;   Modifies: A, X, Y, ZP_IRQ_API_DATA_LO/HI, ZP_IRQ_API_DATA_LENGTH
+; Note: PLUGIN_HEADER is used as the receive buffer to avoid
+;   overwriting screen RAM that would occur if receiving to PATHBUFFER.
 ; ------------------------------------------------------------
-BuildAbsolutePathFromPtr
-	; start with '/'
-	LDX #0
-	LDA #$2F			; '/'
-	STA PATHBUFFER, X
-	INX
-	STX PATHLEN
-
-	LDX #0			; dir index
-_bap_dir_loop
-	CPX CURRENTDIRINDEX
-	BEQ _bap_copy_file
-
-	; $08/$09 = pointer to DIRSTACK[X]
-	LDA DIRNAMESLO, X
-	STA $08
-	LDA DIRNAMESHI, X
-	STA $09
-	STX $0A			; save dir index
-
+.if DEBUG = 0
+IRQ_GetCurrentPath
+	; Receive 256 bytes into PLUGIN_HEADER (safe scratch, not screen RAM)
+	LDA #<PLUGIN_HEADER
+	STA ZP_IRQ_API_DATA_LO
+	LDA #>PLUGIN_HEADER
+	STA ZP_IRQ_API_DATA_HI
+	; Send command
+	LDA #COMMAND_GET_PATH
+	JSR IRQ_Send
+	JSR IRQ_WaitProcessing
+	BPL _gcp_error		; positive value = error code
+	; Receive 1 page (256 bytes): path in [0..63], rest zeros
+	LDA #$01
+	STA ZP_IRQ_API_DATA_LENGTH
+	LDY #$00
+	JSR IRQ_ReceiveFragmentNoCallback
+	; Copy first 64 bytes from PLUGIN_HEADER to PATHBUFFER
 	LDY #0
-_bap_copy_dir
-	LDX PATHLEN
-	LDA ($08), Y
-	BEQ _bap_end_dir
-	CPX #PATH_MAX
-	BCS _bap_too_long
-	STA PATHBUFFER, X
-	INX
-	STX PATHLEN
+_gcp_copy
+	LDA PLUGIN_HEADER, Y
+	STA PATHBUFFER, Y
 	INY
-	BNE _bap_copy_dir
-
-_bap_end_dir
-	LDX PATHLEN
-	CPX #PATH_MAX
-	BCS _bap_too_long
-	LDA #$2F
-	STA PATHBUFFER, X
-	INX
-	STX PATHLEN
-
-	LDX $0A
-	INX
-	JMP _bap_dir_loop
-
-_bap_copy_file
-	LDY #0
-_bap_copy_file_loop
-	LDX PATHLEN
-	LDA ($06), Y
-	BEQ _bap_finish
-	CPX #PATH_MAX
-	BCS _bap_too_long
-	STA PATHBUFFER, X
-	INX
-	STX PATHLEN
-	INY
-	BNE _bap_copy_file_loop
-
-_bap_finish
-	LDX PATHLEN
-	LDA #0
-	STA PATHBUFFER, X
-	TXA			; length in A
+	CPY #64
+	BNE _gcp_copy
 	CLC
 	RTS
-
-_bap_too_long
+_gcp_error
 	SEC
+	RTS
+.endif
+
+; ------------------------------------------------------------
+; ExtractLastDirname
+;   Input : PATHBUFFER contains null-terminated path (e.g. "/GAMES/ACTION")
+;   Output: NAMELOW/NAMEHIGH point to last component ("ACTION\0")
+;   Modifies: A, X, Y
+;   Note: call only for non-root paths (where PATHBUFFER[1] != 0)
+; ------------------------------------------------------------
+ExtractLastDirname
+	; Scan for last '/' in PATHBUFFER, save its position in X
+	LDY #0
+	LDX #0			; X = position of last slash found
+_eld_scan
+	LDA PATHBUFFER, Y
+	BEQ _eld_done
+	CMP #$2F		; '/'
+	BNE _eld_next
+	TYA
+	TAX			; save slash position
+_eld_next
+	INY
+	BNE _eld_scan		; safe since path < 255 chars
+_eld_done
+	; X = position of last '/', INX points past it (first char of last component)
+	INX
+	TXA
+	CLC
+	ADC #<PATHBUFFER
+	STA NAMELOW
+	LDA #>PATHBUFFER
+	ADC #0
+	STA NAMEHIGH
 	RTS
 
 
@@ -833,9 +823,8 @@ SPECIALCMD
 
 	
 GOBACK
-	; Send ".." to the Arduino. GoBack() on the Arduino navigates one level up
-	; via sd.chdir(parentAbsPath) — a single command is sufficient.
-	; The DIRSTACK is maintained by PUSHDIRNAME/POPDIRNAME for display purposes only.
+	; Send ".." to the Arduino. Arduino navigates one level up and updates
+	; its authoritative currentPath. C64 queries the new path via IRQ_GetCurrentPath.
 	LDA #>PARENTDIR
 	TAY
 	LDA #<PARENTDIR
@@ -962,7 +951,7 @@ SETFILENAME
 	JSR GETCURRENTROW
 
 .if DEBUG = 1
-	; DEBUG: Set $06/$07 and dump filename
+	; DEBUG: dump filename for diagnostics
 	LDA NAMESLO, X
 	STA $06
 	LDA NAMESHI, X
@@ -970,29 +959,15 @@ SETFILENAME
 	JSR DEBUG_DumpFilename
 .endif
 
-	; $06/$07 -> selected basename
-	LDA NAMESLO, X
-	STA $06
-	LDA NAMESHI, X
-	STA $07
+	; Build absolute path in PATHBUFFER via PrepareFileNameParameter
+	JSR PrepareFileNameParameter
+	; (always succeeds — path fits PATH_MAX by design)
 
-	JSR BuildAbsolutePathFromPtr
-	BCS _sf_path_too_long
-
-	; A = length, PATHBUFFER contains 0-terminated absolute path
-	PHA			; save length
+	; Set filename for IRQ_InvokeWithName using null-terminated PATHBUFFER
 	LDX #<PATHBUFFER
 	LDY #>PATHBUFFER
-	PLA			; A = length
-	JSR IRQ_SetName
-	RTS
-
-_sf_path_too_long
-	LDA #$02			; red
-	LDX #<MSG_PATH_TOO_LONG
-	LDY #>MSG_PATH_TOO_LONG
-	JSR STATUS_LINE
-	SEC
+	JSR IRQ_SetNameZ
+	CLC
 	RTS
 
 ISDIRECTORY
@@ -1203,12 +1178,10 @@ FREQ    = 19704
 
 
 PREINIT		; Input : None, Changed : A
-	LDA #00
-	STA CURRENTDIRINDEX  
-	JSR DISABLEINTERRUPTS	
+	JSR DISABLEINTERRUPTS
 	JSR KILLCIA
 	JSR STARTMUSIC
-		
+
 	RTS
 
 
@@ -1435,7 +1408,11 @@ PRINTDIRHEADER
 	LDA #$AF		; $2F|$80
 	STA $042C
 
-	LDA CURRENTDIRINDEX
+.if DEBUG = 0
+	; Ask Arduino for current path → PATHBUFFER[0..63]
+	JSR IRQ_GetCurrentPath
+	; Check if at root: PATHBUFFER[1] == 0 means path is just "/"
+	LDA PATHBUFFER+1
 	BNE _pdh_subdir
 
 	; At root: write "ROOT" reversed at col 5-8
@@ -1447,29 +1424,44 @@ PRINTDIRHEADER
 	STA $042F
 	LDA #$D4		; T ($54|$80)
 	STA $0430
-	; ─■ normal after ROOT at col 9-10
-	LDA #$40		; ─ normal
-	STA $0431
-	LDA #$A0		; ■ normal
-	STA $0432
-	; clear cols 11..25
-	LDA #$20
-	LDY #$07		; offset from $042C = col 11
-_pdh_fill_root
-	STA $042C, Y
-	INY
-	CPY #$16		; stop before col 26
-	BNE _pdh_fill_root
-	JMP _pdh_colors
+	LDY #$04		; Y=4 → place ─■ at col 9-10
+	JMP _pdh_done_copy
 
 _pdh_subdir
-	; Point NAMELOW/HIGH to DIRSTACK[CURRENTDIRINDEX-1]
-	LDX CURRENTDIRINDEX
-	DEX
-	LDA DIRNAMESLO, X
+	; Extract last directory component from PATHBUFFER
+	; NAMELOW/NAMEHIGH will point to it after the call
+	JSR ExtractLastDirname
+
+.else
+	; DEBUG: use DIRLEVEL to determine display name (no Arduino call)
+	LDA DIRLEVEL
+	BNE _pdh_dbg_sub
+	; Root
+	LDA #$D2
+	STA $042D
+	LDA #$CF
+	STA $042E
+	LDA #$CF
+	STA $042F
+	LDA #$D4
+	STA $0430
+	LDY #$04
+	JMP _pdh_done_copy
+_pdh_dbg_sub
+	CMP #1
+	BNE _pdh_dbg_l2
+	LDA #<MOCK_DIRNAME_L1
 	STA NAMELOW
-	LDA DIRNAMESHI, X
+	LDA #>MOCK_DIRNAME_L1
 	STA NAMEHIGH
+	JMP _pdh_do_copy
+_pdh_dbg_l2
+	LDA #<MOCK_DIRNAME_L2
+	STA NAMELOW
+	LDA #>MOCK_DIRNAME_L2
+	STA NAMEHIGH
+_pdh_do_copy
+.endif
 
 	LDY #$00
 _pdh_copy
@@ -1517,96 +1509,130 @@ _pdh_col
 	BNE _pdh_col
 	RTS
 
+; ------------------------------------------------------------
+; PrepareFileNameParameter
+;   Input : X = current row (set by caller via GETCURRENTROW)
+;   Output: PATHBUFFER = "/current/path/filename\0" (null-terminated)
+;           Carry clear always (path fits within PATH_MAX by design)
+;   Modifies: A, X, Y, NAMELOW, NAMEHIGH, $08, $09, $0A
+; ------------------------------------------------------------
 PrepareFileNameParameter:
-	; We have current row in X
+.if DEBUG = 0
+	; 1. Save current row, ask Arduino for current path → PATHBUFFER
+	STX $08
+	JSR IRQ_GetCurrentPath		; PATHBUFFER[0..63] = "/GAMES/ACTION\0..."
+	LDX $08				; restore row
+
+	; 2. Point NAMELOW/NAMEHIGH to selected filename (source)
 	LDA NAMESLO, X
-	STA $06
+	STA NAMELOW
 	LDA NAMESHI, X
-	STA $07
+	STA NAMEHIGH
 
-	; Build absolute path into PATHBUFFER ($033C)
-	JSR BuildAbsolutePathFromPtr
-	BCS PATH_TOO_LONG_HANDLER
-
-	; Copy full buffer to shadow (PATHBUF_SIZE bytes)
+	; 3. Find null terminator in PATHBUFFER (= path length)
 	LDY #0
-COPY_PATH_TO_SHADOW
+_pfp_scan
 	LDA PATHBUFFER, Y
-	STA FILENAMESHADOW, Y
+	BEQ _pfp_end_path
 	INY
-	CPY #PATHBUF_SIZE
-	BNE COPY_PATH_TO_SHADOW
-
-.if DEBUG = 1
-	JSR DEBUG_DumpFilename		; optional
-.endif
-
-	LDA CURRENTDIRINDEX
-	STA CURRENTDIRINDEXSHADOW
-
-	; Copy dirstack to temp (320 bytes)
-	; Copy first page (256 bytes)
-	LDY #0
--	
-	LDA DIRSTACK, Y
-	STA DIRSTACKTEMP, Y
+	CPY #PATH_MAX
+	BNE _pfp_scan
+_pfp_end_path
+	; Y = length of path string (position of null byte)
+	; If path is just "/" (Y==1), don't append an extra slash
+	CPY #1
+	BEQ _pfp_no_slash
+	LDA #$2F			; '/'
+	STA PATHBUFFER, Y
 	INY
-	BNE - 
-
-	; Copy remaining 64 bytes of the second page
+_pfp_no_slash
+	; 4. Set $09/$0A = PATHBUFFER + Y (destination for filename append)
+	TYA
+	CLC
+	ADC #<PATHBUFFER
+	STA $09
+	LDA #>PATHBUFFER
+	ADC #0
+	STA $0A
+	; 5. Copy filename from (NAMELOW/NAMEHIGH)[Y] → ($09/$0A)[Y]
 	LDY #0
--	
-	LDA DIRSTACK+$100, Y
-	STA DIRSTACKTEMP+$100, Y
-	INY
-	CPY #64
-	BNE -
-
-	RTS
-
-PATH_TOO_LONG_HANDLER
-	LDA #$02			; red
-	LDX #<MSG_PATH_TOO_LONG
-	LDY #>MSG_PATH_TOO_LONG
-	JSR STATUS_LINE
-	RTS
-
-PUSHDIRNAME:	
-	; We have current row in X
-	LDA NAMESLO, X	
-	STA $06
-	LDA NAMESHI, X
-	STA $07	
-	
-COPYDIRNAME	
-	LDX CURRENTDIRINDEX
-	LDA DIRNAMESLO, X	
-	STA $08
-	LDA DIRNAMESHI, X
-	STA $09	
-
-	
-	LDY #0
--	
-	LDA ($06) , Y
-	STA ($08) , Y
-	STA FILE_PATH_BUF, Y
-	STA FILENAMESHADOW, Y
+_pfp_copy
+	LDA (NAMELOW), Y
+	BEQ _pfp_null_term
+	STA ($09), Y
 	INY
 	CPY #MAXFILENAMELENGTH
-	BNE -
-	
-	INX
-	STX CURRENTDIRINDEX
-	RTS		
-
-POPDIRNAME:		
-	LDY CURRENTDIRINDEX
-	BEQ +
-	DEY 
-	STY CURRENTDIRINDEX
-+	
+	BNE _pfp_copy
+_pfp_null_term
+	LDA #0
+	STA ($09), Y			; null-terminate
+	CLC
 	RTS
+.else
+	; DEBUG mode: build mock absolute path from DIRLEVEL + filename
+	; DIRLEVEL=0 → "/file", DIRLEVEL=1 → "/games/file", DIRLEVEL=2 → "/games/demos/file"
+	LDA NAMESLO, X
+	STA NAMELOW
+	LDA NAMESHI, X
+	STA NAMEHIGH
+	; Select path prefix pointer into $08/$09
+	LDA DIRLEVEL
+	BNE _pfp_dbg_notroot
+	LDA #<MOCK_PATH_L0
+	STA $08
+	LDA #>MOCK_PATH_L0
+	STA $09
+	JMP _pfp_dbg_copy_prefix
+_pfp_dbg_notroot
+	CMP #1
+	BNE _pfp_dbg_l2
+	LDA #<MOCK_PATH_L1
+	STA $08
+	LDA #>MOCK_PATH_L1
+	STA $09
+	JMP _pfp_dbg_copy_prefix
+_pfp_dbg_l2
+	LDA #<MOCK_PATH_L2
+	STA $08
+	LDA #>MOCK_PATH_L2
+	STA $09
+_pfp_dbg_copy_prefix
+	; Copy prefix ($08/$09) → PATHBUFFER; Y = null position = prefix length
+	LDY #0
+_pfp_dbg_pfx_loop
+	LDA ($08), Y
+	STA PATHBUFFER, Y
+	BEQ _pfp_dbg_pfx_done
+	INY
+	BNE _pfp_dbg_pfx_loop
+_pfp_dbg_pfx_done
+	; Y = prefix length (position of null in PATHBUFFER)
+	; Set $09/$0A = PATHBUFFER + Y (start of filename write position)
+	TYA
+	CLC
+	ADC #<PATHBUFFER
+	STA $09
+	LDA #>PATHBUFFER
+	ADC #0
+	STA $0A
+	; Append filename from (NAMELOW/NAMEHIGH) into ($09/$0A)
+	LDY #0
+_pfp_dbg_fname_loop
+	LDA (NAMELOW), Y
+	BEQ _pfp_dbg_null_term
+	STA ($09), Y
+	INY
+	CPY #MAXFILENAMELENGTH
+	BNE _pfp_dbg_fname_loop
+_pfp_dbg_null_term
+	LDA #0
+	STA ($09), Y			; null-terminate
+	CLC
+	RTS
+.endif
+
+; PUSHDIRNAME and POPDIRNAME removed: Arduino is now the single source
+; of truth for the current path. C64 queries via IRQ_GetCurrentPath.
 	
 DISPLAYPETGRAPHICS
 	; set to 25 line text mode and turn on the screen
@@ -1726,9 +1752,6 @@ DISPLAYSCREENGRAPHICS
 COMMANDBYTE	.BYTE 0
 COMMANDARG  .BYTE 0, 0, 0, 0
 CURRENTROW	.BYTE 0
-CURRENTDIRINDEX	.BYTE 0
-CURRENTDIRINDEXSHADOW	.BYTE 0
-PATHLEN	.BYTE 0
 CURPAGENAMELOW	.BYTE <GAMELIST
 CURPAGENAMEHIGH .BYTE >GAMELIST
 BITPOS		.BYTE 0
@@ -1750,22 +1773,9 @@ MAXDIRITEMS = 20
 NAMESLO   .byte <(-)
 NAMESHI   .byte >(-)
 
-DIRECTORIESMAXDEPTH	= 10	
-
--       = DIRSTACK + range(0, MAXFILENAMELENGTH * DIRECTORIESMAXDEPTH, MAXFILENAMELENGTH)
-DIRNAMESLO   .byte <(-)
-DIRNAMESHI   .byte >(-)
-
-	
-
 PARENTDIR
 	.TEXT ".."
 	.FILL 30,0
-
-; Library on the arduino doesn't support opening parent directories, so we need to go to root and then 
-; traverse the path to the current path's parent.
-DIRSTACK
-	.FILL 32 * DIRECTORIESMAXDEPTH
 
 SID
 .include "../../Loader/CartLibStream.s"
@@ -1892,6 +1902,20 @@ COLORDATA
 .if DEBUG = 1
 
 DIRLEVEL	.BYTE 0
+
+; Mock directory names for PRINTDIRHEADER debug display
+MOCK_DIRNAME_L1		.TEXT "games"
+			.BYTE 0
+MOCK_DIRNAME_L2		.TEXT "demos"
+			.BYTE 0
+
+; Path prefixes for PrepareFileNameParameter debug mode
+MOCK_PATH_L0		.TEXT "/"
+			.BYTE 0
+MOCK_PATH_L1		.TEXT "/games/"
+			.BYTE 0
+MOCK_PATH_L2		.TEXT "/games/demos/"
+			.BYTE 0
 
 ; --- Root directory (DIRLEVEL=0) — 5 entries -----------------
 MOCK_DIR1
