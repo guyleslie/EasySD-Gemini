@@ -49,7 +49,7 @@ To build EasySD you need the following components:
 | **Commodore 64** | PAL or NTSC |
 | **Arduino Nano 3.x** | ATmega328P, 5V — clones work fine |
 | **MicroSD card adapter (5V)** | Standard SPI module |
-| **EEPROM AT27C512R-45PU** | 512 Kbit parallel EEPROM, holds the cartridge ROM |
+| **EEPROM 512 Kbit** | AT27C512R-45PU or M27C512 — both compatible; holds the cartridge ROM |
 | **EasySD PCB** | See schematic above (designed in EasyEDA) |
 | **100 µF electrolytic capacitor** | Across SD card VCC/GND — required for stable SPI |
 | **5mm LED + 220 Ω resistor** | Status indicator (optional but recommended) |
