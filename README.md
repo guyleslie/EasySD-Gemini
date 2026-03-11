@@ -56,6 +56,10 @@ To build EasySD you need the following components:
 | **Tactile pushbutton** | Menu/Reset button |
 
 > **SD card:** FAT16 or FAT32 formatted. Any capacity works. Copy your files into the root or subdirectories; put the plugin files in a `/PLUGINS/` folder.
+>
+> **Filename limit:** 8.3 format — up to 8 characters for the name, 3 for the extension (e.g. `MYGAME.PRG`). Long filenames are not supported.
+>
+> **Directory depth limit:** Maximum 10 levels deep.
 
 ---
 
