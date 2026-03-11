@@ -20,7 +20,7 @@ EasySD is a cartridge for the Commodore 64 that turns any FAT-formatted SD card 
 
 ## What it does
 
-- **Browse files** on an SD card directly on your C64 — folder navigation up to 10 levels deep
+- **Browse files** on an SD card directly on your C64 — folder navigation with cursor keys
 - **Load programs** (`.PRG`) — BASIC and machine code, including programs that use KERNAL file I/O
 - **View graphics** — Koala Painter (`.KOA`) and PETSCII art (`.PET`)
 - **Play audio** — digitized sound (`.WAV`) and Sidplayer SID music (`.MUS`)
@@ -59,7 +59,7 @@ To build EasySD you need the following components:
 >
 > **Filename limit:** 8.3 format — up to 8 characters for the name, 3 for the extension (e.g. `MYGAME.PRG`). Long filenames are not supported.
 >
-> **Directory depth limit:** Maximum 10 levels deep.
+> **Directory depth limit:** The full path cannot exceed 63 characters. With 8-character folder names (FAT maximum) this allows approximately 7 levels of nesting; shorter names allow more.
 
 ---
 
