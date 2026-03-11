@@ -177,6 +177,47 @@ P3_HANDLER
 	.BYTE $F0, $DA       ; +49 BEQ -38 → .endofblock
 	.BYTE $40            ; +51 RTI
 
+;-----------------------------------------------
+; Data variables in KernalBridge gap ($C060–$C17D).
+; MUST stay below $D000: reads from $D000+ on real hardware
+; return VIC-II register values instead of RAM content.
+;-----------------------------------------------
+	*=$C060
+
+HEXTOSCREEN
+	.BYTE 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 1, 2, 3, 4, 5, 6
+
+GENERALBUFFER
+	.FILL 256
+
+; Attributes of launched initial program file
+FILELENGTH16BIT
+FILELENGTH
+	.FILL 4
+
+STARTADDRESS
+STARTADDRESSLO
+	.BYTE 0
+STARTADDRESSHI
+	.BYTE 0
+
+ENDADDRESS
+ENDADDRESSLO
+	.BYTE 0
+ENDADDRESSHI
+	.BYTE 0
+
+; Attributes of opened files
+OPENEDFILELENGTH16BIT
+OPENEDFILELENGTH
+	.FILL 4
+
+FILEINDEX
+FILEINDEXLOW
+	.FILL 1
+FILEINDEXHIGH
+	.FILL 1
+
 	*=$C700
 MAIN
 	JSR INIT		;Clears screen, disables interrupts.
@@ -957,41 +998,6 @@ columntab:
 .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $60
 .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $50
 .byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $40,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $30,$FF, $FF, $FF, $20,$FF, $10, $00, $FF
-
-HEXTOSCREEN
-	.BYTE 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 1, 2, 3, 4, 5, 6
-
-GENERALBUFFER
-	.FILL 256
-
-; Attributes of launched initial program file
-FILELENGTH16BIT						; F9 36
-FILELENGTH
-	.FILL 4
-
-STARTADDRESS	; 01 08
-STARTADDRESSLO
-	.BYTE 0
-STARTADDRESSHI
-	.BYTE 0
-
-ENDADDRESS						; FA 3E
-ENDADDRESSLO
-	.BYTE 0
-ENDADDRESSHI
-	.BYTE 0
-
-
-; Attributes of opened files
-OPENEDFILELENGTH16BIT					; FA 3E
-OPENEDFILELENGTH
-	.FILL 4
-
-FILEINDEX						; FF FF ; We are supporting only files with 16 bit size at the moment
-FILEINDEXLOW
-	.FILL 1
-FILEINDEXHIGH
-	.FILL 1
 
 ;-----------------------------------------------
 ; DEBUG Status Strings moved to DebugStrings.s
