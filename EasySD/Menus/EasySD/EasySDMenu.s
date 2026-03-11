@@ -106,12 +106,7 @@ CART_ROM_RESTORE .macro
 	JSR STATUS_LINE
 _dir_ok
 .else
-	JSR SETDIR1
-	JSR DIRREAD
-	LDA #$02			; red
-	LDX #<MSG_VICE_DEBUG
-	LDY #>MSG_VICE_DEBUG
-	JSR STATUS_LINE
+	JSR MOCK_InitReadDirectory
 .endif
 
 ;Start of main loop
@@ -352,16 +347,8 @@ ENTERDIR
 	JSR IRQ_ChangeDirectory
 	BCS CHANGEDIRFAIL	
 .else
-	INC DIRLEVEL
-	; DEBUG mock supports DIRLEVEL 0..2 only (MOCK_DIR1..DIR3)
-	LDA DIRLEVEL
-	CMP #3
-	BCC +
-	LDA #2
-	STA DIRLEVEL
-+
-
-.endif	
+	JSR MOCK_EnterDir
+.endif
 
 	
 	DELAYFRAMES 2
@@ -386,22 +373,7 @@ DOREADDIRECTORY
 	JSR STATUS_LINE
 _dirNC_ok
 .else
-	LDA DIRLEVEL
-	CMP #00
-	BNE +
-	JSR SETDIR1
-	JMP OUTDIRSET
-+	
-	CMP #01
-	BNE +
-	JSR SETDIR2
-	JMP OUTDIRSET	
-+	
-	CMP #02
-	BNE +
-	JSR SETDIR3
-+
-OUTDIRSET
+	JSR MOCK_ReadDirectory
 .endif
 	
 	JMP NEWCONTENT
@@ -630,27 +602,7 @@ TAP_AUTORUN
 SUCCEEDINVOKE
 	JMP *
 .else
-	; --- DEBUG: Mock PRG load + execute ---
-	; Mark that PROGRAM path was reached
-	LDA #$01
-	STA DEBUG_PRG_REACHED
-
-	; Copy mock PRG code to $C000
-	LDX #0
--	LDA MOCK_PRG_CODE, X
-	STA $C000, X
-	INX
-	CPX #MOCK_PRG_CODE_SIZE
-	BNE -
-
-	; Patch JMP target with actual INPUT_GET address
-	LDA #<INPUT_GET
-	STA $C000 + MOCK_PRG_JMP_OFFSET
-	LDA #>INPUT_GET
-	STA $C000 + MOCK_PRG_JMP_OFFSET + 1
-
-	JSR IRQ_EnableDisplay
-	JMP $C000		; execute mock PRG
+	JMP MOCK_PrgExecute
 .endif
 
 
@@ -885,51 +837,6 @@ DIRREAD
 	CLC
 	RTS
 
-.if DEBUG = 1
-; ============================================================
-; MOCK CODE — only compiled when DEBUG=1
-; ============================================================
-; These routines replace Arduino SD card communication with
-; hardcoded directory data (MOCK_DIR1/2/3) for VICE emulator
-; testing. See also: MOCK DATA section near end of file.
-;
-; Copy uses X register (forward) — Y (backward) corrupts data.
-; ============================================================
-
-SETDIR1
-	LDA #$02        ; BORDER = RED (visual indicator)
-	STA $D020
-	LDX #$00
--
-	LDA MOCK_DIR1, X
-	STA DIRLOAD, X
-	INX
-	CPX #(MOCK_DIR2-MOCK_DIR1)
-	BNE -
-	LDA #$05        ; BORDER = GREEN (visual indicator)
-	STA $D020
-	RTS
-
-SETDIR2
-	LDX #$00
--
-	LDA MOCK_DIR2, X
-	STA DIRLOAD, X
-	INX
-	CPX #(MOCK_DIR3-MOCK_DIR2)
-	BNE -
-	RTS
-
-SETDIR3
-	LDX #$00
--
-	LDA MOCK_DIR3, X
-	STA DIRLOAD, X
-	INX
-	CPX #(MOCK_DIR3_END-MOCK_DIR3)
-	BNE -
-	RTS
-.endif
 
 	
 WAITFRAMES
@@ -1433,34 +1340,8 @@ _pdh_subdir
 	JSR ExtractLastDirname
 
 .else
-	; DEBUG: use DIRLEVEL to determine display name (no Arduino call)
-	LDA DIRLEVEL
-	BNE _pdh_dbg_sub
-	; Root
-	LDA #$D2
-	STA $042D
-	LDA #$CF
-	STA $042E
-	LDA #$CF
-	STA $042F
-	LDA #$D4
-	STA $0430
-	LDY #$04
-	JMP _pdh_done_copy
-_pdh_dbg_sub
-	CMP #1
-	BNE _pdh_dbg_l2
-	LDA #<MOCK_DIRNAME_L1
-	STA NAMELOW
-	LDA #>MOCK_DIRNAME_L1
-	STA NAMEHIGH
-	JMP _pdh_do_copy
-_pdh_dbg_l2
-	LDA #<MOCK_DIRNAME_L2
-	STA NAMELOW
-	LDA #>MOCK_DIRNAME_L2
-	STA NAMEHIGH
-_pdh_do_copy
+	JSR MOCK_SetDirname
+	BCS _pdh_done_copy
 .endif
 
 	LDY #$00
@@ -1569,66 +1450,7 @@ _pfp_null_term
 	CLC
 	RTS
 .else
-	; DEBUG mode: build mock absolute path from DIRLEVEL + filename
-	; DIRLEVEL=0 → "/file", DIRLEVEL=1 → "/games/file", DIRLEVEL=2 → "/games/demos/file"
-	LDA NAMESLO, X
-	STA NAMELOW
-	LDA NAMESHI, X
-	STA NAMEHIGH
-	; Select path prefix pointer into $08/$09
-	LDA DIRLEVEL
-	BNE _pfp_dbg_notroot
-	LDA #<MOCK_PATH_L0
-	STA $08
-	LDA #>MOCK_PATH_L0
-	STA $09
-	JMP _pfp_dbg_copy_prefix
-_pfp_dbg_notroot
-	CMP #1
-	BNE _pfp_dbg_l2
-	LDA #<MOCK_PATH_L1
-	STA $08
-	LDA #>MOCK_PATH_L1
-	STA $09
-	JMP _pfp_dbg_copy_prefix
-_pfp_dbg_l2
-	LDA #<MOCK_PATH_L2
-	STA $08
-	LDA #>MOCK_PATH_L2
-	STA $09
-_pfp_dbg_copy_prefix
-	; Copy prefix ($08/$09) → PATHBUFFER; Y = null position = prefix length
-	LDY #0
-_pfp_dbg_pfx_loop
-	LDA ($08), Y
-	STA PATHBUFFER, Y
-	BEQ _pfp_dbg_pfx_done
-	INY
-	BNE _pfp_dbg_pfx_loop
-_pfp_dbg_pfx_done
-	; Y = prefix length (position of null in PATHBUFFER)
-	; Set $09/$0A = PATHBUFFER + Y (start of filename write position)
-	TYA
-	CLC
-	ADC #<PATHBUFFER
-	STA $09
-	LDA #>PATHBUFFER
-	ADC #0
-	STA $0A
-	; Append filename from (NAMELOW/NAMEHIGH) into ($09/$0A)
-	LDY #0
-_pfp_dbg_fname_loop
-	LDA (NAMELOW), Y
-	BEQ _pfp_dbg_null_term
-	STA ($09), Y
-	INY
-	CPY #MAXFILENAMELENGTH
-	BNE _pfp_dbg_fname_loop
-_pfp_dbg_null_term
-	LDA #0
-	STA ($09), Y			; null-terminate
-	CLC
-	RTS
+	JMP MOCK_PrepareFilePath
 .endif
 
 ; PUSHDIRNAME and POPDIRNAME removed: Arduino is now the single source
@@ -1778,6 +1600,9 @@ PARENTDIR
 	.FILL 30,0
 
 SID
+.if DEBUG = 1
+.include "EasySDMenuMock.s"
+.endif
 .include "../../Loader/CartLibStream.s"
 .include "Filename.s"
 
@@ -1899,122 +1724,6 @@ COLORDATA
 ;   +-- coder.wav            WAV audio    -> /PLUGINS/WAVPLUGIN.BIN
 ; ============================================================
 
-.if DEBUG = 1
-
-DIRLEVEL	.BYTE 0
-
-; Mock directory names for PRINTDIRHEADER debug display
-MOCK_DIRNAME_L1		.TEXT "games"
-			.BYTE 0
-MOCK_DIRNAME_L2		.TEXT "demos"
-			.BYTE 0
-
-; Path prefixes for PrepareFileNameParameter debug mode
-MOCK_PATH_L0		.TEXT "/"
-			.BYTE 0
-MOCK_PATH_L1		.TEXT "/games/"
-			.BYTE 0
-MOCK_PATH_L2		.TEXT "/games/demos/"
-			.BYTE 0
-
-; --- Root directory (DIRLEVEL=0) — 5 entries -----------------
-MOCK_DIR1
-	.BYTE 5             ; CURPAGEITEMS
-	.BYTE 1             ; PAGECOUNT
-	;-- entry 0: "games" (directory) --
-	.TEXT "games"
-	.FILL 26, 0
-.enc "screen"
-	.TEXT "D"           ; $04 = directory
-.enc "none"
-	;-- entry 1: "giana.prg" (PRG file) --
-	.TEXT "giana.prg"
-	.FILL 23, 0         ; byte 31 = $00 = file
-	;-- entry 2: "wizball.prg" (PRG file) --
-	.TEXT "wizball.prg"
-	.FILL 21, 0
-	;-- entry 3: "sunset.koa" (Koala image) --
-	.TEXT "sunset.koa"
-	.FILL 22, 0
-	;-- entry 4: "logo.petg" (PETSCII art) --
-	.TEXT "logo.petg"
-	.FILL 23, 0
-
-; --- /games/ (DIRLEVEL=1) — 6 entries -----------------------
-MOCK_DIR2
-	.BYTE 6             ; CURPAGEITEMS
-	.BYTE 1             ; PAGECOUNT
-	;-- entry 0: ".." (parent directory) --
-	.TEXT ".."
-	.FILL 29, 0
-.enc "screen"
-	.TEXT "D"           ; $04 = directory
-.enc "none"
-	;-- entry 1: "demos" (directory) --
-	.TEXT "demos"
-	.FILL 26, 0
-.enc "screen"
-	.TEXT "D"           ; $04 = directory
-.enc "none"
-	;-- entry 2: "music" (directory) --
-	.TEXT "music"
-	.FILL 26, 0
-.enc "screen"
-	.TEXT "D"           ; $04 = directory
-.enc "none"
-	;-- entry 3: "bubble.prg" (PRG file) --
-	.TEXT "bubble.prg"
-	.FILL 22, 0
-	;-- entry 4: "ocean.koa" (Koala image) --
-	.TEXT "ocean.koa"
-	.FILL 23, 0
-	;-- entry 5: "intro.petg" (PETSCII art) --
-	.TEXT "intro.petg"
-	.FILL 22, 0
-
-; --- /games/demos/ (DIRLEVEL=2) — 6 entries -----------------
-MOCK_DIR3
-	.BYTE 6             ; CURPAGEITEMS
-	.BYTE 1             ; PAGECOUNT
-	;-- entry 0: ".." (parent directory) --
-	.TEXT ".."
-	.FILL 29, 0
-.enc "screen"
-	.TEXT "D"           ; $04 = directory
-.enc "none"
-	;-- entry 1: "tools" (directory) --
-	.TEXT "tools"
-	.FILL 26, 0
-.enc "screen"
-	.TEXT "D"           ; $04 = directory
-.enc "none"
-	;-- entry 2: "matrix.prg" (PRG file) --
-	.TEXT "matrix.prg"
-	.FILL 22, 0
-	;-- entry 3: "space.koa" (Koala image) --
-	.TEXT "space.koa"
-	.FILL 23, 0
-	;-- entry 4: "ascii.petg" (PETSCII art) --
-	.TEXT "ascii.petg"
-	.FILL 22, 0
-	;-- entry 5: "coder.wav" (WAV audio) --
-	.TEXT "coder.wav"
-	.FILL 23, 0
-
-; --- Mock PRG program (loaded to $C000, returns to menu) ---
-MOCK_PRG_CODE
-	LDA #$42		; sentinel value 1
-	STA DEBUG_PRG_EXECUTED	; $CF51
-	LDA #$DE		; sentinel value 2
-	STA DEBUG_PRG_SENTINEL	; $CF52
-	JMP $0000		; placeholder — patched to INPUT_GET at runtime
-MOCK_PRG_CODE_END
-MOCK_PRG_CODE_SIZE = MOCK_PRG_CODE_END - MOCK_PRG_CODE
-MOCK_PRG_JMP_OFFSET = MOCK_PRG_CODE_END - MOCK_PRG_CODE - 2
-
-.endif
-
-MOCK_DIR3_END
 
 
 ; ------------------------------------------------------------
