@@ -74,28 +74,48 @@ Used by all normal file loading: plugins, menu, KernalBridge.
 
 ### How It Works
 
-1. Arduino assembles the next byte in its data latch ($80AB / ROML space).
+1. Arduino places the next byte in its data latch ($80AB / ROML space).
 2. Arduino asserts /NMI LOW (D8), triggering an NMI on the C64.
-3. C64 NMI ISR (`TransferHandler` in `CartLib.s`) executes:
+3. C64 NMI ISR (`TransferHandler` in `CartLib.s`) delivers **one byte per NMI** and returns via RTI:
 
 ```asm
-TransferHandler:
-    LDA CARTRIDGE_BANK_VALUE   ; 4 cycles — read byte from $80AB
-    STA (ZP_IRQ_API_DATA_LO),Y ; 6 cycles — store to target buffer
-    INY                        ; 2 cycles
-    DEX                        ; 2 cycles
-    BNE TransferHandler        ; 2–3 cycles (RTI on last byte: 6 cycles)
+; Entry overhead: 7 cycles (6502 NMI dispatch)
+; X = pages remaining (set by caller via ZP_IRQ_API_DATA_LENGTH)
+; Y = byte index within current 256-byte page (0..255)
+
+TransferHandler              ; 7 cycles (NMI dispatch)
+    LDA CARTRIDGE_BANK_VALUE ; 4 — read byte from $80AB
+    STA (ZP_IRQ_API_DATA_LO),Y ; 6 — store to target buffer
+    INY                      ; 2
+    BEQ ENDOFBLOCK           ; 2/3 — Y wrapped to 0: page boundary
+    RTI                      ; 6 — return; Arduino sends next NMI for next byte
+
+ENDOFBLOCK                   ; Y wrapped: page is full
+    INC ZP_IRQ_API_DATA_HI   ; advance target address high byte
+    DEX                      ; decrement page counter
+    BEQ ENDOFTRANSFER        ; all pages done?
+    RTI                      ; more pages: return; Arduino sends next NMI
+
+ENDOFTRANSFER
+    LDA #$64
+    STA ZP_IRQ_STATE_WAITHANDLE  ; signal done to C64 foreground loop
+    RTI
 ```
 
-4. Arduino detects when all bytes have been sent, de-asserts /NMI.
+Each NMI delivers exactly one byte. The Arduino asserts /NMI for each byte
+and the C64 ISR returns via RTI after storing it. X counts 256-byte pages;
+Y counts bytes within the current page.
+
+4. When all pages are transferred, `ZP_IRQ_STATE_WAITHANDLE` is set and the
+   C64 foreground loop (polling `BIT ZP_IRQ_STATE_WAITHANDLE`) exits.
 
 ### Properties
 
 | Property | Value |
 |----------|-------|
 | Data path | Arduino latch → $80AB (ROML) |
-| Trigger | Arduino drives /NMI |
-| Interrupt state on C64 | Interrupts enabled; each NMI is a separate call |
+| Trigger | Arduino drives /NMI — one NMI per byte |
+| Interrupt state on C64 | NMIs fire between C64 instructions; one RTI per byte |
 | Transfer rate | ~40 KB/s (measured) |
 | Max file size | Controlled by ZP_LF_SIZE (LoadFileBySize API, max 64 KB) |
 
