@@ -1,165 +1,165 @@
-# Directory Navigation API - Sprint 1 Changes
+# Directory Navigation API Reference
+
+**File:** `Arduino/EasySD/DirFunction.h` / `DirFunction.cpp`
+**Last updated:** 2026-03-11
+
+---
 
 ## Overview
 
-This document describes the changes made to the directory navigation system in Sprint 1 of the EasySD Architecture Refactoring project. The primary goal was to implement firmware-centric state management with proper error handling and rollback support.
+`DirFunction` manages all directory state on the Arduino side. It is the **single source of truth** for the current working directory. The C64 menu never maintains its own path state — it sends only basenames and relies entirely on the Arduino to track where it is.
 
-## DirFunction Class Changes
+### Design principles
 
-### Modified Methods
-
-#### `bool ChangeDirectory(char* directory)`
-
-**Previous Signature:**
-```cpp
-void ChangeDirectory(char* directory)
-```
-
-**New Signature:**
-```cpp
-bool ChangeDirectory(char* directory)
-```
-
-**Changes:**
-- **Returns:** `bool` - `true` on success, `false` on failure
-- **Validation:** Checks for empty directory name and path buffer overflow
-- **Rollback:** Saves current state before attempting change; restores on failure
-- **Behavior:** Only updates `InSubDir` and `pathDepth` if `sd.chdir()` succeeds
-
-**Example Usage:**
-```cpp
-if (dirFunc.ChangeDirectory("GAMES")) {
-    // Successfully changed to GAMES directory
-    dirFunc.Prepare();
-} else {
-    // Failed - state remains unchanged
-    Serial.println("Directory not found");
-}
-```
+- **Atomic operations:** every navigation method either succeeds fully or rolls back to the previous state — no partial updates
+- **Firmware CWD is authoritative:** `currentPath` is a debug/UI string only; the SdFat library's internal CWD drives all actual navigation
+- **Resync after every chdir:** `ResyncDirFromCwd()` is called after every `sd.chdir()` to keep `m_dirFile` in sync
 
 ---
 
-#### `bool GoBack()`
+## State variables (public)
 
-**Previous Signature:**
-```cpp
-void GoBack()
-```
-
-**New Signature:**
-```cpp
-bool GoBack()
-```
-
-**Changes:**
-- **Returns:** `bool` - `true` on success, `false` if already at root or operation fails
-- **Root Detection:** Returns `false` immediately if `pathDepth == 0`
-- **Rollback:** Saves current state before attempting navigation; restores on failure
-- **Behavior:** Properly decrements `pathDepth` and updates `InSubDir` only on success
-
-**Example Usage:**
-```cpp
-if (dirFunc.GoBack()) {
-    // Successfully navigated to parent
-    dirFunc.Prepare();
-} else {
-    // Already at root or operation failed
-    Serial.println("Cannot go back");
-}
-```
+| Variable | Type | Description |
+|----------|------|-------------|
+| `currentPath[64]` | `char[]` | Null-terminated string of the current path (e.g. `/GAMES/`). UI/debug use only — not used for actual navigation. Max usable path: 63 characters. |
+| `pathDepth` | `uint8_t` | Number of directory levels below root. 0 = root, 1 = one level deep, etc. No hardcoded maximum — the path buffer is the practical limit. |
+| `InSubDir` | `int` | 1 if not at root, 0 at root. |
+| `count` | `unsigned int` | Number of entries in the current directory (includes `..` when in a subdirectory). |
+| `currentIndex` | `unsigned int` | Current iteration position. |
+| `IsDirectory` | `int` | Set by `Iterate()`: 1 if the last iterated entry is a directory. |
+| `IsFinished` | `int` | Set by `Iterate()`: 1 when all entries have been iterated. |
+| `IsHidden` | `int` | Set by `Iterate()`: 1 if the last iterated entry is hidden. |
+| `CurrentFileName` | `StringPrint` | Name of the last iterated entry. |
 
 ---
 
-### New Methods
+## Methods
 
-#### `bool ChangeDirectoryBasename(const char* basename)`
+### `void ToRoot()`
 
-**Purpose:** Navigate using only a basename (no path separators allowed)
+Resets to the root directory unconditionally.
 
-**Parameters:**
-- `basename` - Directory name without path separators (e.g., "GAMES", not "/GAMES")
-
-**Special Handling:**
-- **".." Detection:** Automatically calls `GoBack()` if basename is ".."
-- **Validation:** Rejects basenames containing '/' character
-- **Empty Check:** Returns `false` for `NULL` or empty string
-
-**Returns:**
-- `true` - Successfully changed directory
-- `false` - Invalid basename, directory not found, or operation failed
-
-**Example Usage:**
-```cpp
-// Navigate to subdirectory
-if (dirFunc.ChangeDirectoryBasename("GAMES")) {
-    Serial.println("Entered GAMES");
-}
-
-// Navigate to parent
-if (dirFunc.ChangeDirectoryBasename("..")) {
-    Serial.println("Went back to parent");
-}
-
-// Invalid - contains path separator
-if (!dirFunc.ChangeDirectoryBasename("GAMES/ARCADE")) {
-    Serial.println("ERROR: Use basename only!");
-}
-```
-
-**Why This Method:**
-This method enforces the firmware-centric architecture principle: the C64 menu only sends basenames, never full paths. This prevents state desynchronization between C64 and Arduino.
+- Clears `currentPath` to `"/"`
+- Sets `pathDepth = 0`, `InSubDir = 0`
+- Calls `sd.chdir()` (no arguments = root)
+- Calls `ResyncDirFromCwd()`
 
 ---
 
-#### `const char* GetCurrentPath() const`
+### `void ReInit()`
 
-**Purpose:** Query the current working directory path
-
-**Returns:** Pointer to the internal `currentPath` string (null-terminated)
-
-**Example Usage:**
-```cpp
-Serial.print("Current directory: ");
-Serial.println(dirFunc.GetCurrentPath());
-// Output: /GAMES/ARCADE/
-```
-
-**Note:** Returns a pointer to internal storage. Do not modify the returned string.
+Alias for `ToRoot()`. Used at startup.
 
 ---
 
-#### `void ForceReset()`
+### `bool ChangeDirectory(char* directory)`
 
-**Purpose:** Emergency reset to root directory with full re-initialization
+Navigate into a subdirectory relative to the current directory.
 
-**Behavior:**
-1. Calls `ToRoot()` to return to root directory
-2. Calls `Prepare()` to rebuild directory listing
-3. Logs reset operation in DEBUG mode
+**Parameters:** `directory` — bare name, no slashes (e.g. `"GAMES"`)
 
-**Example Usage:**
-```cpp
-// After error or timeout
-dirFunc.ForceReset();
-Serial.println("Reset to root");
-```
+**Returns:** `true` on success, `false` on failure (state unchanged)
 
-**Use Cases:**
-- Recovery from corrupted state
-- Timeout or communication error recovery
-- User-initiated reset command
+**Behaviour:**
+1. Validates non-empty name and path buffer space (`currentPath + name + 2 <= 64`)
+2. Saves current state for rollback
+3. Appends name to `currentPath`
+4. Calls `sd.chdir(directory)` — relative, not absolute
+5. Calls `ResyncDirFromCwd()`
+6. On success: increments `pathDepth`, sets `InSubDir = 1`
+7. On any failure: rolls back to saved state
 
 ---
 
-#### `void CloseDirHandle()`
+### `bool GoBack()`
 
-**Purpose:** Close the internal directory file handle (`m_dirFile`) before SD reinitialization.
+Navigate to the parent directory.
 
-**When to use:** Must be called before `sd.begin()` during error recovery. Open directory handles become invalid after SD reinit.
+**Returns:** `true` on success, `false` if already at root or operation fails (state unchanged)
 
-**Example Usage:**
+**Behaviour:**
+1. Returns `false` immediately if `pathDepth == 0`
+2. Saves current state for rollback
+3. Truncates `currentPath` to the parent path
+4. If new path is root: calls `ToRoot()` and returns `true`
+5. Otherwise: calls `sd.chdir(parentPath)` + `ResyncDirFromCwd()`
+6. Decrements `pathDepth`; sets `InSubDir = 0` if back at root
+7. On any failure: rolls back to saved state
+
+---
+
+### `bool ChangeDirectoryBasename(const char* basename)`
+
+Primary entry point for C64-initiated navigation. Wraps `ChangeDirectory()` and `GoBack()`.
+
+**Parameters:** `basename` — directory name or `".."`
+
+**Returns:** `true` on success, `false` on failure
+
+**Behaviour:**
+- `basename == ".."` → calls `GoBack()`
+- `basename` contains `'/'` → returns `false` (invalid)
+- otherwise → calls `ChangeDirectory(basename)`
+
+This is the method called by `CartApi.cpp::HandleChangeDirectory()`.
+
+---
+
+### `void Prepare()`
+
+Count the entries in the current directory and prepare for iteration.
+
+- Calls `ResyncDirFromCwd()` to ensure `m_dirFile` is in sync
+- If `InSubDir == 1`: adds 1 to count (for the `..` entry)
+- Iterates all entries with `file.openNext(&m_dirFile)`, counting non-hidden ones
+- Rewinds `m_dirFile` ready for `Iterate()`
+
+Call after any successful `ChangeDirectory()`, `GoBack()`, or `ForceReset()`.
+
+---
+
+### `int Iterate()`
+
+Return the next directory entry. Call repeatedly after `Prepare()`.
+
+**Returns:** 1 if an entry was read, 0 when done (sets `IsFinished = 1`)
+
+**Behaviour:**
+- If `InSubDir == 1` and `currentIndex == 0`: returns `..` as first entry (`IsDirectory = 1`)
+- Otherwise: opens next file with `file.openNext(&m_dirFile)`, sets `CurrentFileName`, `IsDirectory`, `IsHidden`
+
+---
+
+### `void Rewind()`
+
+Reset iteration back to the beginning without re-counting. Rewinds `m_dirFile` and clears `currentIndex`, `IsDirectory`, `IsHidden`, `IsFinished`.
+
+---
+
+### `unsigned int GetCount()`
+
+Returns `count` (set by `Prepare()`).
+
+---
+
+### `const char* GetCurrentPath() const`
+
+Returns a read-only pointer to `currentPath`. Do not modify. Used for logging and the C64 menu header display.
+
+---
+
+### `void ForceReset()`
+
+Emergency reset: calls `ToRoot()` then `Prepare()`. Use after SD error recovery.
+
+---
+
+### `void CloseDirHandle()`
+
+Closes `m_dirFile` if open. Must be called before `sd.begin()` during SD error recovery — open file handles become invalid after SD reinitialisation.
+
+**SD error recovery pattern:**
 ```cpp
-// SD error recovery pattern (see recoverSD() in EasySD.ino)
 dirFunc.CloseDirHandle();
 delay(50);
 sd.begin(chipSelect, SPI_QUARTER_SPEED);
@@ -168,302 +168,48 @@ dirFunc.ForceReset();
 
 ---
 
-## CartApi Changes
+### `bool ResyncDirFromCwd()` *(protected)*
 
-### HandleChangeDirectory()
+Synchronises `m_dirFile` with the SdFat library's current working directory.
 
-**Location:** `CartApi.cpp:452-507`
+1. Closes `m_dirFile` if open
+2. Opens CWD with `m_dirFile.openCwd()` (SdFat 2.x canonical method)
+3. Rewinds for clean iteration
 
-**Major Changes:**
-
-1. **Input Validation**
-   - Checks for empty directory name (`fileNameLength == 0`)
-   - Returns `INVALID_ARGUMENT` error if empty
-   - Ensures null termination of filename string
-
-2. **Enhanced Error Handling**
-   - Calls `dirFunc.ChangeDirectoryBasename()` instead of separate logic
-   - Only calls `dirFunc.Prepare()` if navigation succeeds
-   - Returns `DIR_NOT_FOUND` on failure (instead of always `SUCCESSFUL`)
-
-3. **Enhanced Logging**
-   - Logs current path before and after operation
-   - Logs new directory count on success
-   - Logs failure reason and unchanged path on error
-
-**Error Codes:**
-- `SUCCESSFUL` (0x80) - Directory changed successfully
-- `INVALID_ARGUMENT` (0x09) - Empty directory name provided
-- `DIR_NOT_FOUND` (0x0B) - Directory doesn't exist or navigation failed
-
-**Previous Behavior (BUG):**
-```cpp
-// OLD: Always returned SUCCESSFUL even if navigation failed!
-dirFunc.ChangeDirectory(fileName);  // void return, no error check
-dirFunc.Prepare();                  // Always called
-HandleResponse(SUCCESSFUL, 1);      // Always successful!
-```
-
-**New Behavior (FIXED):**
-```cpp
-// NEW: Proper error handling with state safety
-bool success = dirFunc.ChangeDirectoryBasename(fileName);
-if (success) {
-    dirFunc.Prepare();  // Only if successful
-    HandleResponse(SUCCESSFUL, 1);
-} else {
-    HandleResponse(DIR_NOT_FOUND, 1);  // Report failure
-}
-```
+Called internally after every `sd.chdir()`. Not called directly by CartApi.
 
 ---
 
-## Testing Commands (Serial Monitor @ 57600 baud)
+## CartApi integration
 
-### Command 'p' - Print Current State
+`CartApi.cpp::HandleChangeDirectory()` is the only caller from the C64 protocol layer.
 
-Displays the current directory state without making changes.
-
-**Usage:** Type `p` and press Enter
-
-**Output:**
-```
-=== Current State ===
-Path: /GAMES/
-Depth: 1
-InSubDir: 1
-Count: 15
-```
+| Return code | Value | Meaning |
+|-------------|-------|---------|
+| `SUCCESSFUL` | `0x80` | Directory changed, `Prepare()` called |
+| `INVALID_ARGUMENT` | `0x09` | Empty directory name |
+| `DIR_NOT_FOUND` | `0x0B` | Navigation failed (directory doesn't exist or SD error) |
 
 ---
 
-### Command 'd' - Directory Navigation Test
+## Path depth limit
 
-Interactive test for entering directories or going back to parent.
+There is **no hardcoded maximum depth**. The practical limit is the `currentPath[64]` buffer:
 
-**Usage:**
-1. Type `d` and press Enter
-2. When prompted, type directory name (or "..")
-3. Press Enter
+| Folder name length | Max levels |
+|--------------------|-----------|
+| 8 characters (FAT max) | ~7 |
+| 4 characters | ~12 |
+| 1 character | ~31 |
 
-**Example Session:**
-```
-=== Directory Navigation Test ===
-Current path: /
-Path depth: 0
-Enter directory name (or .. to go back):
-GAMES
-Attempting to navigate to: GAMES
-SUCCESS!
-New path: /GAMES/
-Item count: 15
-```
+With 8-character names: `/DIRNAME1/DIRNAME2/.../DIRNAME7` = 63 characters.
 
 ---
 
-### Command 'r' - Reset to Root
+## Serial test commands (57600 baud)
 
-Forces reset to root directory.
-
-**Usage:** Type `r` and press Enter
-
-**Output:**
-```
-=== Reset to Root ===
-Path: /
-Count: 8
-```
-
----
-
-## Testing Checklist
-
-Run these tests in order via Serial Monitor (57600 baud):
-
-### Test 1: Print Current State
-- **Command:** `p`
-- **Expected:** Path="/", Depth=0, Count=(number of root items)
-
-### Test 2: Enter Valid Subdirectory
-- **Command:** `d`
-- **Input:** Name of existing subdirectory (e.g., "GAMES")
-- **Expected:** SUCCESS, path="/GAMES/", depth=1
-
-### Test 3: Navigate Back with ".."
-- **Command:** `d`
-- **Input:** `..`
-- **Expected:** SUCCESS, path="/", depth=0
-
-### Test 4: Try Invalid Directory
-- **Command:** `d`
-- **Input:** "NOTEXIST"
-- **Expected:** FAILED, path unchanged
-
-### Test 5: Nested Navigation
-- **Sequence:**
-  1. Enter dir1 → SUCCESS
-  2. Enter dir2 → SUCCESS
-  3. `..` → SUCCESS (back to dir1)
-  4. `..` → SUCCESS (back to root)
-- **Expected:** All succeed, end at root
-
-### Test 6: Force Reset After Deep Navigation
-- **Sequence:**
-  1. Navigate deep into directories
-  2. **Command:** `r`
-- **Expected:** Path="/", depth=0
-
-### Test 7: Path Overflow Protection
-- **Input:** Very long directory name (>60 characters)
-- **Expected:** FAILED, path unchanged, no crash
-
----
-
-## State Consistency Guarantees
-
-### Atomicity
-All directory operations are atomic:
-- **Success:** State updated completely
-- **Failure:** State remains unchanged (rollback)
-
-### No Partial Updates
-Previous bugs where `pathDepth` or `InSubDir` could be inconsistent are now fixed:
-```cpp
-// OLD BUG: pathDepth incremented even if chdir failed
-pathDepth++;
-if (!sd.chdir(path)) {
-    // BUG: pathDepth already incremented!
-}
-
-// NEW FIX: Only update on success
-if (sd.chdir(path)) {
-    pathDepth++;  // Only if successful
-    return true;
-}
-return false;  // No state changes
-```
-
-### Error Recovery
-All methods support safe error recovery:
-- Failed operations don't corrupt state
-- `ForceReset()` available for emergency recovery
-- Rollback prevents "half-changed" states
-
----
-
-## Integration with C64 Menu (Future: Sprint 2)
-
-The enhanced API prepares for Sprint 2 changes where:
-
-1. **C64 Removes DIRSTACK**
-   - No more local path tracking on C64
-   - C64 trusts firmware state completely
-
-2. **C64 Sends Only Basenames**
-   - Menu sends "GAMES", not "/GAMES"
-   - Menu sends ".." for parent navigation
-   - Firmware validates and navigates
-
-3. **Error Handling on C64**
-   - C64 checks carry flag from `IRQ_ChangeDirectory`
-   - Carry set → stay in same directory, show error
-   - Carry clear → refresh directory listing
-
-**Example C64 Assembly (Sprint 2):**
-```assembly
-; Current row has directory name
-JSR GETCURRENTROW           ; X = selected row
-LDA NAMESLO, X
-TAX
-LDA NAMESHI, X
-TAY                         ; X/Y = pointer to name
-
-JSR IRQ_SetNameZ            ; Set name for next command
-JSR IRQ_ChangeDirectory     ; Firmware navigates
-BCS NAVFAILED               ; Carry set = failed
-
-; Success - read new directory
-JSR IRQ_ReadDirectoryNC
-JMP DISPLAY_MENU
-
-NAVFAILED:
-; Show error, stay in current directory
-JSR SHOW_ERROR
-JMP INPUT_GET
-```
-
----
-
-## Files Modified in Sprint 1
-
-1. **DirFunction.h** - Updated method signatures
-   - `bool ChangeDirectory(char*)` - was `void`
-   - `bool GoBack()` - was `void`
-   - Added 3 new methods
-
-2. **DirFunction.cpp** - Implementation (~180 lines changed/added)
-   - Modified `ChangeDirectory()` with rollback
-   - Modified `GoBack()` with rollback
-   - Added `ChangeDirectoryBasename()`
-   - Added `GetCurrentPath()`
-   - Added `ForceReset()`
-
-3. **CartApi.cpp** - Updated `HandleChangeDirectory()` (~55 lines)
-   - Added input validation
-   - Added error handling with proper return codes
-   - Enhanced debug logging
-
-4. **EasySD.ino** - Added test commands (~70 lines)
-   - Added 'd', 'r', 'p' test commands
-   - Added 3 test functions
-
-5. **DIR_NAVIGATION_API.md** - This documentation file
-
----
-
-## Backward Compatibility
-
-### Firmware API
-The C64 protocol remains unchanged:
-- `COMMAND_CHANGE_DIR` (11) - Still uses same command byte
-- Arguments format unchanged
-- Only internal implementation improved
-
-### Existing Code
-All existing code using `dirFunc.ChangeDirectory()` or `dirFunc.GoBack()` will need minor updates:
-```cpp
-// OLD CODE (still compiles but ignores errors):
-dirFunc.ChangeDirectory("GAMES");
-
-// NEW CODE (recommended):
-if (dirFunc.ChangeDirectory("GAMES")) {
-    // Handle success
-} else {
-    // Handle error
-}
-```
-
-**Migration:** Add error checking where critical; ignore return value where errors are acceptable.
-
----
-
-## Known Limitations
-
-1. **Path Length:** Maximum path is 64 characters (inherited from original design)
-2. **No Absolute Paths:** `ChangeDirectoryBasename()` rejects paths with '/'
-3. **Sequential Only:** Cannot navigate multiple levels in one call (by design)
-
----
-
-## Next Steps (Sprint 2+)
-
-1. **Sprint 2:** Refactor C64 menu to use basename-only navigation
-2. **Sprint 3:** Update plugins to use new error handling
-3. **Sprint 4:** Integration testing and performance optimization
-
----
-
-**Document Version:** 1.0
-**Date:** 2025-12-23
-**Sprint:** 1 (Firmware Foundation)
-**Status:** Complete
+| Command | Action |
+|---------|--------|
+| `p` | Print current path, depth, count |
+| `d` | Interactive directory navigation (prompts for name or `..`) |
+| `r` | Force reset to root |
