@@ -38,15 +38,9 @@ volatile static unsigned long lastStreamRequestTime = 0;
 //volatile static uint8_t inChunkDelay;  
 
 void CartApi::SaveLastDir() {
-  const char* path = dirFunc.currentPath;
-  uint8_t len = strlen(path);
-  if (len == 0 || len > 63) return;
   EEPROM.update(0, EEPROM_LASTDIR_MAGIC_0);
   EEPROM.update(1, EEPROM_LASTDIR_MAGIC_1);
-  for (uint8_t i = 0; i <= len; i++) {  // include null terminator
-    EEPROM.update(EEPROM_LASTDIR_ADDR + i, (uint8_t)path[i]);
-  }
-  LOGD(SYS, "LastDir saved: "); LOG_PRINTLN(path);
+  eeprom_update_block(dirFunc.currentPath, (void*)EEPROM_LASTDIR_ADDR, 64);
 }
 
 void CartApi::RestoreLastDir() {
@@ -54,10 +48,7 @@ void CartApi::RestoreLastDir() {
   if (EEPROM.read(1) != EEPROM_LASTDIR_MAGIC_1) return;
 
   char path[64];
-  for (uint8_t i = 0; i < 63; i++) {
-    path[i] = (char)EEPROM.read(EEPROM_LASTDIR_ADDR + i);
-    if (path[i] == '\0') break;
-  }
+  eeprom_read_block(path, (void*)EEPROM_LASTDIR_ADDR, 63);
   path[63] = '\0';
 
   // Root or invalid: nothing to restore
@@ -74,9 +65,9 @@ void CartApi::RestoreLastDir() {
       dirFunc.ToRoot();
       return;
     }
-    p = slash ? slash + 1 : p + strlen(p);
+    if (!slash) break;
+    p = slash + 1;
   }
-  LOGI(SYS, "LastDir restored: "); LOG_PRINTLN(dirFunc.currentPath);
 }
 
 void CartApi::Init() {
@@ -352,15 +343,15 @@ void CartApi::HandleGetInfoForFile() {
 }
 
 void CartApi::HandleGetPath() {
-  LOGD(DIR, "HandleGetPath");
   GetArgumentsStatic(0);
   const char* path = dirFunc.currentPath;
   HandleResponse(SUCCESSFUL, 1);
   noInterrupts();
-  // Send 256 bytes: currentPath[64] (zero-padded) + 192 zero pad bytes
-  // The C64 receives 1 full page (256 bytes) via the standard NMI mechanism.
-  for (uint8_t i = 0; i < 256; i++) {
-    cartInterface.TransmitByteFast((uint8_t)(i < 64 ? path[i] : 0));
+  for (uint8_t i = 0; i < 64; i++) {
+    cartInterface.TransmitByteFast(path[i]);
+  }
+  for (uint8_t i = 0; i < 192; i++) {
+    cartInterface.TransmitByteFast(0);
   }
   interrupts();
   delayMicroseconds(20);
@@ -1435,9 +1426,8 @@ void CartApi::TransferMenu() {
   cartInterface.DisableCartridge();
   //delay(500);
   cartInterface.StartListening();
-  LOGD(SYS, "Done");
 
-  if (readFromFile && workingFile) workingFile.close();      
+  if (readFromFile && workingFile) workingFile.close();
 }
 
 /*
