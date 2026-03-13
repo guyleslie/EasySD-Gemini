@@ -43,8 +43,9 @@ python Tools/build.py plugins
 python Tools/build.py clean
 
 # Arduino-specific commands
-python Tools/build.py arduino-compile
-python Tools/build.py arduino-upload COM4
+python Tools/build.py arduino-compile [--debug]
+python Tools/build.py arduino-upload COM4 [--debug]
+python Tools/build.py arduino-upload-isp [--debug] [--isp-sck USEC]
 python Tools/build.py arduino-monitor COM4
 
 # Skip Arduino artifact generation during C64 builds
@@ -55,13 +56,19 @@ python Tools/build.py release --skip-arduino
 
 **First-time Arduino setup:** `python Tools/build.py arduino-setup`
 
+**Arduino upload notes:**
+- `arduino-upload` uses USB serial bootloader (57600 baud, `atmega328old` FQBN)
+- `arduino-upload-isp` uses USBtinyISP programmer — **erases the bootloader**, subsequent uploads must also use ISP
+- ISP SCK speed: `--isp-sck 10` (100 kHz, ~2.5 min, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
+- **Debug flash margin is only ~36B** — adding new `LOGD`/`LOGI` calls or string literals in debug mode can push the build over the 30720B limit. Check size before committing.
+
 ## Architecture
 
 ### Dual-System Design
 
-**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming, TAP conversion. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`.
+**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. On boot: 3-attempt SD init, then `RestoreLastDir()` (EEPROM persistence of last-visited path), then `dirFunc.Prepare()`.
 
-**C64 software** (`EasySD/`): Cartridge ROM with communication library (`Loader/`), main file browser menu (`Menus/EasySD/IrqLoaderMenuNew.s`), and file-type plugins (`Plugins/`).
+**C64 software** (`EasySD/`): Cartridge ROM with communication library (`Loader/`), main file browser menu (`Menus/EasySD/EasySDMenu.s`), and file-type plugins (`Plugins/`).
 
 ### Build Artifact Flow
 
@@ -70,10 +77,14 @@ PETMATE `menu.asm` → `convert_petmate_asm()` → `menu.bin` → C64 assembly (
 ### C64 Include Hierarchy (strict linear chain, no include guards in 64tass)
 
 ```
-CartLibStream.s → CartLibHi.s → CartLib.s → CartLibCommon.s → System.inc / IRQHack.inc
+CartLibStream.s → CartLibHi.s → CartLib.s → CartLibCommon.s → System.inc / EasySD.inc
 ```
 
 Plugins include the highest-level wrapper they need. For most plugins: `CartLibStream.s`.
+
+**Macro tiers — this distinction is critical:**
+- **Tier 1 — `SystemMacros.s`**: `#SETBANK`, `#WAITFOR`, `#SAVEREGS`/`#RESTOREREGS`, `#READCART`, `#READCART_MODULATED` — pulled in automatically via `CartLib.s` (line 16), forward-referenceable across the include chain
+- **Tier 2 — `APIMacros.s`**: `#OPENFILE`, `#GETFILEINFO`, `#EXTRACTFILESIZE`, `#CLOSEFILE`, `#SETADDR` — must be explicitly `#include`d at the top of any file that uses them; **not** in `SystemMacros.s` to avoid duplicate macro errors
 
 ### Zero Page Map (`EasySD/Loader/CartZpMap.inc`)
 
@@ -81,11 +92,14 @@ Single source of truth for all ZP allocation. All labels use `ZP_` prefix.
 
 | Addresses | Purpose |
 |-----------|---------|
-| `$64-$77` | Low-level communication (ZP_IRQ_DATA_LOW/HIGH, ZP_IRQ_STATUS) |
-| `$80-$87` | LoadFileBySize API (ZP_LF_SIZE0..3, ZP_LF_PAYLOAD_LO/HI) - strictly reserved |
-| `$8B-$8E` | SafeStream parameters (ZP_SS_INTERVAL, ZP_SS_CHUNK) |
+| `$64-$77` | Low-level communication (ZP_IRQ_DATA_LOW/HIGH, ZP_IRQ_STATUS, etc.) |
+| `$80-$87` | LoadFileBySize API — strictly reserved, never reuse |
+| `$8B-$8E` | **Free** (SafeStream params removed — Arduino ignored them) |
 | `$90-$95` | StreamLargeFile (ZP_STREAM_TARGET_ADDR_LO/HI, ZP_STREAM_BYTES_REMAIN_0..3) |
-| `$FB-$FE` | Free range for plugin-specific temporary use |
+| `$FB/$FC` | NAMELOW/NAMEHIGH — navigation indirect pointer — **never use as temp** |
+| `$FD/$FE` | COLLOW/COLHIGH — color RAM indirect pointer — **never use as temp** |
+
+Plugin-specific temporaries: use `$FB-$FE` range carefully given the above constraints.
 
 ### Plugin Architecture
 
@@ -95,11 +109,22 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - Use `ERROR_GATE` macro after file operations
 - Use `LoadFileBySize` for loading, `SafeStream` for audio streaming
 
-Built-in plugins: PRG launcher, KOA viewer, PETG viewer, WAV player, MUS player, CvdPlayer (Bad Apple!! CVD video).
+**Current plugins and APIMacros adoption status:**
+
+| Plugin | APIMacros |
+|--------|-----------|
+| KernalBridge (PRG loader, P2TK) | ✅ adopted |
+| WavPlayer | ✅ adopted |
+| KoalaDisplayer | ❌ pending |
+| MusPlayer | ❌ pending |
+| PetsciiDisplayer | ❌ pending |
+| CvdPlayer (CVD video player) | ❌ pending |
+
+**KernalBridge** handles PRGs that load into `$C000+` via a three-phase transfer kernel (P2TK). Trigger: `ENDADDRESS > $C002`. Data tables stored at `$C003`/`$C02A` (KernalBridge gap, always-readable RAM).
 
 ## Critical Arduino Constraints
 
-**ATmega328P has only 2KB SRAM** (~415 bytes free after boot). Every byte matters.
+**ATmega328P has only 2KB SRAM** (~774B local variable space, ~437B stack free at boot). Every byte matters.
 
 - **Never use `strtok()`** — causes static buffer corruption. Use manual token parsing (see `DirFunction.cpp`).
 - **Never use unbounded `strcpy()`** — always validate buffer sizes.
@@ -108,38 +133,42 @@ Built-in plugins: PRG launcher, KOA viewer, PETG viewer, WAV player, MUS player,
 - **Monitor memory with `FreeStack()`** — aim for 300+ bytes free minimum.
 - **SdFat 2.x API only:** Use `File` type (not deprecated `SdFile`), 1-parameter `openNext()`.
 - **SPI speed:** Use `SPI_QUARTER_SPEED` for reliable SD communication.
-- **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail.
+- **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail on nested paths.
 - **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.
+- **EEPROM persistence:** `SaveLastDir()` / `RestoreLastDir()` use `eeprom_update_block()` / `eeprom_read_block()` (avr-libc). Prefer these over byte-by-byte loops — smaller flash footprint. EEPROM layout: bytes 0-1 magic (`0xE5`, `0xD0`), bytes 2-65 null-terminated path.
+- **Flash budget:** Release ~23.3KB (75%), debug ~30.7KB (99%, ~36B margin). Adding new debug log strings can push debug build over limit.
 
 ## Key File Locations
 
 | File | Purpose |
 |------|---------|
 | `EasySD/Loader/CartZpMap.inc` | Zero Page allocation (single source of truth) |
+| `EasySD/Loader/SystemMacros.s` | Tier 1 macros (auto-included via CartLib.s) |
+| `EasySD/Loader/APIMacros.s` | Tier 2 macros (explicit include required) |
 | `EasySD/Loader/CartLibHi.s` | High-level C64 APIs (LoadFileBySize) |
 | `EasySD/Loader/CartLibStream.s` | Streaming API (SafeStream, StreamLargeFile) |
-| `EasySD/Menus/EasySD/IrqLoaderMenuNew.s` | Main menu program |
+| `EasySD/Menus/EasySD/EasySDMenu.s` | Main menu program |
 | `EasySD/Menus/EasySD/menu.asm` | PETMATE frame export (edit in PETMATE, re-export here) |
+| `EasySD/Loader/Bridges/KernalBridge/KernalBridge.s` | P2TK PRG loader bridge |
 | `Arduino/EasySD/EasySD.ino` | Arduino entry point |
-| `Arduino/EasySD/CartApi.cpp` | Command routing (new commands register here) |
-| `Arduino/EasySD/DirFunction.cpp` | Directory navigation |
-| `Tools/build.py` | Unified build system (v3.0.0, includes PETMATE conversion) |
+| `Arduino/EasySD/CartApi.cpp` | Command routing (register new commands here) |
+| `Arduino/EasySD/DirFunction.cpp` | Directory navigation, `currentPath[64]` |
+| `Arduino/EasySD/EasySDLog.h` | Logging macros, category enable flags (`LOG_ENABLE_*`) |
+| `Tools/build.py` | Unified build system |
 | `Tools/test_arduino_comm.py` | PC-side Arduino serial test runner |
 | `Tools/test_vice_menu.py` | VICE automated C64 menu test suite |
 | `Tools/prepare_test_sd.py` | SD card test file preparation |
-| `GEMINI.md` | Detailed AI developer guide with architectural rules |
-| `docs/build/BUILD_SYSTEM.md` | Build system deep-dive |
-| `docs/testing/VICE_MENU_TEST.md` | VICE automated test documentation |
-| `docs/arduino/DIR_NAVIGATION_API.md` | Directory navigation API reference |
+| `GEMINI.md` | Detailed AI developer guide (SdFat patterns, error codes, ZP rules) |
+| `docs/arduino/PCB_BRINGUP_NOTES.md` | PCB hardware bringup findings (power, caps, ISP upload) |
 
 ## Serial Debug & Testing
 
-Baud rate: 57600. Debug log prefixes: `[SD]`, `[DIR]`, `[FILE]`, `[ERR]`, `[MEM]`, `[T]`. Enable with `debug-arduino` build target or `--debug` flag on Arduino commands.
+Baud rate: 57600. Log format: `[LEVEL][CATEGORY] message` (e.g. `[INFO][SD] SD OK`, `[ERR][DIR] chdir failed`). Categories: `SYS`, `SD`, `DIR`, `FILE`, `PROTO`, `PRG`, `ERR`. Enable with `debug-arduino` build target or `--debug` flag. Category compilation controlled by `LOG_ENABLE_*` flags in `EasySDLog.h` — `PRG` and `PROTO` are OFF by default to save flash.
 
 **Self-test:** Send `T` via serial to run the on-device test suite (8 tests: SD init, file read, seek, non-existent file, write/delete, memory stability, root listing, directory navigation).
 
 ```bash
-# Prepare SD card with test files
+# Prepare SD card with test files (TESTDATA.BIN, TESTFILE.TXT, BIGFILE.BIN, TESTDIR/INNER.TXT)
 python Tools/prepare_test_sd.py D:
 
 # Run automated test suite from PC (Arduino)
