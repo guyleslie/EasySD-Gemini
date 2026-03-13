@@ -24,7 +24,7 @@ EasySD is a cartridge for the Commodore 64 that turns any FAT-formatted SD card 
 - **Load programs** (`.PRG`) — BASIC and machine code, including programs that use KERNAL file I/O
 - **View graphics** — Koala Painter (`.KOA`) and PETSCII art (`.PET`)
 - **Play audio** — digitized sound (`.WAV`) and Sidplayer SID music (`.MUS`)
-- **Play video** — CVD video files (`.CVD`), including the full *Bad Apple!!* demo
+- **Play video** — CVD video files (`.CVD`) converted from standard video sources
 - **Automatic TAP conversion** — `.TAP` tape images load without a separate plugin
 
 ---

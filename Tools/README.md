@@ -175,7 +175,7 @@ See `docs/testing/VICE_MENU_TEST.md` for full documentation.
 
 ### `cvd_convert.py` - CVD Video Converter
 
-Converts MP4/AVI video files to the C64 CVD format used by CvdPlayer (Bad Apple!! decoder).
+Converts MP4/AVI video files to the C64 CVD format used by CvdPlayer.
 
 ---
 
