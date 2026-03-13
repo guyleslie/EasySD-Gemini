@@ -1,4 +1,4 @@
-# EasySD IRQHack64 Code Documentation Guide
+# EasySD Code Documentation Guide
 
 **Version:** 1.0
 **Date:** 2025-12-27
@@ -20,7 +20,7 @@
 
 ## Introduction
 
-This guide establishes consistent documentation patterns for the EasySD IRQHack64 firmware. All code should follow these standards to ensure:
+This guide establishes consistent documentation patterns for the EasySD firmware. All code should follow these standards to ensure:
 
 - **Clarity:** Developers understand intent, constraints, and guarantees
 - **Safety:** Buffer limits, ISR constraints, and state invariants are explicit
@@ -335,7 +335,7 @@ void setup() {
     // ...
 }
 
-// Sprint 7: Artifact separation (build/artifacts/ → Arduino/IRQHack64/)
+// Sprint 7: Artifact separation (build/artifacts/ → Arduino/EasySD/)
 void generateBuildConfig() {
     // ...
 }

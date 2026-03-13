@@ -1,6 +1,6 @@
 # EasySD Arduino Logging — Quick Reference
 
-**File:** `Arduino/IRQHack64/EasySDLog.h`
+**File:** `Arduino/EasySD/EasySDLog.h`
 **Active since:** Sprint 12 (2026-03-03)
 
 ---
@@ -131,8 +131,8 @@ In release builds (`EASYSD_DEBUG_SERIAL` not defined), all LOG macros compile to
 
 | File | Purpose |
 |------|---------|
-| `Arduino/IRQHack64/EasySDLog.h` | The logging header (single source of truth) |
-| `Arduino/IRQHack64/DebugLog.h` | Old system — deprecated, do not use for new code |
+| `Arduino/EasySD/EasySDLog.h` | The logging header (single source of truth) |
+| `Arduino/EasySD/DebugLog.h` | Old system — deprecated, do not use for new code |
 | `docs/arduino/LOGGING_SYSTEM_DESIGN.md` | Full design specification |
 | `docs/arduino/LOGGING_SELECTIVE_CATEGORIES.md` | Flash optimization guide |
 | `docs/arduino/LOGGING_MIGRATION_COMPLETE.md` | Migration history and rationale |

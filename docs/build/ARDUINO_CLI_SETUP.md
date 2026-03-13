@@ -1,4 +1,4 @@
-# Arduino CLI Setup - EasySD / IRQHack64
+# Arduino CLI Setup - EasySD
 
 ## Mi ez?
 

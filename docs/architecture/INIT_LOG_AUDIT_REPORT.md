@@ -1,7 +1,7 @@
 # Init Log Audit Report
 
 **Date:** 2025-12-26
-**Component:** Arduino IRQHack64 Firmware
+**Component:** Arduino EasySD Firmware
 **Scope:** POST_SPRINT6_PLAN B3 - Init Logging Consolidation
 
 ---
@@ -10,7 +10,7 @@
 
 ### 1. Duplicate Initialization (CRITICAL)
 
-**Location:** `IRQHack64.ino setup()`
+**Location:** `EasySD.ino setup()`
 
 **Current flow:**
 ```cpp
@@ -62,7 +62,7 @@ DIR: RAM after=437           ← DUPLICATE
 
 ### Fix 1: Remove Redundant Initialization (PREFERRED)
 
-**Action:** Delete lines 156-160 in `IRQHack64.ino`
+**Action:** Delete lines 156-160 in `EasySD.ino`
 
 **Rationale:**
 - `cartApi.Init()` already calls `dirFunc.ReInit()` + `Prepare()`
@@ -156,8 +156,8 @@ Serial.println(F("[DIR] Changed to ROOT"));
 
 | File | Line | Change | Priority |
 |------|------|--------|----------|
-| `IRQHack64.ino` | 156-160 | DELETE redundant dirFunc calls | **HIGH** |
-| `IRQHack64.ino` | 167 | UPDATE comment (remove "duplicate but safe") | LOW |
+| `EasySD.ino` | 156-160 | DELETE redundant dirFunc calls | **HIGH** |
+| `EasySD.ino` | 167 | UPDATE comment (remove "duplicate but safe") | LOW |
 | `DirFunction.cpp` | 224-252 | CONSOLIDATE Prepare() logging (3 lines → 1) | MEDIUM |
 | `DirFunction.cpp` | 81 | UPDATE ToRoot() log prefix | LOW |
 
@@ -168,7 +168,7 @@ Serial.println(F("[DIR] Changed to ROOT"));
 **Before (duplicated logs):**
 ```
 ================================
- EasySD IRQHack64 v2.1.0
+ EasySD v2.1.0
  SdFat 2.3.0 | Arduino Nano
 ================================
 
@@ -191,7 +191,7 @@ DIR: RAM after=437           ← DUPLICATE
 **After (clean logs):**
 ```
 ================================
- EasySD IRQHack64 v2.1.0
+ EasySD v2.1.0
  SdFat 2.3.0 | Arduino Nano
 ================================
 
@@ -211,7 +211,7 @@ Type 'h' for help
 
 ## Implementation Plan
 
-1. **Edit IRQHack64.ino** (HIGH priority)
+1. **Edit EasySD.ino** (HIGH priority)
    - Delete lines 156-160 (redundant dirFunc init)
    - Update line 167 comment
 

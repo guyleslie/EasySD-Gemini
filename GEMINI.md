@@ -35,7 +35,7 @@ Use only the labels defined in the CartZpMap.inc file, prefixed with ZP_.
 |:---|:---|:---|
 | $64-$77 | Low-level communication | ZP_IRQ_DATA_LOW/HIGH, ZP_IRQ_STATUS |
 | $80-$87 | LoadFileBySize (Strictly reserved!) | ZP_LF_SIZE0..3, ZP_LF_PAYLOAD_LO/HI |
-| $8B-$8E | SafeStream parameters | ZP_SS_INTERVAL, ZP_SS_CHUNK |
+| $8B-$8E | *(reserved, currently unused)* | — |
 | $90-$95 | StreamLargeFile (Large files) | ZP_STREAM_TARGET_ADDR_LO/HI, ZP_STREAM_BYTES_REMAIN_0..3 |
 | $FB-$FE | Free range (User range) | For plugin-specific temporary variables. |
 
@@ -260,7 +260,7 @@ python Tools/build.py debug-arduino
 - **ZP Map**: EasySD/Loader/CartZpMap.inc
 - **Hardware Constants**: EasySD/Loader/Common/IRQHack.inc
 - **Standard C64 Addresses**: EasySD/Loader/Common/System.inc
-- **Main Menu Logic**: EasySD/Menus/EasySD/IrqLoaderMenuNew.s
+- **Main Menu Logic**: EasySD/Menus/EasySD/EasySDMenu.s
 - **C64 Build System**: Tools/build.py
 
 ### Arduino Side

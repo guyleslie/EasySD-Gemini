@@ -51,7 +51,7 @@ Ennek tipikus oka 64tass-ban, hogy a `.`-tal kezdődő név (pl. **`.check`**, *
 - TAP kiválasztás esetén “choice” logika kerül be (Convert+Run vs Save-only).
 - Az `X` regiszterben **flag-eket** adunk át az Arduino felé az `IRQ_InvokeWithName` híváskor.
 
-**Új rutincsomópontok (IrqLoaderMenuNew.s-ben):**
+**Új rutincsomópontok (EasySDMenu.s-ben):**
 - `IS_TAP_SELECTED`  
   Megnézi a kiválasztott fájl kiterjesztését (`.tap` / `.TAP`).
 
@@ -73,7 +73,7 @@ Ennek tipikus oka 64tass-ban, hogy a `.`-tal kezdődő név (pl. **`.check`**, *
 
 ### 3.2 Arduino / Firmware oldal
 
-**Fő fájl:** `Arduino/IRQHack64/CartApi.cpp`  
+**Fő fájl:** `Arduino/EasySD/CartApi.cpp`  
 **Módosítás lényege:**
 - Az Arduino most felismeri a `.tap/.TAP` fájlt és **standard TAP → PRG konverziót** végez.
 - A C64 menüből érkező `X` flag-eket értelmezi:
@@ -93,7 +93,7 @@ Ennek tipikus oka 64tass-ban, hogy a `.`-tal kezdődő név (pl. **`.check`**, *
   - `ClassifyTapPulseUnit(...)`
   - bit/byte összeállítás: LSB-first + parity ellenőrzés
 
-**Fájl:** `Arduino/IRQHack64/CartApi.h`  
+**Fájl:** `Arduino/EasySD/CartApi.h`  
 **Új hibakódok:**
 - `TAP_UNSUPPORTED` = `0x12`
 - `TAP_BAD_TAP` = `0x13`
@@ -160,8 +160,8 @@ Save-only után a frissen létrejött PRG **azonnali megjelenítése** a listáb
 
 ## 8) Fájlok rövid “changelog” összefoglaló
 
-### IRQHack64 / C64 oldal
-- **IrqLoaderMenuNew.s**
+### EasySD / C64 oldal
+- **EasySDMenu.s**
   - TAP felismerés
   - Save-only vs Convert+Run input
   - státuszüzenetek

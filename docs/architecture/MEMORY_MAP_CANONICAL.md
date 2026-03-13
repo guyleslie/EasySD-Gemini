@@ -11,7 +11,7 @@
 
 ## Purpose and Scope
 
-This document defines the **normative memory architecture** for the IRQHack64 project. It documents the Zero Page pointer-based API design, program categorization (Type A plugins vs Type B standalone apps), and recommended memory layout practices.
+This document defines the **normative memory architecture** for the EasySD project. It documents the Zero Page pointer-based API design, program categorization (Type A plugins vs Type B standalone apps), and recommended memory layout practices.
 
 **This document is normative**: All code MUST use the CartLib API as specified. Memory buffer placement is flexible (via ZP pointers), but code MUST follow the architectural patterns described in this document.
 
@@ -228,13 +228,13 @@ FileBuffer:
 - **PetsciiDisplayer** — PETSCII art viewer
 - **WavPlayer** — WAV audio player
 - **MusPlayer** — MUS/SID music player
-- **CvdPlayer** — CVD video player (Bad Apple!!, NMI-driven frame streaming)
+- **CvdPlayer** — CVD video player (NMI-driven frame streaming)
 
 **Source Location:** Plugins at `EasySD/Plugins/`. KernalBridge at `EasySD/Loader/Bridges/KernalBridge/` (loaded by menu as prgplugin.prg but architecturally separate — it launches PRGs rather than returning to menu).
 
 **Calling Convention:**
 ```assembly
-; Menu side (IrqLoaderMenuNew.s line 558):
+; Menu side (EasySDMenu.s line 558):
 JMP (PLUGIN_LOAD_ADDR_LO)       ; Jump to plugin entry point (from PRG header)
 
 ; Plugin side:
@@ -519,7 +519,7 @@ ARCHITECTURE_CONSOLIDATION_PLAN.md (Master Plan)
 - A.3.0_PLUGIN_ARCHITECTURE_RESEARCH.md (plugin loader analysis, buffer location mapping)
 - A.3.0_REFACTORING_DECISION.md (NO-GO decision on v1.0-based refactoring)
 - Compiled symbol files (koala.txt, petg.txt, mus.txt, wav.txt)
-- Source code analysis (IrqLoaderMenuNew.s, CartLib.s, BurstLoader.s)
+- Source code analysis (EasySDMenu.s, CartLib.s, BurstLoader.s)
 
 ---
 

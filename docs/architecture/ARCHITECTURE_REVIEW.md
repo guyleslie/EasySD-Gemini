@@ -1,6 +1,6 @@
 # EasySD : A Deep-Dive Technical Analysis
 
-This document provides a deep-dive technical review of the EasySD / IRQHack64 project. The analysis covers the C64-side 6502 assembly codebase and the Arduino-side C++ firmware, with the goal of assessing the system's architecture, correctness, and overall engineering quality.
+This document provides a deep-dive technical review of the EasySD project. The analysis covers the C64-side 6502 assembly codebase and the Arduino-side C++ firmware, with the goal of assessing the system's architecture, correctness, and overall engineering quality.
 
 ## 1. Executive Summary
 
@@ -82,7 +82,7 @@ The main menu program ties all the components together.
     *   It uses a clear, **convention-over-configuration** approach: to handle `.koa` files, it looks for a plugin at `/PLUGINS/KOAPLUGIN.BIN` (or `.PRG`).
     *   This makes the system predictable and easy for users to manage.
     *   The fallback from `.bin` (loaded with the new, robust loader) to `.prg` is a flexible design choice.
-*   **Built-in plugins:** PRG launcher, KOA viewer (Koala Painter), PETG viewer (PETSCII art), WAV player (IO2 streaming ~13.5 KB/s), MUS player (SID music), and **CvdPlayer** — an NMI-driven CVD (Commodore Video Digital) format player for full-motion video (Bad Apple!!). CVD files are produced by `Tools/cvd_convert.py`. The player uses `READCART_MODULATED` triggered at `STARTRASTER=241` rather than IO2 streaming.
+*   **Built-in plugins:** PRG launcher, KOA viewer (Koala Painter), PETG viewer (PETSCII art), WAV player (IO2 streaming ~13.5 KB/s), MUS player (SID music), and **CvdPlayer** — an NMI-driven CVD (Commodore Video Digital) format player for full-motion video. CVD files are produced by `Tools/cvd_convert.py`. The player uses `READCART_MODULATED` triggered at `STARTRASTER=241` rather than IO2 streaming.
 *   **Assessment:** The application logic is **robust and well-structured**. It correctly separates concerns, gracefully handles different file types, and provides a clear path for future expansion.
 
 ### 3.4. Debug & Test Infrastructure

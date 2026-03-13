@@ -54,7 +54,7 @@ Ez a fájl a **Single Source of Truth** minden ZP-t használó rutin számára. 
 | **$75-$76** | Seek Upper Word | `ZP_IRQ_SEEK_UPPER_LO`, `ZP_IRQ_SEEK_UPPER_HI` |
 | **$77** | Temp Storage | `ZP_IRQ_TEMP` |
 | **$80-$87** | `LoadFileBySize` | `ZP_LF_SIZE0..3`, `ZP_LF_SKIP_LO/HI`, `ZP_LF_PAYLOAD_LO/HI` |
-| **$8B-$8E** | `SafeStream` | `ZP_SS_OFFSET`, `ZP_SS_INTERVAL`, `ZP_SS_CHUNK`, `ZP_SS_DELAY` |
+| **$8B-$8E** | *(reserved, currently unused)* | — |
 | **$90-$95** | `StreamLargeFile` | `ZP_STREAM_TARGET_ADDR_LO/HI`, `ZP_STREAM_BYTES_REMAIN_0..3` |
 
 ---
@@ -130,12 +130,12 @@ SafeStream_Debug_Impl:
 **Használati Útmutató:**
 ```bash
 # VICE emulátorban (fejlesztés):
-64tass -D DEBUG=1 IrqLoaderMenuNew.s -o menu.prg
+64tass -D DEBUG=1 EasySDMenu.s -o menu.prg
 
 # Valós hardveren (production):
-64tass -D DEBUG=0 IrqLoaderMenuNew.s -o menu.prg
+64tass -D DEBUG=0 EasySDMenu.s -o menu.prg
 # VAGY egyszerűen:
-64tass IrqLoaderMenuNew.s -o menu.prg  (DEBUG alapértelmezetten 0)
+64tass EasySDMenu.s -o menu.prg  (DEBUG alapértelmezetten 0)
 ```
 
 ### 4.3. Ajánlott Fejlesztési Workflow

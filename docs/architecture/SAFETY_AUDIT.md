@@ -1,4 +1,4 @@
-# EasySD IRQHack64 Safety Audit
+# EasySD Safety Audit
 
 **Version:** 1.0
 **Date:** 2025-12-27
@@ -21,7 +21,7 @@
 
 ## Executive Summary
 
-This document provides a comprehensive safety audit of the EasySD IRQHack64 firmware, focusing on:
+This document provides a comprehensive safety audit of the EasySD firmware, focusing on:
 - **Buffer overflow protection**
 - **Interrupt (ISR) safety**
 - **State machine integrity**
@@ -338,10 +338,10 @@ if c64_sources_modified_after(buildconfig_timestamp):
 1. 64tass assembles C64 .s/.65s sources → .bin files
 2. bin2ardh converts binary → C uint8_t arrays with PROGMEM
 3. Arrays concatenated → FlashLib.h
-4. Copied to Arduino/IRQHack64/ before compile
+4. Copied to Arduino/EasySD/ before compile
 
 **Safety:**
-- **Sprint 7:** Separation of build artifacts (build/artifacts/ → Arduino/IRQHack64/)
+- **Sprint 7:** Separation of build artifacts (build/artifacts/ → Arduino/EasySD/)
 - **Intent tracking:** FlashLib.h includes generation metadata
 
 **Verdict:** ✅ **SAFE** - Automated staleness check
@@ -479,7 +479,7 @@ def test_file_read_without_open_fails():
 
 **Overall Assessment:** ✅ **SAFE FOR PRODUCTION**
 
-The EasySD IRQHack64 firmware demonstrates strong safety engineering:
+The EasySD firmware demonstrates strong safety engineering:
 - **Buffer Safety:** Explicit validation prevents overflows
 - **ISR Safety:** Strict compliance with timing constraints
 - **State Machines:** Validated transitions enforce correctness

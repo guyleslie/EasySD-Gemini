@@ -8,7 +8,7 @@
 
 ## Overview
 
-This document contains all significant changes to the EasySD/IRQHack64 project in chronological order.
+This document contains all significant changes to the EasySD project in chronological order.
 
 ---
 

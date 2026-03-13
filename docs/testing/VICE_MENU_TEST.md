@@ -330,7 +330,7 @@ Additional fixed addresses used:
 | `$D020` | Border color (verified after directory changes) |
 | `$033C` | PATHBUFFER — absolute path built by SETFILENAME |
 
-Screen RAM layout (`COLS` table from `IrqLoaderMenuNew.s`):
+Screen RAM layout (`COLS` table from `EasySDMenu.s`):
 
 | COLS index | Address | Content |
 |------------|---------|---------|

@@ -1,4 +1,4 @@
-# Zero Page Guidelines - EasySD / IRQHack64
+# Zero Page Guidelines - EasySD
 
 **Document Type:** Normative (Architectural Constitution)
 **Version:** 1.0
@@ -9,7 +9,7 @@
 
 ## 1. Purpose and Scope
 
-This document defines the **architectural rules and conventions** for Zero Page (ZP) memory usage in the EasySD / IRQHack64 project. Zero Page is a **scarce, critical resource** on the 6502 architecture that requires disciplined management to prevent conflicts, ensure deterministic behavior, and maintain system stability.
+This document defines the **architectural rules and conventions** for Zero Page (ZP) memory usage in the EasySD project. Zero Page is a **scarce, critical resource** on the 6502 architecture that requires disciplined management to prevent conflicts, ensure deterministic behavior, and maintain system stability.
 
 **This document is normative**: All code that uses Zero Page memory MUST conform to these guidelines. Deviations require architectural review and explicit documentation.
 
@@ -52,7 +52,7 @@ Zero Page usage follows a **three-layer model**:
 - **Rule**: **DO NOT WRITE** to system-reserved ZP addresses
 
 ### Layer 2: Protocol Layer ($64-$77 in current implementation)
-- **Owner**: IRQHack64 communication protocol
+- **Owner**: EasySD communication protocol
 - **Lifetime**: While IRQ/NMI handlers are active
 - **Access**: Restricted to CartLibCommon.s and IRQ-safe code
 - **Characteristics**:
