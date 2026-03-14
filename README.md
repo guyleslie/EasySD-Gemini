@@ -6,9 +6,9 @@ EasySD is a cartridge for the Commodore 64 that turns any FAT-formatted SD card 
 
 > Current version: **v3.1.3** (2026-03-09)
 
-![EasySD cartridge PCB](hardware.jpg)
+![EasySD v3 PCB](PCB%20EasySd%20v3%20.png)
 
-*The EasySD PCB: Arduino Nano (blue), 512 Kb EEPROM (bottom), MicroSD slot (top left), and the C64 expansion port edge connector.*
+*EasySD v3 PCB render: Arduino Nano (blue, top), DIP-28 EEPROM socket (bottom), MicroSD slot (top left), MENU/RESET button (top right), and the C64 expansion port edge connector.*
 
 ---
 
