@@ -75,7 +75,6 @@ void DirFunction::ToRoot() {
 
 bool DirFunction::GoBack() {
   if (pathDepth == 0) {
-    LOGW(DIR, "GoBack: Already at ROOT");
     return false;
   }
 
@@ -113,7 +112,7 @@ bool DirFunction::GoBack() {
   pathDepth--;
   if (pathDepth == 0) InSubDir = 0;
 
-  LOGD(DIR, "GoBack to: "); LOG_PRINTLN(currentPath);
+  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(currentPath);
 
   // Sprint 5 P1.1: Change directory
   if (!sd.chdir(currentPath)) {
@@ -140,7 +139,6 @@ bool DirFunction::GoBack() {
 
 bool DirFunction::ChangeDirectory(char * directory) {
   if (!directory || directory[0] == '\0') {
-    LOGW(DIR, "ChangeDirectory: Empty name");
     return false;
   }
 
@@ -215,8 +213,6 @@ void DirFunction::Prepare() {
   }
 
   m_dirFile.rewind();
-
-  LOGD(DIR, "Prepare: "); LOG_PRINT(currentPath); LOG_PRINT_F(" n="); LOG_PRINTLN(count);
 }
 
 int DirFunction::Iterate() {
@@ -249,12 +245,10 @@ int DirFunction::Iterate() {
       }
     } else {
       IsFinished = 1;
-      LOGD(DIR, "Iterate EOF or Error");
       return 0;
     }
   } else {
     IsFinished = 1;
-    LOGD(DIR, "Iterate Finished");
     return 0;
   }
 }
@@ -285,11 +279,8 @@ unsigned int DirFunction::GetSelected(void) {
 
 bool DirFunction::ChangeDirectoryBasename(const char* basename) {
   if (!basename || basename[0] == '\0') {
-    LOGW(DIR, "ChangeDirectoryBasename: Empty basename");
     return false;
   }
-
-  LOGD(DIR, "CD: "); LOG_PRINTLN(basename);
 
   // Special case: ".." means go back
   if (strcmp(basename, "..") == 0) {
@@ -298,7 +289,6 @@ bool DirFunction::ChangeDirectoryBasename(const char* basename) {
 
   // Validate basename doesn't contain path separators
   if (strchr(basename, '/') != NULL) {
-    LOGW(DIR, "ChangeDirectoryBasename: Invalid name (contains /)");
     return false;
   }
 
@@ -316,7 +306,6 @@ void DirFunction::ForceReset() {
   ToRoot();
   Prepare();
 
-  LOGD(DIR, "After reset: "); LOG_PRINT(currentPath); LOG_PRINT_F(" n="); LOG_PRINTLN(count);
 }
 
 void DirFunction::CloseDirHandle() {

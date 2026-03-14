@@ -5,7 +5,6 @@
 #include "HardwareSerial.h"
 #include "EasySD.h"
 #include <ByteQueue.h>
-#include <SPI.h>
 
 #define PORT_MANIPULATION
 #define OPENCOLLECTORSTYLE

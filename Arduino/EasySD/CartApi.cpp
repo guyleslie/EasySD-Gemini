@@ -85,8 +85,6 @@ inline void HandleResponse(unsigned char response, uint16_t waitAfterResponse) {
   #ifdef TEST_TERMINAL_MODE
   Serial.write(response);
   #else
-  LOGD(PROTO, "CMD result: ");
-  LOG_PRINTLN(response);
   cartInterface.SetPage(0);
   cartInterface.SetPage(0);
   cartInterface.SetPage(response);
@@ -98,7 +96,6 @@ inline void HandleResponse(unsigned char response, uint16_t waitAfterResponse) {
 #define BUFFER_SIZE 16
 void CartApi::HandleReadFile() {
   uint8_t fileBuffer[BUFFER_SIZE];
-  LOGD(FILE, "HandleReadFile");
   GetArgumentsStatic(1);  
   unsigned int dataLength = Arguments[0];
   unsigned int totalLength = dataLength*256;
@@ -138,7 +135,6 @@ void CartApi::HandleReadFile() {
 }
 
 void CartApi::HandleOpenFile() {
-  LOGD(FILE, "HandleOpenFile");
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
 
@@ -157,8 +153,6 @@ void CartApi::HandleOpenFile() {
     fileName[MAX_ARGUMENTS_LENGTH-1] = 0;
   }
 
-  LOGD(FILE, "fn: "); LOG_PRINTLN(fileName);
-
   // SdFat automatically resolves relative paths using current directory
   // set by sd.chdir() (managed by DirFunction class)
   workingFile = sd.open(fileName, flags);
@@ -172,12 +166,11 @@ void CartApi::HandleOpenFile() {
   }
 }
 void CartApi::HandleCloseFile() {
-  LOGD(FILE, "HandleCloseFile");
   GetArgumentsStatic(0);
   //HandleResponse(SUCCESSFUL, 1000);
 
   if (workingFile == NULL) {
-      LOGW(FILE, "File not initialized");
+      LOGE(FILE, "File not initialized");
       //HandleResponse(NOT_INITIALIZED, 100);
       HandleResponse(NOT_INITIALIZED, 1);
   } else if (workingFile.isOpen()) {
@@ -195,7 +188,6 @@ void CartApi::HandleCloseFile() {
 
 
 void CartApi::HandleWriteFile() {
-  LOGD(FILE, "HandleWriteFile");
   GetArgumentsStatic(32);
   if (workingFile == NULL) {
       HandleResponse(NOT_INITIALIZED, 0);
@@ -219,7 +211,6 @@ void CartApi::HandleWriteFile() {
 }
 
 void CartApi::HandleDeleteFile() {
-  LOGD(FILE, "HandleDeleteFile");
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
   unsigned int fileNameLength = Arguments[1];
@@ -246,7 +237,6 @@ void CartApi::HandleDeleteFile() {
 
 //TODO: Signed integer support should be added
 void CartApi::HandleSeekFile() {
-  LOGD(FILE, "HandleSeekFile");
   GetArgumentsStatic(3);
   unsigned int seekDirection = Arguments[0];
   uint8_t low = Arguments[1];
@@ -278,7 +268,6 @@ void CartApi::HandleSeekFile() {
 
 
 void CartApi::HandleLongSeekFile() {
-  LOGD(FILE, "HandleLongSeekFile");
   GetArgumentsStatic(5);
   unsigned int seekDirection = Arguments[0];
   uint8_t low = Arguments[1];
@@ -313,7 +302,6 @@ void CartApi::HandleLongSeekFile() {
 
 
 void CartApi::HandleGetInfoForFile() {
-  LOGD(FILE, "HandleGetInfoForFile");
   GetArgumentsStatic(0);
   if (workingFile == NULL) {
       HandleResponse(NOT_INITIALIZED, 0);
@@ -358,7 +346,6 @@ void CartApi::HandleGetPath() {
 }
 
 inline void CartApi::HandleReadDirectory() {
-  LOGD(DIR, "HandleReadDirectory");
   GetArgumentsStatic(3);
   uint8_t numberOfEntries = Arguments[0]; //Max number of directory entries to retrieve
   uint8_t dataLength = Arguments[1]; //Max number of pages of data to retrieve (each page is 256 byte)
@@ -442,13 +429,11 @@ inline void CartApi::HandleReadDirectory() {
 }
 
 void CartApi::HandleChangeDirectory() {
-  LOGD(DIR, "HandleChangeDirectory");
-
   GetArgumentsDynamic(0);
   unsigned int fileNameLength = Arguments[0];
 
   if (fileNameLength == 0) {
-    LOGD(DIR, "DIR: Empty directory name");
+    LOGE(DIR, "DIR: Empty directory name");
     HandleResponse(INVALID_ARGUMENT, 1);
     return;
   }
@@ -470,13 +455,12 @@ void CartApi::HandleChangeDirectory() {
     SaveLastDir();
     HandleResponse(SUCCESSFUL, 1);
   } else {
-    LOGD(DIR, "CD FAILED");
+    LOGE(DIR, "CD FAILED");
     HandleResponse(DIR_NOT_FOUND, 1);
   }
 }
 
 void CartApi::HandleDeleteDirectory() {
-  LOGD(DIR, "HandleDeleteDirectory");
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
   unsigned int fileNameLength = Arguments[1];
@@ -502,7 +486,6 @@ void CartApi::HandleDeleteDirectory() {
 }
 
 void CartApi::HandleCreateDirectory() {
-  LOGD(DIR, "HandleCreateDirectory");
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
   unsigned int fileNameLength = Arguments[1];
@@ -808,7 +791,6 @@ static uint8_t ConvertStandardTapToPrg(SdFat &sd, const char *tapName, char *out
 // ============================================================================
 
 void CartApi::HandleInvokeWithName() {
-  LOGD(PRG, "HandleInvokeWithName");
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
   unsigned int fileNameLength = Arguments[1];
@@ -848,7 +830,6 @@ void CartApi::IncrementEepromAddress() {
 }
 
 void CartApi::HandleReadEeprom() {
-  LOGD(SYS, "HandleReadEeprom");
   #ifndef __AVR__    
   EEPROM.begin(EEPROM_SIZE);
   #endif
@@ -861,7 +842,6 @@ void CartApi::HandleReadEeprom() {
 }
 
 void CartApi::HandleSeekEeprom() {
-  LOGD(SYS, "HandleSeekEeprom");
   GetArgumentsStatic(2);    
   uint8_t hi = Arguments[0];
   uint8_t low = Arguments[1];
@@ -870,7 +850,6 @@ void CartApi::HandleSeekEeprom() {
 }
 
 void CartApi::HandleWriteEeprom() {
-  LOGD(SYS, "HandleWriteEeprom");
   #ifndef __AVR__    
   EEPROM.begin(EEPROM_SIZE);
   #endif
@@ -887,13 +866,11 @@ void CartApi::HandleWriteEeprom() {
 }
 
 void CartApi::HandleEndTalking() {
-  LOGD(SYS, "HandleEndTalking");
   //cartInterface.EndListening();
   cartInterface.ResetReceive();
 }
 
 void CartApi::HandleSetPort() {
-  LOGD(SYS, "HandleSetPort");
   GetArgumentsStatic(1);    
   uint8_t value = Arguments[0];  
   cartInterface.SetPage(value);
@@ -945,7 +922,6 @@ void CartApi::HandleStream() {
   // Note: streamingBuffer1/2 are now static (file scope), not local
   // This fixes the dangling pointer bug where ISR would access stack memory
 
-  LOGD(PROTO, "HandleStream");
   GetArgumentsStatic(3);
   uint8_t initialDelay = Arguments[0];
   uint8_t countStreamedBytes = Arguments[1];
@@ -1044,7 +1020,6 @@ void CartApi::HandleNonInterruptedStream() {
   uint16_t bufferLength;
   uint8_t currentBuffer = 0; // 0 for buffer1, 1 for buffer2
   
-  LOGD(PROTO, "HandleNIStream (Double Buffered)");
   GetArgumentsStatic(1);
   uint8_t countOf8Bytes = Arguments[0];  
 
@@ -1138,7 +1113,7 @@ int16_t CartApi::AwaitByte(int16_t maxTryCount) {
     }
   }
 
-  LOGD(SYS, "AW Fail");
+  LOGE(SYS, "AW Fail");
   
 
   return value;  
@@ -1291,7 +1266,7 @@ void CartApi::TransferMenu() {
     easysd[i] = pgm_read_byte(p_easysd+i);
   }
 
-  LOGD(SYS, "TransferMenu");
+  LOGI(SYS, "TransferMenu");
 
   cartInterface.EndListening();  
    
@@ -1303,7 +1278,7 @@ void CartApi::TransferMenu() {
   if (sd.exists(easysd)) {
     workingFile = sd.open(easysd);
     if (workingFile) {
-      LOGD(PRG, "Menu from SD");
+      LOGI(PRG, "Menu from SD");
       readFromFile = 1;
     } 
   }
@@ -1341,8 +1316,6 @@ void CartApi::TransferMenu() {
   #ifdef  USERAMLAUNCHER
   SendLoaderStub();
   #endif
-
-  LOGD(SYS, "Loading");
 
   noInterrupts();
   if (!readFromFile) {
@@ -1607,16 +1580,15 @@ void CartApi::TransferGame(char * selectedFileName) {
   const size_t BUF_SIZE = 16;
   uint8_t buf[BUF_SIZE];  
   cartInterface.EndListening();
-  LOGD(PRG, "OPENING");
 
   // If a TAP is selected, try to convert it to a PRG on the SD card first.
   // Only standard (KERNAL/CBM) tape blocks are supported.
   if (IsMatchLast(selectedFileName, ".tap") || IsMatchLast(selectedFileName, ".TAP")) {
     char outPrg[64];
-    LOGD(PRG, "TAP detected: converting (standard only)...");
+    LOGI(PRG, "TAP: converting...");
     uint8_t tapRes = ConvertStandardTapToPrg(sd, selectedFileName, outPrg, sizeof(outPrg));
     if (tapRes == SUCCESSFUL) {
-      LOGD(PRG, "TAP->PRG OK");
+      LOGI(PRG, "TAP->PRG OK");
       // Load the converted PRG immediately
       TransferGame(outPrg);
     } else {
@@ -1636,14 +1608,13 @@ void CartApi::TransferGame(char * selectedFileName) {
   if (workingFile ) {
     contentLength = workingFile.size();
 
-    LOGD(PRG, "open OK");
     if (strcmp(selectedFileName, "keybooter.prg") == 0 || ( IsMatchLast(selectedFileName, ".irq") || IsMatchLast(selectedFileName, ".IRQ") ) ) {
       booter = 1;
-      LOGD(PRG, "BOOTER!");
+      LOGI(PRG, "BOOTER!");
     }
     if ( IsMatchLast(selectedFileName, ".crt") || IsMatchLast(selectedFileName, ".CRT") ) {
       crtFile = 1;
-      LOGD(PRG, "CRT");
+      LOGI(PRG, "CRT");
     }
     
     if (crtFile) workingFile.seek(80);
@@ -1664,7 +1635,6 @@ void CartApi::TransferGame(char * selectedFileName) {
     unsigned char high;
     unsigned char data;
     int readCount = 0;
-    LOGD(SYS, "Loading");
     //TODO : Put input mechanics elsewhere...
     //pressTime = millis();
 
@@ -1713,11 +1683,11 @@ void CartApi::TransferGame(char * selectedFileName) {
     cartInterface.StartListening();
     //interrupts();
 
-    LOGD(SYS, "Done");
+    LOGI(SYS, "Done");
     TransferInfo(transferLength, padBytes, transferPages);
 
     } else {
-      LOGD(SYS, "FILENOTFOUND!");
+      LOGE(SYS, "FILENOTFOUND!");
     }
 
     //if (booter)   cartApi.HandleApi();
@@ -1728,14 +1698,12 @@ void CartApi::TransferGame(char * selectedFileName) {
 #ifdef EASYSD_DEBUG_SERIAL
 // Serial communication function - only for DEBUG/development mode
 void CartApi::ReceiveFile() {
-  LOGD(FILE, "Receiving");
   long startTransfer = millis();
   cartInterface.EndListening();
   cartInterface.EnableCartridge();
   cartInterface.ResetC64();
   cartInterface.ResetIndex();
   delay(200);
-  LOGD(FILE, "Resetted");
   unsigned int receivedCount = 0;
   unsigned int dataLength = 0;
   unsigned char low = 0;  
@@ -1759,8 +1727,6 @@ void CartApi::ReceiveFile() {
       receivedCount++;
     }
   }
-
-  LOGD(FILE, "HEAD");
 
   long transferLength = dataLength - 2;
   long padBytes = (transferLength%256==0) ? 0 : 256 - transferLength%256; 
@@ -1788,8 +1754,6 @@ void CartApi::ReceiveFile() {
     }
   }
   
-  LOGD(SYS, "RCVD");
-
   if ((millis() - startTransfer) < 10000) {
     if (padBytes>0) {
       for (int i=0;i<padBytes;i++) {    
@@ -1799,8 +1763,6 @@ void CartApi::ReceiveFile() {
   }
   delayMicroseconds(20);
   cartInterface.DisableCartridge();
-  LOGD(SYS, "OK");
-  LOG_PRINT_F("DAT LEN : "); LOG_PRINTLN(dataLength);
   TransferInfo(transferLength, padBytes, transferPages);
 
   cartInterface.StartListening();
@@ -1815,7 +1777,6 @@ void CartApi::UpdateFile() {
   cartInterface.EndListening();
   const size_t BUF_SIZE = 64;
   uint8_t buf[BUF_SIZE];
-  LOGD(FILE, "Receiving");
   long startTransfer = millis();
 
   unsigned int receivedCount = 0;
@@ -1835,8 +1796,6 @@ void CartApi::UpdateFile() {
       }
   }
 
-  LOG_PRINT_F("Received filename : "); LOG_PRINTLN(fileName);
-  
   while (receivedCount<2) {
     if (Serial.available() > 0) {
       if ((millis() - startTransfer) > 20000) break;
@@ -1850,18 +1809,16 @@ void CartApi::UpdateFile() {
     }
   }
 
-  LOGD(FILE, "Will read file content");
-    sd.remove(fileName);
+  sd.remove(fileName);
     File workingFile = sd.open(fileName, FILE_WRITE | O_CREAT);
     if (workingFile != NULL) {
-      LOGD(FILE, "File open success");
 
       receivedCount = 0;
       int bufferIndex = 0;
       int padSize = dataLength % BUF_SIZE;
       while (receivedCount<dataLength) {
         if ((millis() - startTransfer) > 120000) {
-          LOGD(FILE, "Timed out");
+          LOGE(FILE, "Timed out");
           break;
         } else {        
           if (Serial.available() > 0) {    
@@ -1881,8 +1838,6 @@ void CartApi::UpdateFile() {
       }
 
       workingFile.close();
-
-      LOGD(FILE, "File written!");
     } else  {
       LOGE(FILE, "File open failed");
     }  

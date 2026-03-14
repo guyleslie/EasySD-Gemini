@@ -7,9 +7,7 @@
 #include <EEPROM.h>
 #include <SPI.h>
 #include <SdFat.h>
-// #include <SdFatUtil.h>  // Removed: Not available in SdFat 2.x
-#include <FreeStack.h>  // SdFat 2.x: For FreeStack() function
-
+#include <FreeStack.h>
 
 SdFat sd;
 DirFunction dirFunc;
@@ -87,7 +85,7 @@ bool recoverSD() {
 }
 
 void printStartupBanner() {
-  LOGI(SYS, "EasySD v2.1.0");
+  LOGI(SYS, "EasySD v3.1.3");
 }
 
 void printSDStatus(bool sdInitSuccess) {
@@ -116,15 +114,15 @@ void setup() {
   LOG_BEGIN(57600);
   printStartupBanner();
 
-  // SPI initialization for SD card
-  pinMode(chipSelect, OUTPUT);     // CS pin must be OUTPUT
-  digitalWrite(chipSelect, HIGH);  // Deselect SD card initially
+  pinMode(chipSelect, OUTPUT);
+  digitalWrite(chipSelect, HIGH);
   SPI.begin();
 
   bool sdSuccess = initSD();
   if (sdSuccess) { ledBootOk(); } else { ledBootFail(); }
 
   printSDStatus(sdSuccess);
+
 
   // cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
   cartApi.Init();
