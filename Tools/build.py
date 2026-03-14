@@ -633,7 +633,7 @@ def arduino_generate_buildconfig(ctx: Context, debug_mode: bool) -> None:
     print(f"[ARDUINO] Generated BuildConfig.h (EASYSD_DEBUG_SERIAL={'ON' if debug_mode else 'OFF'})")
 
 
-def arduino_compile(ctx: Context, debug_mode: bool = False) -> None:
+def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None) -> None:
     """Compile Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
 
@@ -648,12 +648,17 @@ def arduino_compile(ctx: Context, debug_mode: bool = False) -> None:
     print(f"  DEBUG_SERIAL: {'ON' if debug_mode else 'OFF'}")
     print("="*70)
 
-    run_arduino_cli(cli_exe, [
+    compile_args = [
         "compile",
         "--fqbn", ARDUINO_FQBN,
         "--verbose",
-        str(ctx.arduino_root)
-    ])
+    ]
+    if output_dir is not None:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        compile_args += ["--output-dir", str(output_dir)]
+    compile_args.append(str(ctx.arduino_root))
+
+    run_arduino_cli(cli_exe, compile_args)
 
     print("\n" + "="*70)
     print("ARDUINO BUILD COMPLETE!")
@@ -707,11 +712,12 @@ def find_avrdude(ctx: Context) -> tuple[Path, Path]:
 
 def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = False) -> None:
     """Compile and upload Arduino sketch via ISP programmer (USBTinyISP)"""
-    arduino_compile(ctx, debug_mode=debug_mode)
+    output_dir = ctx.arduino_root / "build" / "arduino.avr.nano"
+    arduino_compile(ctx, debug_mode=debug_mode, output_dir=output_dir)
 
     avrdude_exe, avrdude_conf = find_avrdude(ctx)
 
-    hex_file = ctx.arduino_root / "build" / "arduino.avr.nano" / "EasySD.ino.hex"
+    hex_file = output_dir / "EasySD.ino.hex"
     if not hex_file.exists():
         raise SystemExit(f"ERROR: HEX file not found: {hex_file}")
 
