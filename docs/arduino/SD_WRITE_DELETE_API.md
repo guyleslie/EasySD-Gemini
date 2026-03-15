@@ -192,14 +192,11 @@ if (bytesWritten == 0 || workingFile.getWriteError()) {
 - **Required:** 10-100µF electrolytic capacitor across SD module VCC/GND
 - **Optional:** 100nF ceramic in parallel (high-frequency decoupling)
 - **Without capacitor:** Write timeouts (0x21), data rejected (0x0D), read errors (0x19)
-- **SPI speed:** `SPI_QUARTER_SPEED` required on breadboard
+- **SPI speed:** `SPI_HALF_SPEED` (8 MHz) — stable on breadboard (8/8 pass)
 - **Wire length:** Keep SPI lines under 5cm for reliable writes
 
-### Test Results (v2.1.1, breadboard + 100nF ceramic + 100µF electrolytic)
+### Test Results (v3.1.3, breadboard + 100nF ceramic + 100µF electrolytic, SPI_HALF_SPEED)
 ```
-7/8 PASS: SD_INIT, OPEN_RD_CL, SEEK, OPEN_NOEX, MEM_LOOP, ROOT_LIST, DIR_NAV
-1/8 FAIL: WR_DEL (0x19 SPI read token — breadboard hardware limitation)
+8/8 PASS: SD_INIT, OPEN_RD_CL, SEEK, OPEN_NOEX, WR_DEL, MEM_LOOP, ROOT_LIST, DIR_NAV
 RAM: 415 → 415 (stable, no leaks)
-SD recovery after WR_DEL: successful (all subsequent tests pass)
 ```
-Write failure is expected on breadboard — PCB with proper decoupling traces should resolve.

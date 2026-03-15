@@ -110,11 +110,11 @@ For time-critical continuous data streaming (e.g., audio).
 ```cpp
 dirFunc.CloseDirHandle();   // Close open dir handle first
 delay(50);                  // Let card settle
-sd.begin(chipSelect, SPI_QUARTER_SPEED);  // Reinitialize
+sd.begin(chipSelect, SPI_HALF_SPEED);  // Reinitialize
 dirFunc.ForceReset();       // Resync directory state
 ```
 
-**SPI speed:** Use `SPI_QUARTER_SPEED` for reliable operation. `SPI_HALF_SPEED` causes intermittent errors on breadboard setups. Add `delay(50-100)` between rapid SD operations.
+**SPI speed:** Use `SPI_HALF_SPEED` (8 MHz) — tested stable on breadboard (8/8 tests pass, including WR_DEL). `SPI_QUARTER_SPEED` is no longer needed.
 
 **Hardware:** Place a 10-100µF electrolytic capacitor across SD module VCC/GND to absorb write current spikes (100-200mA). Without it, voltage drops cause write timeouts on breadboard.
 
@@ -365,4 +365,4 @@ Root reset:    345 bytes ← Returns to baseline
 ---
 
 **Last Updated**: 2026-03-09 (v3.1.3 - P2TK Phase 3, KernalBridge renamed from PrgPlugin, APIMacros adoption)
-**Status**: Production-ready. VICE: 9/9 tests pass. Arduino: 7/8 (WR_DEL = SPI hardware limit on breadboard). KernalBridge supports full $0000–$FFFF load range via P2TK Phase 3.
+**Status**: Production-ready. VICE: 9/9 tests pass. Arduino: 8/8 (breadboard, SPI_HALF_SPEED). KernalBridge supports full $0000–$FFFF load range via P2TK Phase 3.

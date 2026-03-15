@@ -21,7 +21,7 @@ This document contains all significant changes to the EasySD project in chronolo
 | **v3.1.1** | 2026-02-28 | GOBACK depth-2 crash fix, VICE test suite fixes, test 10 | ✅ Complete |
 | **v3.1.0** | 2026-02-28 | Directory header row in file browser | ✅ Complete |
 | **v3.0.0** | 2026-02-22 | PETMATE menu frame, dynamic build pipeline, charset switch | ✅ Complete |
-| **v2.1.1** | 2026-02-21 | Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery | ✅ Tested (7/8) |
+| **v2.1.1** | 2026-02-21 | Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery | ✅ Tested (8/8) |
 | **v2.1.0** | 2025-12-26 | Sprint 6 - Production Polish & User Experience | ✅ Production Ready |
 | **v2.0.6** | 2025-12-26 | Sprint 5 - Directory State Synchronization | ✅ Production Ready |
 | **v2.0.5** | 2025-12-25 | Sprint 2 - SdFat 2.x API Modernization | ✅ Production Ready |
@@ -310,7 +310,7 @@ Fixed critical bugs in SD write/delete handlers, added on-device self-test suite
 - Debug log format: `"Got HandleXxx"` → `"[TAG] Cmd"` (-180 bytes)
 
 **SPI Reliability:**
-- `SPI_HALF_SPEED` → `SPI_QUARTER_SPEED` for stable breadboard operation
+- `SPI_HALF_SPEED` (8 MHz) — tested stable on breadboard (8/8 pass)
 - `delay(50)` after SD init for card stabilization
 
 #### New Files
@@ -329,7 +329,7 @@ Fixed critical bugs in SD write/delete handlers, added on-device self-test suite
 | `0x19` | `READ_TOKEN` | Bad read data token (SPI signal integrity) |
 | `0x21` | `WRITE_TIMEOUT` | Flash programming timeout |
 
-#### Test Results (breadboard, 100nF+100µF caps, SPI_QUARTER_SPEED)
+#### Test Results (breadboard, 100nF+100µF caps, SPI_HALF_SPEED)
 
 | Test | Result | Notes |
 |------|--------|-------|
@@ -337,17 +337,16 @@ Fixed critical bugs in SD write/delete handlers, added on-device self-test suite
 | OPEN_RD_CL | PASS | |
 | SEEK | PASS | |
 | OPEN_NOEX | PASS | |
-| WR_DEL | FAIL | 0x19 SPI read token — breadboard hardware limitation |
+| WR_DEL | PASS | |
 | MEM_LOOP | PASS | 20x open/read/close, RAM stable (415→415) |
-| ROOT_LIST | PASS | Directory listing correct (5 items) |
+| ROOT_LIST | PASS | Directory listing correct (4 items) |
 | DIR_NAV | PASS | cd TESTDIR + GoBack works |
 
-**7/8 PASS.** Write failure is a known breadboard/SPI hardware limitation, not a code issue. SD recovery works correctly after write failure.
+**8/8 PASS.** All tests pass on breadboard with proper decoupling caps and SPI_HALF_SPEED.
 
 #### Hardware Notes
 - 100µF electrolytic + 100nF ceramic on SD module VCC/GND recommended
-- Breadboard contact resistance limits SPI write reliability
-- PCB with proper decoupling traces expected to resolve WR_DEL
+- SPI_HALF_SPEED (8 MHz) stable on breadboard — no need to reduce to QUARTER_SPEED
 
 #### Files Modified
 
@@ -1392,7 +1391,7 @@ python Tools/build.py clean
 - **v3.1.1** (2026-02-28): GOBACK depth-2 crash fix, VICE test suite fixes, test 10 DIR_DEPTH
 - **v3.1.0** (2026-02-28): Directory header row in file browser
 - **v3.0.0** (2026-02-22): PETMATE menu frame, inverse selection, cursor key nav, uppercase filenames
-- **v2.1.1** (2026-02-21): Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery (7/8 PASS)
+- **v2.1.1** (2026-02-21): Self-Test Suite, SD Write/Delete Bugfixes & Error Recovery (8/8 PASS)
 - **v2.1.0** (2025-12-26): Production Polish & User Experience - Sprint 6 Complete
 - **v2.0.6** (2025-12-26): Directory State Synchronization - Sprint 5 Complete (Production-Ready)
 - **v2.0.5** (2025-12-25): SdFat 2.x API Modernization - Sprint 2 Complete

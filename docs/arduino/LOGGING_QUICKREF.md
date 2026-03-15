@@ -49,7 +49,7 @@ Self-test lines always start with `[T]` and are not affected by category setting
 ```
 [T] START
 [T] OPEN_RD_CL: PASS
-[T] END: 7/8 RAM:415->415
+[T] END: 8/8 RAM:415->415
 ```
 
 ---

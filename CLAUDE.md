@@ -132,7 +132,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **Limit local arrays to 32-64 bytes** to avoid stack overflow.
 - **Monitor memory with `FreeStack()`** — aim for 300+ bytes free minimum.
 - **SdFat 2.x API only:** Use `File` type (not deprecated `SdFile`), 1-parameter `openNext()`.
-- **SPI speed:** Use `SPI_QUARTER_SPEED` for reliable SD communication.
+- **SPI speed:** Use `SPI_HALF_SPEED` (8 MHz) — tested stable on breadboard (8/8 tests pass). `SPI_QUARTER_SPEED` is no longer needed.
 - **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail on nested paths.
 - **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.
 - **EEPROM persistence:** `SaveLastDir()` / `RestoreLastDir()` use `eeprom_update_block()` / `eeprom_read_block()` (avr-libc). Prefer these over byte-by-byte loops — smaller flash footprint. EEPROM layout: bytes 0-1 magic (`0xE5`, `0xD0`), bytes 2-65 null-terminated path.

@@ -39,7 +39,7 @@ bool initSD() {
   const uint16_t SD_RETRY_DELAY_MS = 200;
 
   for (uint8_t retry = 0; retry < SD_RETRY_COUNT; retry++) {
-    if (sd.begin(chipSelect, SPI_QUARTER_SPEED)) {
+    if (sd.begin(chipSelect, SPI_HALF_SPEED)) {
       delay(50);  // Let card stabilize after init
       if (retry > 0) {
         LOG_PRINT_F("SD: OK after ");
@@ -72,10 +72,10 @@ bool initSD() {
 bool recoverSD() {
   dirFunc.CloseDirHandle();
   delay(50);
-  if (!sd.begin(chipSelect, SPI_QUARTER_SPEED)) {
+  if (!sd.begin(chipSelect, SPI_HALF_SPEED)) {
     // Retry after longer delay
     delay(200);
-    if (!sd.begin(chipSelect, SPI_QUARTER_SPEED)) {
+    if (!sd.begin(chipSelect, SPI_HALF_SPEED)) {
       LOGE(SD, "SD recover FAIL");
       ledSdFail();
       return false;
