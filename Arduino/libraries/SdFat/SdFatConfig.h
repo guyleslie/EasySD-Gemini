@@ -87,9 +87,9 @@
  * The default definition allows Uno shields to be used on other boards.
  */
 /** Software SPI Master Out Slave In pin */
-uint8_t const SOFT_SPI_MOSI_PIN = 12;
+uint8_t const SOFT_SPI_MOSI_PIN = 11;
 /** Software SPI Master In Slave Out pin */
-uint8_t const SOFT_SPI_MISO_PIN = 11;
+uint8_t const SOFT_SPI_MISO_PIN = 12;
 /** Software SPI Clock pin */
 uint8_t const SOFT_SPI_SCK_PIN = 13;
 //------------------------------------------------------------------------------
