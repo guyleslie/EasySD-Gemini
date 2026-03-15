@@ -3,7 +3,7 @@
 **Document Type:** Normative (Architectural Specification)
 **Version:** 2.2
 **Created:** 2025-12-29 (Sprint A.2.1)
-**Last Updated:** 2026-03-09 (v3.1.3 — paths, names, plugin list corrected)
+**Last Updated:** 2026-03-15 (v2.3 — MultiLoad plugin, ResidentLoader memory regions)
 **Status:** CANONICAL - All code MUST conform to this memory layout
 **Reference:** ARCHITECTURE_CONSOLIDATION_PLAN.md Sprint A.2, A.3.0 (archived)
 
@@ -202,6 +202,38 @@ FileBuffer:
 
 ---
 
+## 3.3 ResidentLoader Memory Regions (MultiLoad Plugin)
+
+The MultiLoad plugin installs a resident hook that uses two additional memory regions outside
+the standard `$C000+` plugin range. These regions exist only during multi-load game execution
+(after `BOOT.PRG` has launched the game and exited the menu permanently).
+
+| Address Range  | Symbol         | Content                                      | Notes |
+|----------------|----------------|----------------------------------------------|-------|
+| `$0330/$0331`  | `V_LOAD`       | Kernal LOAD vector (patched by RL_INSTALL)   | Patched to `$033C` |
+| `$033C–$034F`  | `RL_STUB`      | 20-byte LOAD trampoline (`JSR RL_HANDLER`)   | Overwrites `FILE_PATH_BUF` area |
+| `$035C–$035D`  | `RL_ORIG_VEC`  | Backup of original `$0330/$0331`             | Used by pass-through path |
+| `$035E`        | `RL_SAVED_01`  | Saved `$01` register during hook execution   | 1 byte |
+| `$E800`        | `RL_HANDLER`   | Handler entry point                          | Under Kernal ROM ($01=$35 to access) |
+| `$E840`        | `RL_DIR_PATH`  | Game dir path buffer, 64 B                   | Reserved; future chdir support |
+| `$E880`        | `RL_FNAME_BUF` | Assembled filename buffer, 36 B              | KERNAL name + ".PRG" |
+| `$E8A4`        | `RL_FILEINFO_BUF` | FAT directory entry buffer, 32 B          | IRQ_GetInfoForFile target |
+| `$E8C4`        | `RL_HDR_BUF`   | First-page read buffer, 256 B                | PRG header + first 254 data bytes |
+
+**Dual-use of `$033C` (FILE_PATH_BUF / RL_STUB):**
+During menu and plugin operation, `$033C` is `FILE_PATH_BUF` (filename buffer for CartLib).
+During multi-load game execution, `$033C` is `RL_STUB` code.
+The two uses are mutually exclusive and therefore safe.
+
+**Why writes to `$E800` always go to RAM:**
+The C64 write line always reaches underlying RAM regardless of the `$01` banking register.
+`RL_INSTALL` copies the handler with `$01=$37` (normal); no banking switch needed during copy.
+The handler is only *reachable* with `$01=$35` (Kernal ROM hidden, I/O active).
+
+Constants for these regions are defined in `EasySD/Loader/Common/System.inc`.
+
+---
+
 ## 4. Program Categories (Type A vs Type B)
 
 **Critical Distinction:** The EasySD/Plugins directory contains TWO fundamentally different program types with distinct architectures.
@@ -224,13 +256,14 @@ FileBuffer:
 
 **Examples:**
 - **KernalBridge** (`EasySD/Loader/Bridges/KernalBridge/`) — KERNAL I/O bridge + large PRG loader; NOT in Plugins/
+- **MultiLoad** (`EasySD/Loader/Bridges/MultiLoad/`) — Multi-load game launcher; installs a resident Kernal LOAD hook and does NOT return to menu
 - **KoalaDisplayer** — Koala image viewer
 - **PetsciiDisplayer** — PETSCII art viewer
 - **WavPlayer** — WAV audio player
 - **MusPlayer** — MUS/SID music player
 - **CvdPlayer** — CVD video player (NMI-driven frame streaming)
 
-**Source Location:** Plugins at `EasySD/Plugins/`. KernalBridge at `EasySD/Loader/Bridges/KernalBridge/` (loaded by menu as prgplugin.prg but architecturally separate — it launches PRGs rather than returning to menu).
+**Source Location:** Plugins at `EasySD/Plugins/`. KernalBridge and MultiLoad at `EasySD/Loader/Bridges/` (loaded by menu as prgplugin.prg / bootplugin.prg but architecturally separate — they launch programs rather than returning to menu).
 
 **Calling Convention:**
 ```assembly
@@ -449,9 +482,12 @@ grep -n "\*=\$C000" EasySD/Plugins/*/*.s
 grep -c "IRQ_ExitToMenu" EasySD/Loader/Bridges/KernalBridge/*.s  # Should be 0
 ```
 
-**Note (2026-03-09):** Type A plugins are in `EasySD/Plugins/`. KernalBridge is in
-`EasySD/Loader/Bridges/KernalBridge/` and is a special case (launches PRGs, not a conventional plugin).
+**Note (2026-03-09):** Type A plugins are in `EasySD/Plugins/`. KernalBridge and MultiLoad are in
+`EasySD/Loader/Bridges/` and are special cases (they launch programs rather than returning to menu).
 There are no active Type B standalone apps in this codebase.
+
+**Note (2026-03-15):** MultiLoad installs a resident hook at $033C (RL_STUB, 20 bytes) and $E800
+(RL_HANDLER, ~400 bytes). These regions are outside the $C000-$CFFF plugin range; see Section 3.3.
 
 ---
 
@@ -520,6 +556,17 @@ ARCHITECTURE_CONSOLIDATION_PLAN.md (Master Plan)
 - A.3.0_REFACTORING_DECISION.md (NO-GO decision on v1.0-based refactoring)
 - Compiled symbol files (koala.txt, petg.txt, mus.txt, wav.txt)
 - Source code analysis (EasySDMenu.s, CartLib.s, BurstLoader.s)
+
+---
+
+### Version 2.3 Update (2026-03-15)
+
+**Sprint 14 — MultiLoad plugin added:**
+- ✅ Section 3.3 added: ResidentLoader memory regions (`$033C` RL_STUB, `$E800` RL_HANDLER)
+- ✅ Section 4.1 Examples: added MultiLoad (`bootplugin.prg`)
+- ✅ Section 6.3 audit note: added MultiLoad Bridges note
+- ✅ Plugin list: `prgplugin.prg`, `koaplugin.prg`, `musplugin.prg`, `petgplugin.prg`,
+  `wavplugin.prg`, `cvdplugin.prg`, **`bootplugin.prg`** (7 total)
 
 ---
 
