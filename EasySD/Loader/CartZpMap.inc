@@ -13,6 +13,7 @@ ZP_LOADFILE_API_PAYLOAD_LO   = $86
 ZP_LOADFILE_API_PAYLOAD_HI   = $87
 
 ; $8B-$8E  FREE (SafeStream removed — params were ignored by Arduino)
+;           Handler scratch use: $8B/$8C = copy ptr lo/hi, $8D/$8E = end addr temps
 
 ; ---- StreamLargeFile (CartLibStream) uses $90-$95 ----
 ZP_STREAM_API_TARGET_LO = $90
@@ -36,3 +37,9 @@ ZP_IRQ_API_CALLBACK_HI      = $74
 ZP_IRQ_API_SEEK_UPPER_LO    = $75
 ZP_IRQ_API_SEEK_UPPER_HI    = $76
 ZP_IRQ_TMP_SCRATCH             = $77
+
+; $033C-$035F  ResidentLoader area (game execution phase)
+; During menu/plugin operation: $033C = FILE_PATH_BUF (filename for CartLib)
+; During multi-load game execution: $033C = RL_STUB code, $035C = RL_ORIG_VEC, $035E = RL_SAVED_01
+; The two uses NEVER overlap — safe dual-purpose.
+; See System.inc for RL_STUB, RL_ORIG_VEC, RL_SAVED_01 constants.

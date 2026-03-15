@@ -369,6 +369,7 @@ PLUGIN_MATRIX = [
     ("Plugins/WavPlayer",               "WavPlayer.s",        "wavplugin"),
     ("Plugins/MusPlayer",               "MusPlayer.s",        "musplugin"),
     ("Loader/Bridges/KernalBridge",     "KernalBridge.s",     "prgplugin"),
+    ("Loader/Bridges/MultiLoad",        "MultiLoad.s",        "bootplugin"),
 ]
 
 # Standalone VICE test programs (include their own BASIC stub, built as PRG directly)
@@ -570,7 +571,7 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
         print(f"  - {rel_path}/{asm_file} -> build/plugins/{out_base}.prg")
         run_cmd(
             [
-                tass, "-c", "-b",
+                tass, "-c", "-b", "--long-branch",
                 "-D", f"DEBUG={debug}",
                 "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
                 str(src),
@@ -584,6 +585,45 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
         out_bin.unlink(missing_ok=True)
 
     print("[PLUGINS] OK")
+
+
+def build_multiload(ctx: Context, *, debug: int, debug_break: int) -> None:
+    """Build only BOOT.PRG (MultiLoad plugin) without rebuilding all plugins."""
+    ensure_dirs(ctx)
+
+    bas_obj = ctx.build_dir / "easysd.obj"
+    if not bas_obj.exists():
+        print("[MULTILOAD] Missing build/easysd.obj -> building core prereq (no Arduino)...")
+        build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=False,
+                   arduino_debug=0,
+                   menu_prg_name=("easysd-debug.prg" if debug else "easysd.prg"))
+
+    tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
+    src = ctx.irq_root / "Loader" / "Bridges" / "MultiLoad" / "MultiLoad.s"
+    out_bin = ctx.plugins_out_dir / "bootplugin.bin"
+    out_prg = ctx.plugins_out_dir / "bootplugin.prg"
+    labels  = ctx.sym_dir / "bootplugin.txt"
+    listing = ctx.lst_dir / "bootpluginLST.txt"
+
+    print(f"[MULTILOAD] Building Loader/Bridges/MultiLoad/MultiLoad.s -> build/plugins/bootplugin.prg")
+    run_cmd(
+        [
+            tass, "-c", "-b", "--long-branch",
+            "-D", f"DEBUG={debug}",
+            "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
+            str(src),
+            "-o", str(out_bin),
+            "--labels", str(labels),
+            "-L", str(listing),
+        ],
+        cwd=ctx.irq_root
+    )
+    concat_files(out_prg, bas_obj, out_bin)
+    out_bin.unlink(missing_ok=True)
+    print("[MULTILOAD] OK")
+    print(f"  Output: {out_prg}")
+    print("  Copy bootplugin.prg to the game directory on the SD card as BOOT.PRG")
+    print("  Then set FIRST_PART_NAME in MultiLoad.s to the game's first load filename.")
 
 
 def build_vice_tests(ctx: Context) -> None:
@@ -890,6 +930,7 @@ Examples:
   python build.py release              # C64 release + Arduino BuildConfig (serial OFF)
   python build.py debug-vice           # C64 VICE debug (mock data)
   python build.py debug-arduino        # C64 debug + Arduino BuildConfig (serial ON)
+  python build.py multiload            # Build BOOT.PRG (multi-load launcher) only
 
   # Arduino operations
   python build.py arduino-setup        # One-time setup
@@ -913,7 +954,7 @@ Examples:
         choices=[
             # C64 builds
             "release", "debug-vice", "debug-arduino",
-            "core", "plugins", "clean", "prebuild",
+            "core", "plugins", "multiload", "clean", "prebuild",
             # Arduino operations
             "arduino-setup", "arduino-compile", "arduino-upload", "arduino-upload-isp",
             "arduino-monitor", "arduino-list-ports", "arduino-clean",
@@ -1034,6 +1075,10 @@ def main(argv: Sequence[str]) -> int:
 
     if args.target == "plugins":
         build_plugins(ctx, debug=debug, debug_break=debug_break)
+        return 0
+
+    if args.target == "multiload":
+        build_multiload(ctx, debug=debug, debug_break=debug_break)
         return 0
 
     if args.target in ("release", "debug-vice", "debug-arduino"):

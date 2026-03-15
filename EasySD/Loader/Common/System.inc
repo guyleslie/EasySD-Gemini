@@ -74,6 +74,23 @@ PP_CONFIG_RAM_ON_ROM = $35
 PP_CONFIG_RAM_ON_BASIC = $36
 PP_CONFIG_DEFAULT = $37
 
+; Kernal LOAD vector
+V_LOAD   = $0330
+
+; ResidentLoader area — used during multi-load game execution (overlaps FILE_PATH_BUF)
+; Safe: during game execution no plugin loading happens; during menu no resident loader
+RL_STUB         = $033C   ; resident stub (patched into $0330/$0331, 20 bytes of code)
+RL_ORIG_VEC     = $035C   ; backup of original $0330/$0331 (2 bytes)
+RL_SAVED_01     = $035E   ; saved $01 value during LOAD hook (1 byte)
+
+; ResidentLoader handler — lives under Kernal ROM ($01=$35 to read/write)
+; Writes to this area always go to RAM regardless of $01 setting.
+; NOTE: RL_HANDLER label is defined in ResidentLoader.s (.logical $E800) — not here.
+RL_DIR_PATH     = $E840   ; game directory path, 64 bytes (reserved, future chdir support)
+RL_FNAME_BUF    = $E880   ; assembled filename buffer, 36 bytes
+RL_FILEINFO_BUF = $E8A4   ; FAT directory entry buffer, 32 bytes
+RL_HDR_BUF      = $E8C4   ; 256-byte buffer for reading first file page (PRG header + data)
+
 ; Other common memory locations
 FILE_PATH_BUF = $033C
 SIDLOAD		= $E000
