@@ -41,6 +41,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable, Sequence
 
+# Fix Windows console encoding (CP1252 → UTF-8) so Hungarian chars display correctly
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+
 
 # ============================================================================
 # Platform & Utilities
@@ -168,10 +174,42 @@ def run_cmd(cmd: Sequence[str | os.PathLike], cwd: Path) -> None:
 
 
 def run_arduino_cli(cli_exe: Path, args: list, check=True) -> subprocess.CompletedProcess:
-    """Run arduino-cli command"""
+    """Run arduino-cli command, capturing output for size parsing while printing in real-time"""
     cmd = [str(cli_exe)] + args
     print(f"\n> {' '.join(cmd)}")
-    return subprocess.run(cmd, check=check)
+    lines = []
+    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                text=True, encoding="utf-8", errors="replace")
+    for line in process.stdout:
+        print(line, end="", flush=True)
+        lines.append(line)
+    process.wait()
+    if check and process.returncode != 0:
+        raise SystemExit(process.returncode)
+    result = subprocess.CompletedProcess(cmd, process.returncode, stdout="".join(lines))
+    return result
+
+
+def parse_arduino_size(output: str) -> dict | None:
+    """Extract flash and RAM usage from arduino-cli compile output"""
+    fm = re.search(r"Sketch uses (\d+) bytes \((\d+)%\) of program storage space\. Maximum is (\d+) bytes\.", output)
+    rm = re.search(r"Global variables use (\d+) bytes \((\d+)%\) of dynamic memory, leaving (\d+) bytes", output)
+    if fm and rm:
+        return {
+            "flash_used": int(fm.group(1)), "flash_pct": int(fm.group(2)), "flash_max": int(fm.group(3)),
+            "ram_used": int(rm.group(1)),   "ram_pct":   int(rm.group(2)), "ram_free":  int(rm.group(3)),
+        }
+    return None
+
+
+def print_size_summary(size: dict) -> None:
+    flash_free = size["flash_max"] - size["flash_used"]
+    print("\n" + "="*70)
+    print("BUILD SUMMARY")
+    print("="*70)
+    print(f"  Flash:  {size['flash_used']:>6} / {size['flash_max']} B   ({size['flash_pct']}% used, {flash_free} B free)")
+    print(f"  RAM:    {size['ram_used']:>6} / 2048 B   ({size['ram_pct']}% used, {size['ram_free']} B free)")
+    print("="*70)
 
 
 # ============================================================================
@@ -589,7 +627,7 @@ def build_vice_tests(ctx: Context) -> None:
 # Arduino Build Functions (NEW - POST-SPRINT6)
 # ============================================================================
 
-ARDUINO_FQBN = "arduino:avr:nano:cpu=atmega328old"  # Arduino Nano (ATmega328P, Old Bootloader)
+ARDUINO_FQBN = "arduino:avr:nano:cpu=atmega328"  # Arduino Nano (ATmega328P, Optiboot)
 
 
 def arduino_setup(ctx: Context) -> None:
@@ -658,11 +696,15 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
         compile_args += ["--output-dir", str(output_dir)]
     compile_args.append(str(ctx.arduino_root))
 
-    run_arduino_cli(cli_exe, compile_args)
+    result = run_arduino_cli(cli_exe, compile_args)
 
     print("\n" + "="*70)
     print("ARDUINO BUILD COMPLETE!")
     print("="*70)
+    size = parse_arduino_size(result.stdout)
+    if size:
+        print_size_summary(size)
+    return size
 
 
 def arduino_upload(ctx: Context, port: str, debug_mode: bool = False) -> None:
@@ -710,10 +752,25 @@ def find_avrdude(ctx: Context) -> tuple[Path, Path]:
     return avrdude_bins[-1], avrdude_confs[-1]
 
 
-def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = False) -> None:
+def find_bootloader_hex(ctx: Context) -> Path:
+    """Find the ATmega328 bootloader hex in Arduino15 packages"""
+    arduino15 = Path.home() / "AppData" / "Local" / "Arduino15"
+    candidates = sorted(arduino15.glob(
+        "packages/arduino/hardware/avr/*/bootloaders/optiboot/optiboot_atmega328.hex"
+    ))
+    if not candidates:
+        raise SystemExit(
+            "ERROR: Bootloader hex not found in Arduino15 packages.\n"
+            "Run: python build.py arduino-setup"
+        )
+    return candidates[-1]
+
+
+def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = False,
+                       burn_bootloader: bool = True) -> None:
     """Compile and upload Arduino sketch via ISP programmer (USBTinyISP)"""
     output_dir = ctx.arduino_root / "build" / "arduino.avr.nano"
-    arduino_compile(ctx, debug_mode=debug_mode, output_dir=output_dir)
+    size = arduino_compile(ctx, debug_mode=debug_mode, output_dir=output_dir)
 
     avrdude_exe, avrdude_conf = find_avrdude(ctx)
 
@@ -728,6 +785,7 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
     print(f"  Programmer: usbtinyisp")
     print(f"  SCK period: {sck_period} µs  ({1000 // sck_period} kHz)")
     print(f"  DEBUG_SERIAL: {'ON' if debug_mode else 'OFF'}")
+    print(f"  Bootloader: {'YES (USB upload will work after)' if burn_bootloader else 'NO (--no-bootloader)'}")
     print("="*70)
 
     run_cmd(
@@ -743,9 +801,40 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
         cwd=ctx.repo_root
     )
 
+    if burn_bootloader:
+        bootloader_hex = find_bootloader_hex(ctx)
+        print("\n" + "="*70)
+        print("BURNING BOOTLOADER (USBTinyISP)")
+        print("="*70)
+        print(f"  Bootloader: {bootloader_hex.name}")
+        print(f"  (skip with --no-bootloader)")
+        print("="*70)
+
+        run_cmd(
+            [
+                str(avrdude_exe),
+                f"-C{avrdude_conf}",
+                "-v",
+                "-p", "atmega328p",
+                "-c", "usbtiny",
+                f"-B{sck_period}",
+                "-D",  # no chip erase — preserve firmware
+                "-Uhfuse:w:0xDA:m",  # BOOTSZ=01 (1024 words = 2KB section) per Arduino Nano boards.txt
+                f"-Uflash:w:{bootloader_hex}:i",
+                "-Ulock:w:0x0F:m",
+            ],
+            cwd=ctx.repo_root
+        )
+
+        print("\n" + "="*70)
+        print("BOOTLOADER BURN COMPLETE! USB upload now available.")
+        print("="*70)
+
     print("\n" + "="*70)
     print("ISP UPLOAD COMPLETE!")
     print("="*70)
+    if size:
+        print_size_summary(size)
 
 
 def arduino_monitor(ctx: Context, port: str, baudrate: int = 57600) -> None:
@@ -843,8 +932,10 @@ Examples:
     p.add_argument("--skip-arduino", action="store_true", help="Skip Arduino/EPROM artifacts in C64 builds")
     p.add_argument("--menu-prg-name", default=None, help="Override menu PRG output name")
     p.add_argument("--baudrate", type=int, default=57600, help="Baudrate for serial monitor (default: 57600)")
-    p.add_argument("--isp-sck", type=int, default=10, metavar="USEC",
-                   help="ISP SCK period in µs for arduino-upload-isp (default: 10 = 100kHz)")
+    p.add_argument("--isp-sck", type=int, default=2, metavar="USEC",
+                   help="ISP SCK period in µs for arduino-upload-isp (default: 2 = 500kHz, use 100 for blank/bricked chips)")
+    p.add_argument("--no-bootloader", action="store_true",
+                   help="Skip bootloader burn after ISP upload (USB upload will not work)")
 
     return p.parse_args(list(argv))
 
@@ -880,7 +971,8 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if args.target == "arduino-upload-isp":
-        arduino_upload_isp(ctx, sck_period=args.isp_sck, debug_mode=args.debug)
+        arduino_upload_isp(ctx, sck_period=args.isp_sck, debug_mode=args.debug,
+                           burn_bootloader=not args.no_bootloader)
         return 0
 
     if args.target == "arduino-monitor":

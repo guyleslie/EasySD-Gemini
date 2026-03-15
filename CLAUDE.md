@@ -57,9 +57,9 @@ python Tools/build.py release --skip-arduino
 **First-time Arduino setup:** `python Tools/build.py arduino-setup`
 
 **Arduino upload notes:**
-- `arduino-upload` uses USB serial bootloader (57600 baud, `atmega328old` FQBN)
-- `arduino-upload-isp` uses USBtinyISP programmer — **erases the bootloader**, subsequent uploads must also use ISP
-- ISP SCK speed: `--isp-sck 10` (100 kHz, ~2.5 min, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
+- `arduino-upload` uses USB serial bootloader (115200 baud, `atmega328` Optiboot FQBN)
+- `arduino-upload-isp` uses USBtinyISP programmer — burns firmware + Optiboot bootloader (USB upload works after)
+- ISP SCK speed: `--isp-sck 2` (500 kHz, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
 - **Debug flash margin is only ~36B** — adding new `LOGD`/`LOGI` calls or string literals in debug mode can push the build over the 30720B limit. Check size before committing.
 
 ## Architecture
