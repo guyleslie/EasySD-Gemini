@@ -53,7 +53,10 @@ bool initSD() {
     LOG_PRINT(retry + 1);
     LOG_PRINT_F("/");
     LOG_PRINT(SD_RETRY_COUNT);
-    LOGE(SD, " failed");
+    LOG_PRINT_F(" failed ec=0x");
+    LOG_HEX(sd.sdErrorCode());
+    LOG_PRINT_F(" ed=0x");
+    LOG_PRINTLN(sd.sdErrorData());
 
     if (retry < SD_RETRY_COUNT - 1) {
       delay(SD_RETRY_DELAY_MS);
