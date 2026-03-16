@@ -50,6 +50,8 @@
 #define COMMAND_DELETE_DIR  12
 #define COMMAND_CREATE_DIR  13
 
+#define COMMAND_GOTO_PATH   14   // Navigate Arduino to absolute path (Multi-Load V2)
+
 #define COMMAND_READ_EEPROM  15
 #define COMMAND_SEEK_EEPROM  16
 #define COMMAND_WRITE_EEPROM  17
@@ -123,6 +125,7 @@ class CartApi {
    void HandleLongSeekFile();
    void HandleGetInfoForFile();
    void HandleGetPath();
+   void HandleGotoPath();
    void HandleReadDirectory();
    void HandleChangeDirectory();
    void HandleDeleteDirectory();

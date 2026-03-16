@@ -79,17 +79,41 @@ V_LOAD   = $0330
 
 ; ResidentLoader area — used during multi-load game execution (overlaps FILE_PATH_BUF)
 ; Safe: during game execution no plugin loading happens; during menu no resident loader
-RL_STUB         = $033C   ; resident stub (patched into $0330/$0331, 20 bytes of code)
-RL_ORIG_VEC     = $035C   ; backup of original $0330/$0331 (2 bytes)
-RL_SAVED_01     = $035E   ; saved $01 value during LOAD hook (1 byte)
+;
+; V2 Memory Layout (updated from V1):
+;   $033C-$035B  RL_STUB code (~32 bytes): saves X/Y/A/$01, calls RL_HANDLER, restores
+;   $035C-$0367  padding (reserved, zero-filled)
+;   $0368-$036A  RL_NMI_REDIRECT: JMP ($0318) — written to $FFFA/$FFFB for $01=$35 NMI dispatch
+;   $036B-$036C  RL_ORIG_VEC (2 bytes): backup of $0330/$0331
+;   $036D        RL_SAVED_01 (1 byte): game's $01 saved during hook
+;   $036E        RL_SAVED_X  (1 byte): game's X register at LOAD call time (SA=0 support)
+;   $036F        RL_SAVED_Y  (1 byte): game's Y register at LOAD call time (SA=0 support)
+;
+; Why $FFFA/$FFFB must be updated:
+;   Writes to $FFFA/$FFFB always reach RAM (6502: writes always go to RAM).
+;   With $01=$35 (HIRAM=0): $E000-$FFFF is RAM → reads from $FFFA/$FFFB see RAM.
+;   On NMI the CPU reads $FFFA/$FFFB → gets RL_NMI_REDIRECT → JMP ($0318) → TransferHandler.
+;   ROML ($8000-$9FFF) remains accessible with $01=$35 because LORAM=1 → TransferHandler OK.
+;   With $01=$37 (HIRAM=1): $FFFA/$FFFB reads from Kernal ROM ($FE43) → also dispatches $0318.
+;
+RL_STUB         = $033C   ; resident stub entry point (patched into $0330/$0331)
+RL_NMI_REDIRECT = $0368   ; JMP ($0318) — installed at $FFFA/$FFFB by RL_INSTALL
+RL_ORIG_VEC     = $036B   ; backup of original $0330/$0331 (2 bytes)
+RL_SAVED_01     = $036D   ; saved $01 value during LOAD hook (1 byte)
+RL_SAVED_X      = $036E   ; saved X register at LOAD call time — SA=0 MEMUSS lo (V2)
+RL_SAVED_Y      = $036F   ; saved Y register at LOAD call time — SA=0 MEMUSS hi (V2)
 
-; ResidentLoader handler — lives under Kernal ROM ($01=$35 to read/write)
-; Writes to this area always go to RAM regardless of $01 setting.
+; ResidentLoader handler + mini-CartLib — lives under Kernal ROM ($E000-$FFFF is RAM with $01=$35)
+; Writes to this area always go to RAM regardless of $01 setting (6502 write behavior).
+; Reads require $01=$35 (HIRAM=0) — RL_STUB ensures this before calling RL_HANDLER.
 ; NOTE: RL_HANDLER label is defined in ResidentLoader.s (.logical $E800) — not here.
-RL_DIR_PATH     = $E840   ; game directory path, 64 bytes (reserved, future chdir support)
+RL_DIR_PATH     = $E840   ; game directory path, 64 bytes (chdir safety — stored on install)
 RL_FNAME_BUF    = $E880   ; assembled filename buffer, 36 bytes
 RL_FILEINFO_BUF = $E8A4   ; FAT directory entry buffer, 32 bytes
 RL_HDR_BUF      = $E8C4   ; 256-byte buffer for reading first file page (PRG header + data)
+; RL_MINI_CARTLIB: embedded mini-CartLib, follows rl_main code in handler image.
+; Address is not fixed (depends on rl_main size) — defined as RL_WasteCertainTime label.
+; Kept here as documentation only; code references RL_* labels, not this address.
 
 ; Other common memory locations
 FILE_PATH_BUF = $033C

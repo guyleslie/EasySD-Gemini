@@ -300,6 +300,41 @@ const char* DirFunction::GetCurrentPath() const {
   return currentPath;
 }
 
+// Navigate from root to an absolute path, segment by segment.
+// Identical logic to RestoreLastDir in CartApi.cpp.
+// Returns true on success, false if any segment fails (leaves at root).
+bool DirFunction::NavigateToPath(const char* absPath) {
+  if (!absPath || absPath[0] != '/' || absPath[1] == '\0') {
+    // Root or invalid — just go to root
+    ToRoot();
+    return true;
+  }
+
+  ToRoot();
+
+  char buf[64];
+  // Copy safely, null-terminate
+  uint8_t len = 0;
+  while (len < 63 && absPath[len]) { buf[len] = absPath[len]; len++; }
+  buf[len] = '\0';
+
+  char* p = buf + 1;  // skip leading '/'
+  while (*p) {
+    char* slash = strchr(p, '/');
+    if (slash) *slash = '\0';
+    bool ok = ChangeDirectory(p);
+    if (slash) *slash = '/';
+    if (!ok) {
+      LOGE(DIR, "NavigateToPath: seg fail");
+      ToRoot();
+      return false;
+    }
+    if (!slash) break;
+    p = slash + 1;
+  }
+  return true;
+}
+
 void DirFunction::ForceReset() {
   LOGI(DIR, "ForceReset");
 

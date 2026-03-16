@@ -345,6 +345,32 @@ void CartApi::HandleGetPath() {
   delayMicroseconds(20);
 }
 
+// Multi-Load V2: Navigate Arduino to an absolute path sent by the C64.
+// Protocol: C64 sends COMMAND_GOTO_PATH then filename bytes (length-prefixed, via SendFileName).
+// Arduino navigates from root to path and responds SUCCESSFUL or DIR_NOT_FOUND.
+void CartApi::HandleGotoPath() {
+  GetArgumentsDynamic(0);
+  uint8_t pathLen = Arguments[0];
+
+  if (pathLen == 0 || pathLen >= MAX_ARGUMENTS_LENGTH) {
+    HandleResponse(INVALID_ARGUMENT, 1);
+    return;
+  }
+
+  char* path = (char*)&Arguments[1];
+  path[pathLen] = '\0';
+
+  LOGI(DIR, "GotoPath: "); LOG_PRINTLN(path);
+
+  bool ok = dirFunc.NavigateToPath(path);
+  if (ok) {
+    dirFunc.Prepare();
+    HandleResponse(SUCCESSFUL, 1);
+  } else {
+    HandleResponse(DIR_NOT_FOUND, 1);
+  }
+}
+
 inline void CartApi::HandleReadDirectory() {
   GetArgumentsStatic(3);
   uint8_t numberOfEntries = Arguments[0]; //Max number of directory entries to retrieve
@@ -1174,6 +1200,7 @@ void CartApi::HandleApi() {
           case COMMAND_LONG_SEEK_FILE : HandleLongSeekFile(); break;
           case COMMAND_GET_INFO_FOR_FILE : HandleGetInfoForFile(); break;
           case COMMAND_GET_PATH : HandleGetPath(); break;
+          case COMMAND_GOTO_PATH : HandleGotoPath(); break;
           case COMMAND_READ_DIR : HandleReadDirectory(); break;
           case COMMAND_CHANGE_DIR : HandleChangeDirectory(); break;
           case COMMAND_DELETE_DIR : HandleDeleteDirectory(); break;

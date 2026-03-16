@@ -38,8 +38,15 @@ ZP_IRQ_API_SEEK_UPPER_LO    = $75
 ZP_IRQ_API_SEEK_UPPER_HI    = $76
 ZP_IRQ_TMP_SCRATCH             = $77
 
-; $033C-$035F  ResidentLoader area (game execution phase)
+; $033C-$036F  ResidentLoader area (game execution phase)
 ; During menu/plugin operation: $033C = FILE_PATH_BUF (filename for CartLib)
-; During multi-load game execution: $033C = RL_STUB code, $035C = RL_ORIG_VEC, $035E = RL_SAVED_01
+; During multi-load game execution (V2 layout):
+;   $033C-$035B  RL_STUB code
+;   $035C-$0367  padding
+;   $0368-$036A  RL_NMI_REDIRECT (JMP ($0318), written to $FFFA/$FFFB)
+;   $036B-$036C  RL_ORIG_VEC
+;   $036D        RL_SAVED_01
+;   $036E        RL_SAVED_X   (V2: SA=0 support)
+;   $036F        RL_SAVED_Y   (V2: SA=0 support)
 ; The two uses NEVER overlap — safe dual-purpose.
-; See System.inc for RL_STUB, RL_ORIG_VEC, RL_SAVED_01 constants.
+; See System.inc for all RL_* constants.

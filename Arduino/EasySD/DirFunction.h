@@ -47,6 +47,7 @@ class DirFunction  {
 
     // NEW METHODS FOR SPRINT 1: Enhanced basename navigation
     bool ChangeDirectoryBasename(const char* basename);
+    bool NavigateToPath(const char* absPath); // Navigate from root to absolute path (Multi-Load V2)
     const char* GetCurrentPath() const;
     void ForceReset();
     void CloseDirHandle();
