@@ -81,19 +81,34 @@ KernalBridge is loaded to `$C000` (Type A, cartridge high memory region).
 
 ```
 $C000          JMP MAIN                  — entry point
-$C003          P3_TAIL_CODE (39 bytes)   — Phase 3 data table (tail-write code)
-$C02A          P3_HANDLER   (52 bytes)   — Phase 3 data table (NMI handler)
-$C05D–$C6FF    (gap, zero-filled)
+$C003–$C029    P3_TAIL_CODE (39 bytes)   — Phase 3 data table (tail-write code)
+$C02A–$C05D    P3_HANDLER   (52 bytes)   — Phase 3 data table (NMI handler)
+$C05E–$C05F    (unused, 2 bytes)
+$C060–$C17D    data variables            — see table below
+$C17E–$C6FF    (unused gap, zero-filled)
 $C700          MAIN                      — PRG load and launch logic
-$C700+         bridge routines, data buffers (extends past $CFFF — known overflow)
+$C700–~$D113   bridge routines, CartLib  — code extends past $D000 (known issue)
 ```
 
-The data tables at `$C003`/`$C02A` occupy the previously unused gap and are only active when
-Phase 3 is triggered (Phase2_pages = 64). They are placed in the gap specifically because the
-variable section already overflows into `$D000+` (I/O space on real hardware), making reads from
-there unreliable — the `$C003` region is always-accessible RAM.
+**Data variables at `$C060` (explicit `*=$C060` directive in source):**
 
-The 256-byte `GENERALBUFFER` at the end of the image serves dual purpose:
+| Address | Symbol | Size | Purpose |
+|---------|--------|------|---------|
+| `$C060` | `HEXTOSCREEN` | 16 B | nibble → screen-code lookup table |
+| `$C070` | `GENERALBUFFER` | 256 B | dual-use: FAT entry buffer / 256-byte read cache |
+| `$C170` | `FILELENGTH` | 4 B | 32-bit size of initial PRG |
+| `$C174` | `STARTADDRESSLO/HI` | 2 B | PRG load address |
+| `$C176` | `ENDADDRESSLO/HI` | 2 B | PRG end address (STARTADDR + FILELENGTH) |
+| `$C178` | `OPENEDFILELENGTH` | 4 B | 32-bit size of currently open file (runtime) |
+| `$C17C` | `FILEINDEXLOW/HIGH` | 2 B | read position within open file |
+
+Variables were relocated from `$D000+` to `$C060–$C17D` to ensure reliable reads on real
+hardware (reads from `$D000+` with `$01=$37` return VIC-II/SID register values, not RAM).
+
+The P3 data tables at `$C003`/`$C02A` are only active when Phase 3 is triggered
+(Phase2_pages = 64). They must live below `$D000` for the same reason.
+
+The 256-byte `GENERALBUFFER` serves a dual purpose:
 - During launch: holds file metadata (FAT entry, size)
 - During BASIC execution: read buffer for `NEW_CHRIN` (one SD round-trip = 256 bytes)
 
@@ -199,6 +214,17 @@ $03BB-$03C0   TAIL_BUF        6 bytes   saved bytes for $FFFA-$FFFF
 
 ---
 
+## Overlap with MultiLoad RL_STUB
+
+Phase 2 writes the BVC wait-stub to `$033B–$0342`. MultiLoad's `RL_STUB` starts at `$033C`
+(one byte later). These two uses of the `FILE_PATH_BUF` area **overlap** at `$033C–$0342`
+but are **mutually exclusive**: KernalBridge P2TK writes that area and immediately jumps to
+`$033B`, after which KernalBridge code is unreachable. MultiLoad's `RL_INSTALL` writes
+`RL_STUB` to `$033C` before the game starts. The two bridges serve entirely different
+workflows and are never active at the same time.
+
+---
+
 ## Known Limitations
 
 - **Sequential access only.** No random seek, no relative files.
@@ -206,5 +232,5 @@ $03BB-$03C0   TAIL_BUF        6 bytes   saved bytes for $FFFA-$FFFF
 - **16-bit file size.** `FILEINDEX` and `OPENEDFILELENGTH` are 2 bytes — files larger than 64 KB are not supported via the KERNAL bridge interface.
 - **One file at a time.** Only one file can be open simultaneously.
 - **Vectors are not restored on exit.** The patch is one-way. After the BASIC program ends and the user returns to the menu, the menu performs a full KERNAL reinitialisation.
-- **Binary overflow into I/O space.** The variable section (`GENERALBUFFER`, `FILELENGTH`, etc.) extends past `$CFFF` into `$D000+`. On real C64 hardware with `$01=$37`, reads from `$D000+` return I/O register values (VIC-II, SID), not the stored data. Writes reach underlying RAM but reads are unreliable. VICE tests do not expose this (they use a mock PRG load path). P2TK data tables were deliberately placed at `$C003` (within `$C000-$CFFF`) to avoid this issue. A proper fix requires reducing the binary size below 4 KB or using explicit `*=$Cxxx` placement for data buffers.
+- **Code extends past `$D000`.** The bridge routines span `$C700–~$D113`. With `$01=$37`, `$D000–$DFFF` is I/O space on real C64 hardware — instruction fetches from those addresses return VIC-II/SID register bytes, not the stored code. This has not caused test failures in practice (VICE and breadboard). A proper fix requires reducing the binary below 4 KB. Note: data variables were already relocated from `$D000+` to `$C060–$C17D` (see Memory Layout) — they read reliably. Only the code region remains above `$D000`.
 - **No runtime I/O after P2TK.** PRGs loaded via the P2TK path receive no patched KERNAL vectors. The loaded program cannot open or read files during execution.
