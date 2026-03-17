@@ -7,6 +7,7 @@
 ; DEBUG mode - defined from command line (-D DEBUG=1 or -D DEBUG=0)
 ; Load DEBUG macros BEFORE first use
 .include "../../Loader/DebugMacros.s"
+.include "../../Loader/APIMacros.s"
 
 	*=$C000
 	JMP MAIN
@@ -26,13 +27,8 @@ ALTENTRY
 
 ;Lets try to open a file
 	PRINTSTATUSANDWAIT OPENINGFILE, 100
-	JSR PROT_DisableDisplay		
-	LDX #<FILE_PATH_BUF
-	LDY #>FILE_PATH_BUF
-	LDA #31
-	JSR PROT_SetName
-	LDX #01		; Flags=read
-	JSR PROT_OpenFile
+	JSR PROT_DisableDisplay
+	#OPENFILE FILE_PATH_BUF, #31, #01
 	BCC OPENINGCONT
 	JMP ERROR_OPENING_FILE
 OPENINGCONT	
@@ -45,10 +41,7 @@ OPENINGCONT
 
 	; --- Size-based load (replaces fixed PROT_DATA_LENGTH pages) ---
 	; 1) Get FAT info for file into READBUFFER (256 bytes)
-	LDA #<READBUFFER
-	STA ZP_IRQ_API_DATA_LO
-	LDA #>READBUFFER
-	STA ZP_IRQ_API_DATA_HI
+	#SETADDR READBUFFER, ZP_IRQ_API_DATA_LO
 
 	JSR PROT_DisableDisplay
 	JSR PROT_GetInfoForFile
@@ -57,14 +50,7 @@ OPENINGCONT
 +	JSR PROT_EnableDisplay
 
 	; Extract file size (FAT entry bytes 28..31)
-	LDA READBUFFER + 28
-	STA ZP_LOADFILE_API_SIZE0
-	LDA READBUFFER + 29
-	STA ZP_LOADFILE_API_SIZE1
-	LDA READBUFFER + 30
-	STA ZP_LOADFILE_API_SIZE2
-	LDA READBUFFER + 31
-	STA ZP_LOADFILE_API_SIZE3
+	#EXTRACTFILESIZE READBUFFER, ZP_LOADFILE_API_SIZE0
 
 	; Validate: must fit into 2048 bytes buffer (8 pages) and be at least 2002 bytes
 	LDA ZP_LOADFILE_API_SIZE2
@@ -94,10 +80,7 @@ SIZE_OK
 	STA ZP_LOADFILE_API_SKIP_HI
 
 	; Load payload into READBUFFER
-	LDA #<READBUFFER
-	STA ZP_IRQ_API_DATA_LO
-	LDA #>READBUFFER
-	STA ZP_IRQ_API_DATA_HI
+	#SETADDR READBUFFER, ZP_IRQ_API_DATA_LO
 
 	JSR PROT_DisableDisplay
 	JSR LoadFileBySize

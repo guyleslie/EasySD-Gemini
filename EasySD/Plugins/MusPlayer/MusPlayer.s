@@ -31,6 +31,7 @@ PLAYER_ADDRESS = $9000
 ;------------------------------------------------------------
 
 .include "../../Loader/DebugMacros.s"
+.include "../../Loader/APIMacros.s"
 
 * = $C000
 
@@ -113,54 +114,32 @@ Run_Fail:
 ;------------------------------------------------------------
 LoadSidPlayer9000:
     ; set name
-    ldx #<SidPlayerName
-    ldy #>SidPlayerName
-    lda #SIDPLAYER_NAME_LEN
-    jsr PROT_SetName
-
-    ldx #$01
-    jsr PROT_OpenFile
+    #OPENFILE SidPlayerName, #SIDPLAYER_NAME_LEN, #$01
     bcs LoadSid_Fail
     lda #1
     sta FILE_OPENED         ; Track open file
 
     ; read first page to HdrPage so we can ask GetInfo and have a buffer
-    lda #<HdrPage
-    sta ZP_IRQ_API_DATA_LO
-    lda #>HdrPage
-    sta ZP_IRQ_API_DATA_HI
+    #SETADDR HdrPage, ZP_IRQ_API_DATA_LO
     lda #$01
     sta ZP_IRQ_API_DATA_LENGTH
     jsr PROT_ReadFileNoCallback
     bcs LoadSid_FailClose
 
     ; get directory entry and size
-    lda #<HdrPage
-    sta ZP_IRQ_API_DATA_LO
-    lda #>HdrPage
-    sta ZP_IRQ_API_DATA_HI
+    #SETADDR HdrPage, ZP_IRQ_API_DATA_LO
     ldy #$00
     jsr PROT_GetInfoForFile
     bcs LoadSid_FailClose
 
-    lda HdrPage+28
-    sta ZP_LOADFILE_API_SIZE0
-    lda HdrPage+29
-    sta ZP_LOADFILE_API_SIZE1
-    lda HdrPage+30
-    sta ZP_LOADFILE_API_SIZE2
-    lda HdrPage+31
-    sta ZP_LOADFILE_API_SIZE3
+    #EXTRACTFILESIZE HdrPage, ZP_LOADFILE_API_SIZE0
 
     lda #$02
     sta ZP_LOADFILE_API_SKIP_LO
     lda #$00
     sta ZP_LOADFILE_API_SKIP_HI
 
-    lda #<PLAYER_ADDRESS
-    sta ZP_IRQ_API_DATA_LO
-    lda #>PLAYER_ADDRESS
-    sta ZP_IRQ_API_DATA_HI
+    #SETADDR PLAYER_ADDRESS, ZP_IRQ_API_DATA_LO
     jsr LoadFileBySize
     bcs LoadSid_FailClose
 
@@ -183,52 +162,30 @@ LoadSid_Fail:
 ;   Opens selected file name (FILENAME), loads MUS payload to $8000.
 ;------------------------------------------------------------
 LoadSelectedMus8000:
-    ldx #<FILE_PATH_BUF
-    ldy #>FILE_PATH_BUF
-    lda #31
-    jsr PROT_SetName
-
-    ldx #$01
-    jsr PROT_OpenFile
+    #OPENFILE FILE_PATH_BUF, #31, #$01
     bcs LoadMus_Fail
     lda #1
     sta FILE_OPENED         ; Track open file
 
     ; read first page for header sniffing
-    lda #<HdrPage
-    sta ZP_IRQ_API_DATA_LO
-    lda #>HdrPage
-    sta ZP_IRQ_API_DATA_HI
+    #SETADDR HdrPage, ZP_IRQ_API_DATA_LO
     lda #$01
     sta ZP_IRQ_API_DATA_LENGTH
     jsr PROT_ReadFileNoCallback
     bcs LoadMus_FailClose
 
     ; get file info / size
-    lda #<HdrPage
-    sta ZP_IRQ_API_DATA_LO
-    lda #>HdrPage
-    sta ZP_IRQ_API_DATA_HI
+    #SETADDR HdrPage, ZP_IRQ_API_DATA_LO
     ldy #$00
     jsr PROT_GetInfoForFile
     bcs LoadMus_FailClose
 
-    lda HdrPage+28
-    sta ZP_LOADFILE_API_SIZE0
-    lda HdrPage+29
-    sta ZP_LOADFILE_API_SIZE1
-    lda HdrPage+30
-    sta ZP_LOADFILE_API_SIZE2
-    lda HdrPage+31
-    sta ZP_LOADFILE_API_SIZE3
+    #EXTRACTFILESIZE HdrPage, ZP_LOADFILE_API_SIZE0
 
     jsr DetectMusHeaderSetSkip
     bcs LoadMus_FailClose
 
-    lda #<SONG_ADDRESS
-    sta ZP_IRQ_API_DATA_LO
-    lda #>SONG_ADDRESS
-    sta ZP_IRQ_API_DATA_HI
+    #SETADDR SONG_ADDRESS, ZP_IRQ_API_DATA_LO
     jsr LoadFileBySize
     bcs LoadMus_FailClose
 

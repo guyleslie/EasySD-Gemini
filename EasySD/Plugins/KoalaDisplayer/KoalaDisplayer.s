@@ -8,6 +8,7 @@
 ; DEBUG mode - defined from command line (-D DEBUG=1 or -D DEBUG=0)
 ; Load DEBUG macros BEFORE first use
 .include "../../Loader/DebugMacros.s"
+.include "../../Loader/APIMacros.s"
 
 	*=$C000
 	JMP MAIN
@@ -27,13 +28,8 @@ ALTENTRY
 
 ;Lets try to open a file
 	PRINTSTATUSANDWAIT OPENINGFILE, 100
-	JSR PROT_DisableDisplay		
-	LDX #<FILE_PATH_BUF
-	LDY #>FILE_PATH_BUF
-	LDA #31
-	JSR PROT_SetName
-	LDX #01		; Flags=read
-	JSR PROT_OpenFile
+	JSR PROT_DisableDisplay
+	#OPENFILE FILE_PATH_BUF, #31, #01
 	BCC OPENINGCONT
 	JMP ERROR_OPENING_FILE
 OPENINGCONT
@@ -44,10 +40,7 @@ OPENINGCONT
 	PRINTSTATUSANDWAIT READINGFILE, 200
 
 	; Get file info to obtain exact file size
-	LDA #<KOALA_INFO_BUFFER
-	STA ZP_IRQ_API_DATA_LO
-	LDA #>KOALA_INFO_BUFFER
-	STA ZP_IRQ_API_DATA_HI
+	#SETADDR KOALA_INFO_BUFFER, ZP_IRQ_API_DATA_LO
 
 	JSR PROT_DisableDisplay
 	JSR PROT_GetInfoForFile
@@ -56,14 +49,7 @@ OPENINGCONT
 +	JSR PROT_EnableDisplay
 
 	; Extract file size from FAT entry (bytes 28-31)
-	LDA KOALA_INFO_BUFFER + 28
-	STA ZP_LOADFILE_API_SIZE0
-	LDA KOALA_INFO_BUFFER + 29
-	STA ZP_LOADFILE_API_SIZE1
-	LDA KOALA_INFO_BUFFER + 30
-	STA ZP_LOADFILE_API_SIZE2
-	LDA KOALA_INFO_BUFFER + 31
-	STA ZP_LOADFILE_API_SIZE3
+	#EXTRACTFILESIZE KOALA_INFO_BUFFER, ZP_LOADFILE_API_SIZE0
 
 	; Validate KOALA file size and set header skip
 	; Expected: 10003 bytes (KOA w/2-byte load addr) or 10001 (raw without header)
