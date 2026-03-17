@@ -107,6 +107,9 @@ void printSDStatus(bool sdInitSuccess) {
 void printHelp() {
   Serial.println(F("h:Help d:CD r:Root l:List p:Stat m:Mem"));
   Serial.println(F("T:Run self-test suite"));
+  #ifdef EASYSD_PROTOCOL_TEST
+  Serial.println(F("F:FileDump G:GameHeader B:BoundaryDump"));
+  #endif
 }
 #endif // EASYSD_DEBUG_SERIAL
 
@@ -173,6 +176,12 @@ void loop() {
 
           // Self-test suite
           case 'T' : testRunAll(); break;
+
+          #ifdef EASYSD_PROTOCOL_TEST
+          case 'F' : testFileDump(); break;
+          case 'G' : testGameHeader(); break;
+          case 'B' : testBoundaryDump(); break;
+          #endif
       }
   }
   #endif
@@ -439,4 +448,110 @@ void testRunAll() {
 }
 
 #endif // EASYSD_DEBUG_SERIAL
+
+// ============================================================================
+// Protocol Echo Test Functions (EASYSD_PROTOCOL_TEST mode only)
+// Redirect SD file data to Serial.write() for PC-side byte verification.
+// ============================================================================
+
+#ifdef EASYSD_PROTOCOL_TEST
+
+// Helper: read filename from serial into buf (max maxLen chars + null).
+// Blocks until '\n' or '\r' received, or buf is full.
+static void ptReadFilename(char *buf, uint8_t maxLen) {
+  uint8_t i = 0;
+  while (i < maxLen) {
+    while (!Serial.available()) {}
+    char ch = Serial.read();
+    if (ch == '\n' || ch == '\r') break;
+    buf[i++] = ch;
+  }
+  buf[i] = 0;
+}
+
+// 'F' - File dump: outputs [FD] SIZE=N, then N raw bytes, then [FD] END
+void testFileDump() {
+  char name[13];
+  ptReadFilename(name, 12);
+
+  File f = sd.open(name, FILE_READ);
+  if (!f) { Serial.println(F("[FD] ERR")); return; }
+
+  Serial.print(F("[FD] SIZE="));
+  Serial.println(f.size());
+
+  uint8_t buf[16];
+  int n;
+  while ((n = f.read(buf, sizeof(buf))) > 0) {
+    Serial.write(buf, n);
+  }
+  f.close();
+  Serial.println(F("[FD] END"));
+}
+
+// 'G' - Game header: outputs [GH] LOAD=$XXXX END=$XXXX PAGES=N TYPE=1 SIZE=N P2TK=Y/N
+// Mirrors TransferGame() + SendHeader() header calculation (CartApi.cpp).
+void testGameHeader() {
+  char name[13];
+  ptReadFilename(name, 12);
+
+  File f = sd.open(name, FILE_READ);
+  if (!f) { Serial.println(F("[GH] ERR")); return; }
+
+  uint32_t fileSize = f.size();
+  uint8_t loadLow  = (uint8_t)f.read();
+  uint8_t loadHigh = (uint8_t)f.read();
+  f.close();
+
+  uint16_t startAddr    = (uint16_t)loadLow | ((uint16_t)loadHigh << 8);
+  long transferLength   = (long)fileSize - 2;
+  long padBytes         = (transferLength % 256 == 0) ? 0L : 256L - transferLength % 256;
+  uint8_t transferPages = (uint8_t)(transferLength / 256 + (padBytes > 0 ? 1 : 0));
+  long endAddress       = (long)startAddr + transferLength + 1;
+  bool p2tk             = (endAddress > 0xC002L);
+
+  Serial.print(F("[GH] LOAD=$")); Serial.print(startAddr, HEX);
+  Serial.print(F(" END=$"));      Serial.print((uint16_t)endAddress, HEX);
+  Serial.print(F(" PAGES="));     Serial.print(transferPages, DEC);
+  Serial.print(F(" TYPE=1 SIZE="));Serial.print(fileSize, DEC);
+  Serial.print(F(" P2TK="));      Serial.println(p2tk ? F("Y") : F("N"));
+}
+
+// 'B' - Boundary dump: outputs 64B chunks with [BD] CHUNK=N SZ=M markers,
+// then raw bytes, then [BD] END. Tests SD read correctness across 64B boundaries.
+void testBoundaryDump() {
+  char name[13];
+  ptReadFilename(name, 12);
+
+  File f = sd.open(name, FILE_READ);
+  if (!f) { Serial.println(F("[BD] ERR")); return; }
+
+  uint32_t total = f.size();
+  uint32_t pos   = 0;
+  uint8_t  chunk = 0;
+
+  while (pos < total) {
+    uint8_t cSz = (total - pos > 64) ? 64 : (uint8_t)(total - pos);
+
+    Serial.print(F("[BD] CHUNK=")); Serial.print(chunk, DEC);
+    Serial.print(F(" SZ="));        Serial.println(cSz, DEC);
+
+    uint8_t buf[16];
+    uint8_t remaining = cSz;
+    while (remaining > 0) {
+      uint8_t toRead = (remaining < 16) ? remaining : 16;
+      int n = f.read(buf, toRead);
+      if (n <= 0) { pos = total; break; }  // SD error: abort outer loop
+      Serial.write(buf, n);
+      remaining -= (uint8_t)n;
+      pos       += (uint32_t)n;
+    }
+    chunk++;
+  }
+
+  f.close();
+  Serial.println(F("[BD] END"));
+}
+
+#endif // EASYSD_PROTOCOL_TEST
 

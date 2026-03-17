@@ -42,6 +42,17 @@ REQUIRED_FILES = {
         'content': bytes(range(256)) * 8,
         'desc': '2048-byte pattern (0x00-0xFF x8)',
     },
+    # Protocol echo test PRGs (for testGameHeader)
+    'TESTPRG.PRG': {
+        'type': 'binary',
+        'content': b'\x01\x08' + bytes(range(100)),
+        'desc': 'Standard PRG: load $0801, 100 bytes data (P2TK=N)',
+    },
+    'HIGHPRG.PRG': {
+        'type': 'binary',
+        'content': b'\x00\xC0' + bytes(range(100)),
+        'desc': 'High PRG: load $C000, 100 bytes data (P2TK=Y, endAddr=$C065)',
+    },
 }
 
 REQUIRED_DIRS = {

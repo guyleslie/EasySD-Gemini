@@ -241,6 +241,246 @@ class ArduinoCommTester:
             for l in lines:
                 print(f"    {l}")
 
+    def _report_protocol(self, ok, name, detail):
+        """Print PASS/FAIL for a protocol test step."""
+        status = f"{GREEN}PASS{RESET}" if ok else f"{RED}FAIL{RESET}"
+        print(f"  {status}  {name}: {detail}")
+
+    # ==================================================================
+    # Protocol echo tests (require EASYSD_PROTOCOL_TEST firmware)
+    # ==================================================================
+
+    def test_file_dump(self, filename, expected_bytes):
+        """Send 'F'+filename, verify raw byte dump matches expected_bytes."""
+        self.ser.reset_input_buffer()
+        self.ser.write(b'F' + filename.encode('ascii') + b'\n')
+
+        # Read [FD] SIZE=N line
+        size_line = None
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if self.ser.in_waiting:
+                raw = self.ser.readline()
+                line = raw.decode('ascii', errors='ignore').strip()
+                if self.verbose:
+                    print(f"  {CYAN}<<{RESET} {line!r}")
+                if line.startswith('[FD] ERR'):
+                    self._report_protocol(False, filename, "ERR from Arduino")
+                    return False
+                if line.startswith('[FD] SIZE='):
+                    size_line = line
+                    break
+            time.sleep(0.01)
+
+        if size_line is None:
+            self._report_protocol(False, filename, "No [FD] SIZE line received (timeout)")
+            return False
+
+        size = int(size_line[len('[FD] SIZE='):].strip())
+
+        # Read exactly `size` raw binary bytes
+        received = b''
+        deadline = time.time() + 15.0
+        while len(received) < size and time.time() < deadline:
+            avail = self.ser.in_waiting
+            if avail:
+                received += self.ser.read(min(avail, size - len(received)))
+            else:
+                time.sleep(0.005)
+
+        # Read [FD] END line
+        deadline = time.time() + 3.0
+        while time.time() < deadline:
+            if self.ser.in_waiting:
+                raw = self.ser.readline()
+                line = raw.decode('ascii', errors='ignore').strip()
+                if self.verbose:
+                    print(f"  {CYAN}<<{RESET} {line!r}")
+                if '[FD] END' in line:
+                    break
+            time.sleep(0.01)
+
+        ok = (received == expected_bytes)
+        if ok:
+            self._report_protocol(True, filename, f"{len(received)}/{size} bytes match")
+        else:
+            first_diff = next(
+                (i for i in range(min(len(received), len(expected_bytes)))
+                 if received[i] != expected_bytes[i]), -1)
+            if first_diff >= 0:
+                detail = (f"{len(received)}/{size} bytes, first diff at {first_diff}: "
+                          f"got 0x{received[first_diff]:02X}, "
+                          f"expected 0x{expected_bytes[first_diff]:02X}")
+            else:
+                detail = f"length mismatch: got {len(received)}, expected {size}"
+            self._report_protocol(False, filename, detail)
+        return ok
+
+    def test_game_header(self, filename, expected):
+        """Send 'G'+filename, parse [GH] line, compare against expected dict.
+
+        expected keys: 'load' (int), 'pages' (int), 'p2tk' (bool).
+        """
+        self.ser.reset_input_buffer()
+        self.ser.write(b'G' + filename.encode('ascii') + b'\n')
+
+        gh_line = None
+        deadline = time.time() + 5.0
+        while time.time() < deadline:
+            if self.ser.in_waiting:
+                raw = self.ser.readline()
+                line = raw.decode('ascii', errors='ignore').strip()
+                if self.verbose:
+                    print(f"  {CYAN}<<{RESET} {line!r}")
+                if line.startswith('[GH] ERR'):
+                    self._report_protocol(False, filename, "ERR from Arduino")
+                    return False
+                if line.startswith('[GH]'):
+                    gh_line = line
+                    break
+            time.sleep(0.01)
+
+        if gh_line is None:
+            self._report_protocol(False, filename, "No [GH] line received (timeout)")
+            return False
+
+        # Parse tokens: [GH] LOAD=$XXXX END=$XXXX PAGES=N TYPE=1 SIZE=N P2TK=Y/N
+        parsed = {}
+        for token in gh_line.split():
+            if '=' in token:
+                k, v = token.split('=', 1)
+                parsed[k] = v
+
+        errors = []
+        if 'load' in expected:
+            got = int(parsed.get('LOAD', '$0').lstrip('$'), 16)
+            if got != expected['load']:
+                errors.append(f"LOAD: got ${got:04X}, expected ${expected['load']:04X}")
+        if 'pages' in expected:
+            got = int(parsed.get('PAGES', '0'))
+            if got != expected['pages']:
+                errors.append(f"PAGES: got {got}, expected {expected['pages']}")
+        if 'p2tk' in expected:
+            got = parsed.get('P2TK', 'N') == 'Y'
+            if got != expected['p2tk']:
+                errors.append(f"P2TK: got {'Y' if got else 'N'}, "
+                               f"expected {'Y' if expected['p2tk'] else 'N'}")
+
+        ok = len(errors) == 0
+        self._report_protocol(ok, filename, "header OK" if ok else ", ".join(errors))
+        return ok
+
+    def test_boundary_dump(self, filename, expected_bytes):
+        """Send 'B'+filename, collect chunked binary data, verify byte-by-byte."""
+        self.ser.reset_input_buffer()
+        self.ser.write(b'B' + filename.encode('ascii') + b'\n')
+
+        received = b''
+        chunk_num = 0
+        deadline = time.time() + 15.0
+
+        while time.time() < deadline:
+            if not self.ser.in_waiting:
+                time.sleep(0.01)
+                continue
+
+            raw = self.ser.readline()
+            line = raw.decode('ascii', errors='ignore').strip()
+            if self.verbose:
+                print(f"  {CYAN}<<{RESET} {line!r}")
+
+            if '[BD] ERR' in line:
+                self._report_protocol(False, filename, "ERR from Arduino")
+                return False
+
+            if '[BD] END' in line:
+                break
+
+            if '[BD] CHUNK=' in line:
+                # Parse [BD] CHUNK=N SZ=M
+                parts = {}
+                for token in line.split():
+                    if '=' in token:
+                        k, v = token.split('=', 1)
+                        parts[k] = v
+                sz = int(parts.get('SZ', '0'))
+
+                # Read exactly sz raw bytes
+                chunk_data = b''
+                chunk_deadline = time.time() + 5.0
+                while len(chunk_data) < sz and time.time() < chunk_deadline:
+                    avail = self.ser.in_waiting
+                    if avail:
+                        chunk_data += self.ser.read(min(avail, sz - len(chunk_data)))
+                    else:
+                        time.sleep(0.005)
+
+                if len(chunk_data) != sz:
+                    self._report_protocol(
+                        False, filename,
+                        f"Chunk {chunk_num}: expected {sz} bytes, got {len(chunk_data)}")
+                    return False
+
+                received += chunk_data
+                chunk_num += 1
+                deadline = time.time() + 15.0  # reset timeout after each chunk
+
+        ok = (received == expected_bytes)
+        if ok:
+            self._report_protocol(
+                True, filename,
+                f"{len(received)}/{len(expected_bytes)} bytes match, {chunk_num} chunks")
+        else:
+            first_diff = next(
+                (i for i in range(min(len(received), len(expected_bytes)))
+                 if received[i] != expected_bytes[i]), -1)
+            if first_diff >= 0:
+                boundary_pos = first_diff % 64
+                boundary_info = (" (BOUNDARY BUG)" if boundary_pos <= 1
+                                 else f" (offset {boundary_pos}/64 in chunk)")
+                detail = (f"first diff at byte {first_diff}{boundary_info}: "
+                          f"got 0x{received[first_diff]:02X}, "
+                          f"expected 0x{expected_bytes[first_diff]:02X}")
+            else:
+                detail = f"length mismatch: got {len(received)}, expected {len(expected_bytes)}"
+            self._report_protocol(False, filename, detail)
+        return ok
+
+    def run_protocol_tests(self):
+        """Run full protocol echo test suite (requires EASYSD_PROTOCOL_TEST firmware)."""
+        print(f"\n{BOLD}{'='*60}{RESET}")
+        print(f"{BOLD} EasySD Protocol Echo Tests{RESET}")
+        print(f"{BOLD}{'='*60}{RESET}\n")
+
+        results = []
+
+        print(f"{BLUE}[1/5]{RESET} File dump: TESTDATA.BIN")
+        results.append(self.test_file_dump('TESTDATA.BIN', bytes(range(256))))
+
+        print(f"\n{BLUE}[2/5]{RESET} File dump: BIGFILE.BIN")
+        results.append(self.test_file_dump('BIGFILE.BIN', bytes(range(256)) * 8))
+
+        print(f"\n{BLUE}[3/5]{RESET} Game header: TESTPRG.PRG")
+        results.append(self.test_game_header(
+            'TESTPRG.PRG', {'load': 0x0801, 'pages': 1, 'p2tk': False}))
+
+        print(f"\n{BLUE}[4/5]{RESET} Game header: HIGHPRG.PRG")
+        results.append(self.test_game_header(
+            'HIGHPRG.PRG', {'load': 0xC000, 'pages': 1, 'p2tk': True}))
+
+        print(f"\n{BLUE}[5/5]{RESET} Boundary dump: BIGFILE.BIN")
+        results.append(self.test_boundary_dump('BIGFILE.BIN', bytes(range(256)) * 8))
+
+        passed = sum(results)
+        failed = len(results) - passed
+        print(f"\n{BOLD}{'='*60}{RESET}")
+        if failed == 0:
+            print(f"{GREEN}{BOLD} ALL {passed} PROTOCOL TESTS PASSED{RESET}")
+        else:
+            print(f"{RED}{BOLD} {failed} PROTOCOL TEST(S) FAILED{RESET} out of {len(results)}")
+        print(f"{BOLD}{'='*60}{RESET}")
+        return failed == 0
+
     # ==================================================================
     # Interactive mode
     # ==================================================================
@@ -291,8 +531,9 @@ def main():
     parser.add_argument('port', help='Serial port (e.g. COM4, /dev/ttyUSB0)')
     parser.add_argument('--interactive', '-i', action='store_true',
                         help='Interactive mode')
-    parser.add_argument('--test', '-t', choices=['dir_nav'],
-                        help='Run specific test (dir_nav)')
+    parser.add_argument('--test', '-t',
+                        choices=['dir_nav', 'protocol', 'file_dump', 'game_header', 'boundary_dump'],
+                        help='Run specific test suite')
     parser.add_argument('--verbose', '-v', action='store_true',
                         help='Verbose output')
 
@@ -308,6 +549,24 @@ def main():
             tester.run_interactive()
         elif args.test == 'dir_nav':
             if not tester.test_dir_nav():
+                exit_code = 1
+        elif args.test == 'protocol':
+            if not tester.run_protocol_tests():
+                exit_code = 1
+        elif args.test == 'file_dump':
+            ok = (tester.test_file_dump('TESTDATA.BIN', bytes(range(256))) and
+                  tester.test_file_dump('BIGFILE.BIN', bytes(range(256)) * 8))
+            if not ok:
+                exit_code = 1
+        elif args.test == 'game_header':
+            ok = (tester.test_game_header('TESTPRG.PRG',
+                      {'load': 0x0801, 'pages': 1, 'p2tk': False}) and
+                  tester.test_game_header('HIGHPRG.PRG',
+                      {'load': 0xC000, 'pages': 1, 'p2tk': True}))
+            if not ok:
+                exit_code = 1
+        elif args.test == 'boundary_dump':
+            if not tester.test_boundary_dump('BIGFILE.BIN', bytes(range(256)) * 8):
                 exit_code = 1
         else:
             # Default: run Arduino self-test (T command)

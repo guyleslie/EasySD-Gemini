@@ -699,31 +699,43 @@ def arduino_setup(ctx: Context) -> None:
     print("\nNext: python build.py arduino-compile")
 
 
-def arduino_generate_buildconfig(ctx: Context, debug_mode: bool) -> None:
+def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: bool = False) -> None:
     """Generate BuildConfig.h for Arduino sketch"""
     buildconfig_h = ctx.arduino_root / "BuildConfig.h"
-    if debug_mode:
+    if protocol_test:
+        # Protocol-test build: debug serial ON, protocol test ON,
+        # DIR/FILE log categories OFF to reclaim ~600B flash headroom.
+        buildconfig_content = (
+            "#define EASYSD_DEBUG_SERIAL\n"
+            "#define EASYSD_PROTOCOL_TEST\n"
+            "#define LOG_ENABLE_DIR 0\n"
+            "#define LOG_ENABLE_FILE 0\n"
+        )
+        mode_str = "PROTOCOL_TEST"
+    elif debug_mode:
         buildconfig_content = "#define EASYSD_DEBUG_SERIAL\n"
+        mode_str = "ON"
     else:
         buildconfig_content = "// EASYSD_DEBUG_SERIAL disabled (release build)\n"
+        mode_str = "OFF"
 
     buildconfig_h.write_text(buildconfig_content, encoding="utf-8")
-    print(f"[ARDUINO] Generated BuildConfig.h (EASYSD_DEBUG_SERIAL={'ON' if debug_mode else 'OFF'})")
+    print(f"[ARDUINO] Generated BuildConfig.h (EASYSD_DEBUG_SERIAL={mode_str})")
 
 
-def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None) -> None:
+def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, protocol_test: bool = False) -> None:
     """Compile Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
 
     # Generate BuildConfig.h first
-    arduino_generate_buildconfig(ctx, debug_mode)
+    arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test)
 
     print("\n" + "="*70)
     print("BUILDING ARDUINO SKETCH")
     print("="*70)
     print(f"  Sketch: {ctx.arduino_root}")
     print(f"  Board: {ARDUINO_FQBN}")
-    print(f"  DEBUG_SERIAL: {'ON' if debug_mode else 'OFF'}")
+    print(f"  DEBUG_SERIAL: {'PROTOCOL_TEST' if protocol_test else ('ON' if debug_mode else 'OFF')}")
     print("="*70)
 
     compile_args = [
@@ -747,12 +759,12 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
     return size
 
 
-def arduino_upload(ctx: Context, port: str, debug_mode: bool = False) -> None:
+def arduino_upload(ctx: Context, port: str, debug_mode: bool = False, protocol_test: bool = False) -> None:
     """Compile and upload Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
 
     # Generate BuildConfig.h first
-    arduino_generate_buildconfig(ctx, debug_mode)
+    arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test)
 
     print("\n" + "="*70)
     print("UPLOADING TO ARDUINO")
@@ -760,7 +772,7 @@ def arduino_upload(ctx: Context, port: str, debug_mode: bool = False) -> None:
     print(f"  Sketch: {ctx.arduino_root}")
     print(f"  Board: {ARDUINO_FQBN}")
     print(f"  Port: {port}")
-    print(f"  DEBUG_SERIAL: {'ON' if debug_mode else 'OFF'}")
+    print(f"  DEBUG_SERIAL: {'PROTOCOL_TEST' if protocol_test else ('ON' if debug_mode else 'OFF')}")
     print("="*70)
 
     run_arduino_cli(cli_exe, [
@@ -958,6 +970,8 @@ Examples:
             # Arduino operations
             "arduino-setup", "arduino-compile", "arduino-upload", "arduino-upload-isp",
             "arduino-monitor", "arduino-list-ports", "arduino-clean",
+            # Protocol echo test (Arduino-only, debug serial + protocol test flags)
+            "protocol-test",
             # Combined
             "all"
         ],
@@ -1031,6 +1045,18 @@ def main(argv: Sequence[str]) -> int:
 
     if args.target == "arduino-clean":
         arduino_clean(ctx)
+        return 0
+
+    if args.target == "protocol-test":
+        # Compile (and optionally upload) with EASYSD_PROTOCOL_TEST flags.
+        # Disables LOG_ENABLE_DIR/FILE to reclaim ~600B flash vs normal debug build.
+        # Usage:
+        #   python build.py protocol-test           # compile only
+        #   python build.py protocol-test COM4      # compile + upload
+        if args.port:
+            arduino_upload(ctx, args.port, debug_mode=False, protocol_test=True)
+        else:
+            arduino_compile(ctx, debug_mode=False, protocol_test=True)
         return 0
 
     # ==================================================
