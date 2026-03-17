@@ -466,11 +466,11 @@ rl_chdir_err:
 ;
 ; CRITICAL: NO #SETBANK ANYWHERE in this section.
 ; All routines are exact copies of the CartLib originals with:
-;   - IRQ_ prefix → RL_ prefix
+;   - PROT_ prefix → RL_ prefix
 ;   - All #SETBANK PP_CONFIG_DEFAULT lines REMOVED
-;   - IRQ_ReceiveFragmentNoCallback: $01=$35 OK because RL_INSTALL has written
+;   - PROT_ReceiveFragmentNoCallback: $01=$35 OK because RL_INSTALL has written
 ;     RL_NMI_REDIRECT to $FFFA/$FFFB — NMI dispatch works under $01=$35.
-;   - NMITAB, WasteCertainTime, WasteTooMuchTime, IRQ_SendBit, etc. all copied.
+;   - NMITAB, WasteCertainTime, WasteTooMuchTime, PROT_SendBit, etc. all copied.
 ;
 ; TransferHandler is at $80AF (ROML — accessible with $01=$35 because LORAM=1).
 ;================================================================================

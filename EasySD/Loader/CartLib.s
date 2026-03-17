@@ -2,11 +2,11 @@
 ; Low level interface to the IRQHack64 cartridge.
 ;----------------------------------------------------------------------------------------------------------
 ; Routines that are exposed are as below.
-; IRQ_StartTalking
-; IRQ_EndTalking
-; IRQ_Send
-; IRQ_SendFragment
-; IRQ_ReceiveFragment
+; PROT_StartTalking
+; PROT_EndTalking
+; PROT_Send
+; PROT_SendFragment
+; PROT_ReceiveFragment
 ;
 ; Code is relocatable and fits into the datasette buffer. 
 ; Refer to the CartLibHi for more higher level api for interfacing to the cartridge.
@@ -23,7 +23,7 @@
 ; Registers In : None
 ; Registers Used : A
 ;-----------------------------------------	
-IRQ_DisableVICInterrupts
+PROT_DisableVICInterrupts
 	ASL VIC_INT_ACK
 	LDA #$00
 	STA VIC_INT_CONTROL	
@@ -33,7 +33,7 @@ IRQ_DisableVICInterrupts
 ; Registers In : None
 ; Registers Used : A
 ;-----------------------------------------	
-IRQ_DisableCIAInterrupts
+PROT_DisableCIAInterrupts
 	LDA #$7f    					; $7f = %01111111 
     STA CIA_1_BASE + CIA_INT_MASK	; Turn off CIA 1 interrupts 
     STA CIA_2_BASE + CIA_INT_MASK	; Turn off CIA 2 interrupts 	
@@ -45,9 +45,9 @@ IRQ_DisableCIAInterrupts
 ; Registers In : None
 ; Registers Used : A
 ;-----------------------------------------	
-IRQ_DisableInterrupts
-	JSR IRQ_DisableVICInterrupts
-	JSR IRQ_DisableCIAInterrupts
+PROT_DisableInterrupts
+	JSR PROT_DisableVICInterrupts
+	JSR PROT_DisableCIAInterrupts
 	RTS
 
 
@@ -68,16 +68,16 @@ NMITAB
 ;Registers In : None
 ;Registers Used : A
 ;-----------------------------------------
-IRQ_StartTalking
+PROT_StartTalking
 	SEI
-	JSR IRQ_DisableInterrupts
+	JSR PROT_DisableInterrupts
 		
 	LDA #$64;#73							; I	
-	JSR IRQ_Send
+	JSR PROT_Send
 	LDA #$46;#82							; R	
-	JSR IRQ_Send
+	JSR PROT_Send
 	LDA #$17;#81							; Q	
-	JSR IRQ_Send
+	JSR PROT_Send
 		
 	RTS
 
@@ -85,11 +85,11 @@ IRQ_StartTalking
 ;Registers In : None
 ;Registers Used : A
 ;-----------------------------------------
-IRQ_EndTalking
+PROT_EndTalking
 	LDA #30							;End Talking command
-	JSR IRQ_Send
+	JSR PROT_Send
 	SEI
-	JSR IRQ_DisableCIAInterrupts
+	JSR PROT_DisableCIAInterrupts
 		
 	#SETBANK PP_CONFIG_DEFAULT
 	CLI
@@ -101,7 +101,7 @@ IRQ_EndTalking
 ;Registers In : A (Byte to send)
 ;Registers Used : X
 ;-----------------------------------------
-IRQ_SendBit
+PROT_SendBit
 	JSR WasteTooMuchTime
 	LSR
 	BCC +
@@ -188,7 +188,7 @@ OUTERWASTE
 ; Registers In : A (Byte to send)
 ; Registers Used : X
 ;-----------------------------------------
-IRQ_Send
+PROT_Send
 	STA ZP_IRQ_TMP_SCRATCH
 	TXA
 	PHA
@@ -196,14 +196,14 @@ IRQ_Send
 	PHA
 	LDA ZP_IRQ_TMP_SCRATCH
 	
-	JSR IRQ_SendBit
-	JSR IRQ_SendBit
-	JSR IRQ_SendBit
-	JSR IRQ_SendBit	
-	JSR IRQ_SendBit
-	JSR IRQ_SendBit
-	JSR IRQ_SendBit
-	JSR IRQ_SendBit
+	JSR PROT_SendBit
+	JSR PROT_SendBit
+	JSR PROT_SendBit
+	JSR PROT_SendBit	
+	JSR PROT_SendBit
+	JSR PROT_SendBit
+	JSR PROT_SendBit
+	JSR PROT_SendBit
 	
 	PLA
 	TAY
@@ -224,11 +224,11 @@ IRQ_Send
 ; Registers in : None
 ; Registers used : A, X, Y
 ;-----------------------------------------
-IRQ_SendFragment
+PROT_SendFragment
 	LDY #$00
 -	
 	LDA (ZP_IRQ_API_DATA_LO), Y
-	JSR IRQ_Send
+	JSR PROT_Send
 	CPY #$20
 	BNE -
 	RTS
@@ -249,8 +249,8 @@ IRQ_SendFragment
 ; Registers In  : Y - (Transfer Mode)
 ; Registers Out : None
 ;-----------------------------------------
-IRQ_ReceiveFragment
-	JSR IRQ_DisableInterrupts
+PROT_ReceiveFragment
+	JSR PROT_DisableInterrupts
 	LDA NMITAB, Y
 	STA SOFTNMIVECTOR	
 	LDA #$80					;HIGH portion of $8000 (Cartridge ROM address)
@@ -290,8 +290,8 @@ IRQ_ReceiveFragment
 ; Registers In  : Y - (Transfer Mode)
 ; Registers Out : None
 ;-----------------------------------------
-IRQ_ReceiveFragmentNoCallback
-	JSR IRQ_DisableInterrupts
+PROT_ReceiveFragmentNoCallback
+	JSR PROT_DisableInterrupts
 	LDA NMITAB, Y
 	STA SOFTNMIVECTOR	
 	LDA #$80					;HIGH portion of $8000 (Cartridge ROM address)

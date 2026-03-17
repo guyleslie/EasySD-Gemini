@@ -27,17 +27,17 @@ ALTENTRY
 
 ;Lets try to open a file
 	PRINTSTATUSANDWAIT OPENINGFILE, 100
-	JSR IRQ_DisableDisplay		
+	JSR PROT_DisableDisplay		
 	LDX #<FILE_PATH_BUF
 	LDY #>FILE_PATH_BUF
 	LDA #31
-	JSR IRQ_SetName
+	JSR PROT_SetName
 	LDX #01		; Flags=read
-	JSR IRQ_OpenFile
+	JSR PROT_OpenFile
 	BCC OPENINGCONT
 	JMP ERROR_OPENING_FILE
 OPENINGCONT
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 
 	PRINTSTATUSANDWAIT OPENINGSUCCESS, 200
 	;JMP FILEREAD
@@ -49,11 +49,11 @@ OPENINGCONT
 	LDA #>KOALA_INFO_BUFFER
 	STA ZP_IRQ_API_DATA_HI
 
-	JSR IRQ_DisableDisplay
-	JSR IRQ_GetInfoForFile
+	JSR PROT_DisableDisplay
+	JSR PROT_GetInfoForFile
 	BCC +                    ; If no error (Carry Clear), continue
 	JMP ERRORREADING         ; If error (Carry Set), long jump
-+	JSR IRQ_EnableDisplay
++	JSR PROT_EnableDisplay
 
 	; Extract file size from FAT entry (bytes 28-31)
 	LDA KOALA_INFO_BUFFER + 28
@@ -105,14 +105,14 @@ SIZE_OK
 	LDA #>PICTURE
 	STA ZP_IRQ_API_DATA_HI
 
-	JSR IRQ_DisableDisplay
+	JSR PROT_DisableDisplay
 	JSR LoadFileBySize
 	BCC +                    ; If no error (Carry Clear), continue
 	JMP ERRORREADING         ; If error (Carry Set), long jump
 +
 	PRINTSTATUSANDWAIT CLOSINGFILE, 250	
 	PRINTSTATUSANDWAIT CLOSINGFILE, 250	
-	JSR IRQ_CloseFile
+	JSR PROT_CloseFile
 	BCS ERRORCLOSING
 	
 CONTINUE	
@@ -120,7 +120,7 @@ CONTINUE
 	JSR VIEWKOALA
 	JMP INPUT_GET
 ERRORCLOSING
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	PRINTSTATUSANDWAIT ERRORCLOSINGFILE, 100		
 	JMP EXITFAIL
 INPUT_GET
@@ -130,28 +130,28 @@ INPUT_GET
 	
 EXITFAIL	
 	JSR RESTORESTATE		; Restore VIC/$01 state for clean menu return
-	JSR IRQ_ExitToMenu
+	JSR PROT_ExitToMenu
 	JMP *
 	
 	
 ERROR_BADSIZE
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	PRINTSTATUSANDWAIT BADSIZE, 250
 	JMP EXITFAIL
 
 ERRORREADING	
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	PRINTSTATUSANDWAIT READINGFAILED, 200		
 	JMP EXITFAIL
 	
 ERROR_OPENING_FILE	
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	PRINTSTATUSANDWAIT OPENINGFILEFAILED, 200		
 	JMP EXITFAIL	
 	
 FILEREAD
 	NOP
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 
 	
 	JSR VIEWKOALA

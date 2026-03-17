@@ -155,7 +155,7 @@ SETDIR3
 
 ; ------------------------------------------------------------
 ; MOCK_GetCurrentPath
-;   Mirrors what IRQ_GetCurrentPath (COMMAND_GET_PATH) delivers.
+;   Mirrors what PROT_GetCurrentPath (COMMAND_GET_PATH) delivers.
 ;   Copies MOCK_CURRENT_PATH (64 bytes) into PATHBUFFER.
 ;   Carry: always clear on return.
 ; ------------------------------------------------------------
@@ -233,7 +233,7 @@ _mpe_copy
 	LDA #>INPUT_GET
 	STA $C000 + MOCK_PRG_JMP_OFFSET + 1
 
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	JMP $C000		; execute mock PRG
 
 ; ============================================================

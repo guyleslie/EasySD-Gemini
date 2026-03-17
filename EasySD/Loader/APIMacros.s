@@ -19,7 +19,7 @@
 ; OPENFILE - Open file with standard sequence
 ;-----------------------------------------------
 ; Opens a file using the IRQHack64 file API.
-; Combines IRQ_SetName and IRQ_OpenFile calls.
+; Combines PROT_SetName and PROT_OpenFile calls.
 ;
 ; ARCHITECTURAL CONTRACT:
 ;   - Sets filename from buffer
@@ -46,15 +46,15 @@
 ;   LDX #<FILE_PATH_BUF
 ;   LDY #>FILE_PATH_BUF
 ;   LDA #31
-;   JSR IRQ_SetName
+;   JSR PROT_SetName
 ;   LDX #01
-;   JSR IRQ_OpenFile
+;   JSR PROT_OpenFile
 ;
 ; Common usage: All plugins that load files
 ; Frequency: 12 occurrences in codebase
 ;
 ; Notes:
-;   - Must call IRQ_DisableDisplay before if needed
+;   - Must call PROT_DisableDisplay before if needed
 ;   - Check carry flag after call for errors
 ;   - Remember to call CLOSEFILE when done
 ;-----------------------------------------------
@@ -62,9 +62,9 @@ OPENFILE .macro
 	LDX #<\1
 	LDY #>\1
 	LDA \2
-	JSR IRQ_SetName
+	JSR PROT_SetName
 	LDX \3
-	JSR IRQ_OpenFile
+	JSR PROT_OpenFile
 	.endm
 
 ;-----------------------------------------------
@@ -75,7 +75,7 @@ OPENFILE .macro
 ;
 ; ARCHITECTURAL CONTRACT:
 ;   - Sets buffer pointer in ZP_IRQ_API_DATA_LO/HI
-;   - Calls IRQ_GetInfoForFile
+;   - Calls PROT_GetInfoForFile
 ;   - Returns 32-byte FAT directory entry
 ;   - Carry flag indicates success/failure
 ;
@@ -99,7 +99,7 @@ OPENFILE .macro
 ;   LDA #>FILEINFO_BUFFER
 ;   STA ZP_IRQ_API_DATA_HI
 ;   LDY #$00
-;   JSR IRQ_GetInfoForFile
+;   JSR PROT_GetInfoForFile
 ;
 ; Common usage: Plugins that need exact file size
 ; Frequency: 8 occurrences in codebase
@@ -119,14 +119,14 @@ GETFILEINFO .macro
 	LDA #>\1
 	STA ZP_IRQ_API_DATA_HI
 	LDY #$00
-	JSR IRQ_GetInfoForFile
+	JSR PROT_GetInfoForFile
 	.endm
 
 ;-----------------------------------------------
 ; CLOSEFILE - Close currently open file
 ;-----------------------------------------------
 ; Closes the currently open file.
-; Simple wrapper for IRQ_CloseFile.
+; Simple wrapper for PROT_CloseFile.
 ;
 ; ARCHITECTURAL CONTRACT:
 ;   - Closes current file handle
@@ -143,7 +143,7 @@ GETFILEINFO .macro
 ;   #CLOSEFILE
 ;
 ; Replaces:
-;   JSR IRQ_CloseFile
+;   JSR PROT_CloseFile
 ;
 ; Common usage: Cleanup after file operations
 ; Frequency: 17 occurrences in codebase
@@ -154,7 +154,7 @@ GETFILEINFO .macro
 ;   - Consider adding error checking for critical code
 ;-----------------------------------------------
 CLOSEFILE .macro
-	JSR IRQ_CloseFile
+	JSR PROT_CloseFile
 	.endm
 
 ;-----------------------------------------------
@@ -252,8 +252,8 @@ SETADDR .macro
 ; End of APIMacros.s
 ;===============================================
 ; For display control, see existing functions:
-;   - IRQ_DisableDisplay (turn off screen)
-;   - IRQ_EnableDisplay (turn on screen)
+;   - PROT_DisableDisplay (turn off screen)
+;   - PROT_EnableDisplay (turn on screen)
 ; These are already efficient JSR calls and don't
 ; need macro wrappers.
 ;===============================================

@@ -48,8 +48,8 @@ PluginMain:
 Plugin_Exit:
     jsr Plugin_Shutdown
     jsr RESTORESTATE       ; Restore VIC/$01 state for clean menu return
-    jsr IRQ_DisableDisplay
-    jsr IRQ_ExitToMenu
+    jsr PROT_DisableDisplay
+    jsr PROT_ExitToMenu
     jmp *
 
 ;------------------------------------------------------------
@@ -116,10 +116,10 @@ LoadSidPlayer9000:
     ldx #<SidPlayerName
     ldy #>SidPlayerName
     lda #SIDPLAYER_NAME_LEN
-    jsr IRQ_SetName
+    jsr PROT_SetName
 
     ldx #$01
-    jsr IRQ_OpenFile
+    jsr PROT_OpenFile
     bcs LoadSid_Fail
     lda #1
     sta FILE_OPENED         ; Track open file
@@ -131,7 +131,7 @@ LoadSidPlayer9000:
     sta ZP_IRQ_API_DATA_HI
     lda #$01
     sta ZP_IRQ_API_DATA_LENGTH
-    jsr IRQ_ReadFileNoCallback
+    jsr PROT_ReadFileNoCallback
     bcs LoadSid_FailClose
 
     ; get directory entry and size
@@ -140,7 +140,7 @@ LoadSidPlayer9000:
     lda #>HdrPage
     sta ZP_IRQ_API_DATA_HI
     ldy #$00
-    jsr IRQ_GetInfoForFile
+    jsr PROT_GetInfoForFile
     bcs LoadSid_FailClose
 
     lda HdrPage+28
@@ -164,14 +164,14 @@ LoadSidPlayer9000:
     jsr LoadFileBySize
     bcs LoadSid_FailClose
 
-    jsr IRQ_CloseFile
+    jsr PROT_CloseFile
     lda #0
     sta FILE_OPENED         ; File closed
     clc
     rts
 
 LoadSid_FailClose:
-    jsr IRQ_CloseFile
+    jsr PROT_CloseFile
     lda #0
     sta FILE_OPENED         ; File closed (even on error)
 LoadSid_Fail:
@@ -186,10 +186,10 @@ LoadSelectedMus8000:
     ldx #<FILE_PATH_BUF
     ldy #>FILE_PATH_BUF
     lda #31
-    jsr IRQ_SetName
+    jsr PROT_SetName
 
     ldx #$01
-    jsr IRQ_OpenFile
+    jsr PROT_OpenFile
     bcs LoadMus_Fail
     lda #1
     sta FILE_OPENED         ; Track open file
@@ -201,7 +201,7 @@ LoadSelectedMus8000:
     sta ZP_IRQ_API_DATA_HI
     lda #$01
     sta ZP_IRQ_API_DATA_LENGTH
-    jsr IRQ_ReadFileNoCallback
+    jsr PROT_ReadFileNoCallback
     bcs LoadMus_FailClose
 
     ; get file info / size
@@ -210,7 +210,7 @@ LoadSelectedMus8000:
     lda #>HdrPage
     sta ZP_IRQ_API_DATA_HI
     ldy #$00
-    jsr IRQ_GetInfoForFile
+    jsr PROT_GetInfoForFile
     bcs LoadMus_FailClose
 
     lda HdrPage+28
@@ -232,14 +232,14 @@ LoadSelectedMus8000:
     jsr LoadFileBySize
     bcs LoadMus_FailClose
 
-    jsr IRQ_CloseFile
+    jsr PROT_CloseFile
     lda #0
     sta FILE_OPENED         ; File closed
     clc
     rts
 
 LoadMus_FailClose:
-    jsr IRQ_CloseFile
+    jsr PROT_CloseFile
     lda #0
     sta FILE_OPENED         ; File closed (even on error)
 LoadMus_Fail:
@@ -248,7 +248,7 @@ LoadMus_Fail:
 
 ;------------------------------------------------------------
 ; DetectMusHeaderSetSkip
-;   Uses HdrPage[0..7] and IRQ_FILE_SIZE_*.
+;   Uses HdrPage[0..7] and PROT_FILE_SIZE_*.
 ;   Tries PRG+MUS (skip=2) then RAW (skip=0).
 ;------------------------------------------------------------
 DetectMusHeaderSetSkip:
@@ -440,7 +440,7 @@ EnableCIA1TimerAInterrupt:
 
 Plugin_Init:
     ; Initialize plugin (nieuw 5.txt standard)
-    jsr IRQ_StartTalking    ; Correct API (NOT CartLibInit!)
+    jsr PROT_StartTalking    ; Correct API (NOT CartLibInit!)
 
     ; Initialize state flags
     lda #0
@@ -471,7 +471,7 @@ Plugin_Shutdown:
     ; 2. Close file if open
     lda FILE_OPENED
     beq +                   ; No file open, skip
-    jsr IRQ_CloseFile
+    jsr PROT_CloseFile
     lda #0
     sta FILE_OPENED         ; Clear flag
 +
@@ -484,7 +484,7 @@ Plugin_Shutdown:
     cli
 
     ; 4. End cartridge communication
-    jsr IRQ_EndTalking
+    jsr PROT_EndTalking
 
     rts
 

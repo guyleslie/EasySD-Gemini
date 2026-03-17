@@ -68,12 +68,12 @@ CART_ROM_RESTORE .macro
 	JSR DISPLAYPETGRAPHICS
 	DELAYFRAMES 75
 
-	JSR IRQ_DisableDisplay	
+	JSR PROT_DisableDisplay	
 	JSR DISPLAYSCREENGRAPHICS
 	LDA #$40
 	STA $028A		; Disable all key repeat (RPTFLG)
 .if DEBUG = 0 
-	JSR IRQ_StartTalking
+	JSR PROT_StartTalking
 .else
 	NOP
 	NOP
@@ -98,7 +98,7 @@ CART_ROM_RESTORE .macro
 	LDA CURPAGEINDEX
 	
 .if DEBUG = 0
-	JSR IRQ_ReadDirectory
+	JSR PROT_ReadDirectory
 	BCC _dir_ok
 	LDA #$02			; red
 	LDX #<MSG_SD_READ_ERR
@@ -189,7 +189,7 @@ EXECNEXT
 	INC CURPAGEINDEX	
 	LDX #COMMANDNEXTPAGE
 	STX COMMANDBYTE
-	JSR IRQ_DisableDisplay
+	JSR PROT_DisableDisplay
 	JMP DOREADDIRECTORY
 	
 SPLAY 	
@@ -206,12 +206,12 @@ EXECPREV
 	DEC CURPAGEINDEX
 	LDX #COMMANDPREVPAGE
 	STX COMMANDBYTE	
-	JSR IRQ_DisableDisplay	
+	JSR PROT_DisableDisplay	
 	JMP DOREADDIRECTORY
 	
 ENTER  	  
 
-	JSR IRQ_DisableDisplay
+	JSR PROT_DisableDisplay
 	;Decide if it's a file selection or special command (previous / next)
 	LDA COMMANDBYTE
 	AND #$40
@@ -233,12 +233,12 @@ NOPREV
 	; Enter directory (Arduino updates currentPath authoritatively)
 	JMP ENTERDIR
 ; ------------------------------------------------------------
-; IRQ_SetNameZ
+; PROT_SetNameZ
 ;   Input : X=lo, Y=hi pointer to 0-terminated string
-;   Output: calls IRQ_SetName with computed length (max PATH_MAX)
+;   Output: calls PROT_SetName with computed length (max PATH_MAX)
 ;   Carry : set on error (unterminated/too long), clear on success
 ; ------------------------------------------------------------
-IRQ_SetNameZ
+PROT_SetNameZ
 	STX $06
 	STY $07
 	LDY #0
@@ -256,13 +256,13 @@ _isnz_done
 	LDX $06
 	LDY $07
 	PLA
-	JSR IRQ_SetName
+	JSR PROT_SetName
 	CLC
 	RTS
 
 
 ; ------------------------------------------------------------
-; IRQ_GetCurrentPath
+; PROT_GetCurrentPath
 ;   No input. Sends COMMAND_GET_PATH to Arduino, receives 256
 ;   bytes into PLUGIN_HEADER (safe 256-byte scratch buffer),
 ;   then copies first 64 bytes into PATHBUFFER.
@@ -273,7 +273,7 @@ _isnz_done
 ;   overwriting screen RAM that would occur if receiving to PATHBUFFER.
 ; ------------------------------------------------------------
 .if DEBUG = 0
-IRQ_GetCurrentPath
+PROT_GetCurrentPath
 	; Receive 256 bytes into PLUGIN_HEADER (safe scratch, not screen RAM)
 	LDA #<PLUGIN_HEADER
 	STA ZP_IRQ_API_DATA_LO
@@ -281,14 +281,14 @@ IRQ_GetCurrentPath
 	STA ZP_IRQ_API_DATA_HI
 	; Send command
 	LDA #COMMAND_GET_PATH
-	JSR IRQ_Send
-	JSR IRQ_WaitProcessing
+	JSR PROT_Send
+	JSR PROT_WaitProcessing
 	BPL _gcp_error		; positive value = error code
 	; Receive 1 page (256 bytes): path in [0..63], rest zeros
 	LDA #$01
 	STA ZP_IRQ_API_DATA_LENGTH
 	LDY #$00
-	JSR IRQ_ReceiveFragmentNoCallback
+	JSR PROT_ReceiveFragmentNoCallback
 	; Copy first 64 bytes from PLUGIN_HEADER to PATHBUFFER
 	LDY #0
 _gcp_copy
@@ -340,7 +340,7 @@ _eld_done
 
 ENTERDIR
 .if DEBUG = 0
-	JSR IRQ_ChangeDirectory
+	JSR PROT_ChangeDirectory
 	BCS CHANGEDIRFAIL	
 .else
 	JSR MOCK_EnterDir
@@ -361,7 +361,7 @@ DOREADDIRECTORY
 	LDX #20			;Max 20 directory items
 	LDA CURPAGEINDEX
 .if DEBUG = 0
-	JSR IRQ_ReadDirectoryNC
+	JSR PROT_ReadDirectoryNC
 	BCC _dirNC_ok
 	LDA #$02			; red
 	LDX #<MSG_SD_READ_ERR
@@ -406,10 +406,10 @@ PLUGIN
 	JSR BUILDPLUGINNAME_BIN
 	LDX #<PLUGINNAME
 	LDY #>PLUGINNAME
-	JSR IRQ_SetNameZ			
+	JSR PROT_SetNameZ			
 	
 	LDX #01		; Flags=read
-	JSR IRQ_OpenFile
+	JSR PROT_OpenFile
 	BCC BINPLUGINEXISTS
 	
 	DELAYFRAMES 1
@@ -417,9 +417,9 @@ PLUGIN
 	JSR BUILDPLUGINNAME_PRG
 	LDX #<PLUGINNAME
 	LDY #>PLUGINNAME
-	JSR IRQ_SetNameZ			
+	JSR PROT_SetNameZ			
 	LDX #01		; Flags=read
-	JSR IRQ_OpenFile
+	JSR PROT_OpenFile
 	BCC PRGPLUGINEXISTS
 	JMP PROGRAM
 	
@@ -434,11 +434,11 @@ BINPLUGINEXISTS
 		; FIXES:
 		;  1) Remove hardcoded page count (LDA #15)
 		;  2) Do NOT lose bytes 2..255 of PRG payload
-		;  3) Load exact payload size using IRQ_GetInfoForFile + LoadFileBySize
+		;  3) Load exact payload size using PROT_GetInfoForFile + LoadFileBySize
 		;
 		; Algorithm:
 		;   - Read first 256 bytes to PLUGIN_HEADER to get load address
-		;   - Query file size, copy size into IRQ_FILE_SIZE_* ($80-$83)
+		;   - Query file size, copy size into PROT_FILE_SIZE_* ($80-$83)
 		;   - Seek to offset 2 (skip PRG header) and load full payload to load address
 		; ------------------------------------------------------------
 
@@ -450,13 +450,13 @@ BINPLUGINEXISTS
 	LDA #1			; Read 1 page (256 bytes) for header
 	STA ZP_IRQ_API_DATA_LENGTH
 
-	JSR IRQ_DisableDisplay
+	JSR PROT_DisableDisplay
 
 	; Enable cartridge ROM access before reading
 	CART_ROM_ENABLE
 
 		LDY #$00
-	JSR IRQ_ReadFileNoCallback
+	JSR PROT_ReadFileNoCallback
 
 	; Restore normal configuration
 	CART_ROM_RESTORE
@@ -477,7 +477,7 @@ BINPLUGINEXISTS
 		STA ZP_IRQ_API_DATA_HI
 		LDY #$00
 		CART_ROM_ENABLE
-		JSR IRQ_GetInfoForFile
+		JSR PROT_GetInfoForFile
 		CART_ROM_RESTORE
 		BCS BINPLUGIN_LOAD_ERROR_INFO	; If GetInfo failed, abort
 
@@ -508,12 +508,12 @@ BINPLUGINEXISTS
 ; ------------------------------------------------------------
 BINPLUGIN_LOAD_ERROR_INFO:
 .if DEBUG = 1
-	LDA #$02				; Error code 2 = IRQ_GetInfoForFile failed
+	LDA #$02				; Error code 2 = PROT_GetInfoForFile failed
 	JSR DEBUG_SetError
 	JSR DEBUG_Break
 .endif
-	JSR IRQ_CloseFile
-	JSR IRQ_EnableDisplay
+	JSR PROT_CloseFile
+	JSR PROT_EnableDisplay
 	JMP INPUT_GET
 
 BINPLUGIN_LOAD_ERROR_LOAD:
@@ -522,19 +522,19 @@ BINPLUGIN_LOAD_ERROR_LOAD:
 	JSR DEBUG_SetError
 	JSR DEBUG_Break
 .endif
-	JSR IRQ_CloseFile
-	JSR IRQ_EnableDisplay
+	JSR PROT_CloseFile
+	JSR PROT_EnableDisplay
 	JMP INPUT_GET
 
 LDA #1
 	STA $D020
 
-	;JSR IRQ_EnableDisplay
+	;JSR PROT_EnableDisplay
 
 	DELAYFRAMES	1
-	JSR IRQ_CloseFile
+	JSR PROT_CloseFile
 
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 
 	JSR GETCURRENTROW
 
@@ -546,12 +546,12 @@ LDA #1
 		
 PRGPLUGINEXISTS	
 	DELAYFRAMES	1	
-	JSR IRQ_CloseFile	
+	JSR PROT_CloseFile	
 	
 	JSR GETCURRENTROW	
 	JSR PrepareFileNameParameter
 
-	JSR IRQ_InvokeWithName
+	JSR PROT_InvokeWithName
 
 	JMP *
 
@@ -567,12 +567,12 @@ PROGRAM
 	BEQ +
 	; --- TAP path ---
 	JSR TAP_CHOICE
-	; X now holds flags for IRQ_InvokeWithName (bit0=autorun)
-	JSR IRQ_InvokeWithName
+	; X now holds flags for PROT_InvokeWithName (bit0=autorun)
+	JSR PROT_InvokeWithName
 	BCC TAP_INVOKE_OK
 	; Error: A holds error code
 	JSR TAP_SHOW_ERROR
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	JMP INPUT_GET
 TAP_INVOKE_OK
 	; If save-only (bit0=0), stay in menu and show success.
@@ -583,7 +583,7 @@ TAP_INVOKE_OK
 	LDX #<MSG_TAP_SAVED
 	LDY #>MSG_TAP_SAVED
 	JSR STATUS_LINE
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	JMP INPUT_GET
 TAP_AUTORUN
 	; Auto-run path: the micro will reset C64 and load the converted PRG.
@@ -592,9 +592,9 @@ TAP_AUTORUN
 	; --- Non-TAP default path ---
 +	;Invoking with name
 	LDX #$01		; flags: autorun
-	JSR IRQ_InvokeWithName
+	JSR PROT_InvokeWithName
 	BCC SUCCEEDINVOKE
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 SUCCEEDINVOKE
 	JMP *
 .else
@@ -654,14 +654,14 @@ TAP_SCAN_NO
 	RTS
 
 
-; Waits for user choice. Returns X flags for IRQ_InvokeWithName.
+; Waits for user choice. Returns X flags for PROT_InvokeWithName.
 ; Default: Convert+Run (X=$01). Save-only: X=$00.
 TAP_CHOICE
 	LDA #$0B			; dark gray
 	LDX #<MSG_TAP_PROMPT
 	LDY #>MSG_TAP_PROMPT
 	JSR STATUS_LINE
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 TAP_CHOICE_WAIT
 	JSR SCNKEY
 	JSR GETIN
@@ -685,7 +685,7 @@ TAP_RUN
 	RTS
 
 
-; A contains error code from IRQ_InvokeWithName (carry set)
+; A contains error code from PROT_InvokeWithName (carry set)
 TAP_SHOW_ERROR
 	CMP #$12			; TAP_UNSUPPORTED
 	BEQ _uns
@@ -772,14 +772,14 @@ SPECIALCMD
 	
 GOBACK
 	; Send ".." to the Arduino. Arduino navigates one level up and updates
-	; its authoritative currentPath. C64 queries the new path via IRQ_GetCurrentPath.
+	; its authoritative currentPath. C64 queries the new path via PROT_GetCurrentPath.
 	LDA #>PARENTDIR
 	TAY
 	LDA #<PARENTDIR
 	TAX
-	JSR IRQ_SetNameZ
+	JSR PROT_SetNameZ
 .if DEBUG = 0
-	JSR IRQ_ChangeDirectory
+	JSR PROT_ChangeDirectory
 .endif
 	DELAYFRAMES 2
 	RTS
@@ -804,7 +804,7 @@ NEWCONTENT
 ; Update the screen with the new content got from micro
 	INC BORDER
 
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	JSR GETCURRENTROW
 	JSR CLEARARROW
 	JSR PRINTDIRHEADER	; 1. directory header row
@@ -823,7 +823,7 @@ DIRREAD
 ;	STA BORDER
 
 ;	DELAYFRAMES 10
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 
 	JSR PRINTDIRHEADER	; 1. directory header row
 	JSR PRINTPAGE		; 2. filenames + decorations
@@ -866,10 +866,10 @@ SETFILENAME
 	JSR PrepareFileNameParameter
 	; (always succeeds — path fits PATH_MAX by design)
 
-	; Set filename for IRQ_InvokeWithName using null-terminated PATHBUFFER
+	; Set filename for PROT_InvokeWithName using null-terminated PATHBUFFER
 	LDX #<PATHBUFFER
 	LDY #>PATHBUFFER
-	JSR IRQ_SetNameZ
+	JSR PROT_SetNameZ
 	CLC
 	RTS
 
@@ -1313,7 +1313,7 @@ PRINTDIRHEADER
 
 .if DEBUG = 0
 	; Ask Arduino for current path → PATHBUFFER[0..63]
-	JSR IRQ_GetCurrentPath
+	JSR PROT_GetCurrentPath
 .else
 	JSR MOCK_GetCurrentPath
 .endif
@@ -1395,7 +1395,7 @@ PrepareFileNameParameter:
 	; 1. Save current row, fetch current path → PATHBUFFER[0..63]
 .if DEBUG = 0
 	STX $08
-	JSR IRQ_GetCurrentPath		; PATHBUFFER[0..63] = "/GAMES/ACTION\0..."
+	JSR PROT_GetCurrentPath		; PATHBUFFER[0..63] = "/GAMES/ACTION\0..."
 .else
 	STX $08
 	JSR MOCK_GetCurrentPath		; PATHBUFFER[0..63] = MOCK_CURRENT_PATH copy
@@ -1449,7 +1449,7 @@ _pfp_null_term
 	RTS
 
 ; PUSHDIRNAME and POPDIRNAME removed: Arduino is now the single source
-; of truth for the current path. C64 queries via IRQ_GetCurrentPath.
+; of truth for the current path. C64 queries via PROT_GetCurrentPath.
 	
 DISPLAYPETGRAPHICS
 	; set to 25 line text mode and turn on the screen
@@ -1616,7 +1616,7 @@ GAMELIST
 DIRLOAD = GAMELIST - 2
 ; Reserve space for 20 directory entries (20 * 32 bytes = 640 bytes)
 ; In DEBUG mode: SETDIR1/2/3 copies MOCK_DIR1/2/3 data here
-; In release mode: IRQ_ReadDirectory fills this from SD card
+; In release mode: PROT_ReadDirectory fills this from SD card
 	.FILL (20 * 32), 0
 
 

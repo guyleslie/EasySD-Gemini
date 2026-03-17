@@ -25,8 +25,8 @@
 ;   6. On exit, vectors remain patched (one-way compatibility layer)
 ;
 ; PROTOCOL INVARIANTS:
-;   - ALL file operations MUST be wrapped in IRQ_StartTalking/IRQ_EndTalking
-;   - Error paths MUST call IRQ_EndTalking before returning
+;   - ALL file operations MUST be wrapped in PROT_StartTalking/PROT_EndTalking
+;   - Error paths MUST call PROT_EndTalking before returning
 ;   - Protocol state leak will corrupt subsequent operations
 ;
 ; ENTRY POINT:
@@ -224,23 +224,23 @@ MAIN
 
 ;Lets try to open a file
 	PRINTSTATUSANDWAIT OPENINGFILE, 100
-	JSR IRQ_DisableDisplay
-	; CRITICAL: Start protocol session - MUST call IRQ_EndTalking on ALL exit paths
-	JSR IRQ_StartTalking
+	JSR PROT_DisableDisplay
+	; CRITICAL: Start protocol session - MUST call PROT_EndTalking on ALL exit paths
+	JSR PROT_StartTalking
 	#OPENFILE FILE_PATH_BUF, #31, #01
 	BCC OPENINGCONT
 	JMP MAIN_ERROR_EXIT
 OPENINGCONT
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 
 	PRINTSTATUSANDWAIT OPENINGSUCCESS, 200
 
 	#SETADDR GENERALBUFFER, ZP_IRQ_API_DATA_LO
 
-	JSR IRQ_DisableDisplay
+	JSR PROT_DisableDisplay
 
 	LDY #$00
-	JSR IRQ_GetInfoForFile
+	JSR PROT_GetInfoForFile
 	JSR ERROR_GATE
 
 	#EXTRACTFILESIZE GENERALBUFFER, FILELENGTH
@@ -252,7 +252,7 @@ OPENINGCONT
 	#SETADDR GENERALBUFFER, ZP_IRQ_API_DATA_LO
 	LDA #1
 	STA ZP_IRQ_API_DATA_LENGTH
-	JSR IRQ_ReadFileNoCallback
+	JSR PROT_ReadFileNoCallback
 	JSR ERROR_GATE
 	DELAYFRAMES 2
 
@@ -309,7 +309,7 @@ RESUMEFULLLOAD
 	#CLOSEFILE
 	JSR ERROR_GATE
 
-	JSR IRQ_EndTalking
+	JSR PROT_EndTalking
 	JSR ERROR_GATE
 
 	; Now we need to change the kernal vectors and launch the program.
@@ -347,7 +347,7 @@ RESUMEFULLLOAD
 	LDA #$37					;Restore default memory layout
 	STA $01
 
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 
 	LDA #$08					;Initialize current device number as 8
 	STA $BA
@@ -396,10 +396,10 @@ INPUT_GET
 
 ; --------------------------------------------------
 ; MAIN_ERROR_EXIT: Cleanup handler for MAIN section errors
-; Ensures IRQ_EndTalking is called before error exit
+; Ensures PROT_EndTalking is called before error exit
 ; --------------------------------------------------
 MAIN_ERROR_EXIT
-	JSR IRQ_EndTalking	; CRITICAL: Cleanup protocol session
+	JSR PROT_EndTalking	; CRITICAL: Cleanup protocol session
 	; Fall through to EXITFAIL
 
 EXITFAIL
@@ -409,7 +409,7 @@ EXITFAIL
 .endif
 	LDA #$02
 	STA BORDER
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 
 	JMP INPUT_GET
 
@@ -534,13 +534,13 @@ FD
 ; Entry conditions:
 ;   ENDADDRESS > $C002 (guaranteed by caller)
 ;   ZP_IRQ_API_DATA_LO/HI = STARTADDRESSLO/HI (set at "Step 2: Parse load address")
-;   Active IRQ_StartTalking session; file open, position at start of data.
+;   Active PROT_StartTalking session; file open, position at start of data.
 ;
 ; Exit (normal, <64 pages): JMP $033B → poll ZP_IRQ_STATE_WAITHANDLE → JMP $0334 (Launcher)
 ; Exit (Phase3, 64 pages): JMP $033B → poll → JMP $0343 (P3_TAIL_CODE) → copy $FFFA-$FFFF →
 ;                          JMP $0334 (Launcher) → LDA #$37 / STA $01 / JMP STARTADDR
 ;
-; Note: CLOSEFILE / IRQ_EndTalking are NOT called — intentional protocol leak.
+; Note: CLOSEFILE / PROT_EndTalking are NOT called — intentional protocol leak.
 ;       The Arduino returns to SoftStartListening; all state resets on next C64
 ;       hardware reset.
 ;================================================================================
@@ -667,7 +667,7 @@ p2tk_normal_nmi:
 
 p2tk_after_nmi:
 
-	; Setup ZP for TransferHandler (same layout as IRQ_ReceiveFragmentNoCallback)
+	; Setup ZP for TransferHandler (same layout as PROT_ReceiveFragmentNoCallback)
 	LDA #$00
 	STA ZP_IRQ_STATE_WAITHANDLE  ; clear done flag ($64 = pending)
 	STA ZP_IRQ_API_DATA_LO       ; target address lo = $00  -> $C000
@@ -675,12 +675,12 @@ p2tk_after_nmi:
 	STA ZP_IRQ_API_DATA_HI       ; target address hi = $C0
 	STY ZP_IRQ_API_DATA_LENGTH   ; Phase2_pages (also used for LDX below)
 
-	; Send COMMAND_READ_FILE for Phase 2 (inside the active IRQ_StartTalking session)
+	; Send COMMAND_READ_FILE for Phase 2 (inside the active PROT_StartTalking session)
 	LDA #COMMAND_READ_FILE
-	JSR IRQ_Send
-	TYA                          ; Y = Phase2_pages (IRQ_Send preserves Y)
-	JSR IRQ_Send
-	JSR IRQ_WaitProcessing       ; wait for Arduino ACK (1 ms before streaming starts)
+	JSR PROT_Send
+	TYA                          ; Y = Phase2_pages (PROT_Send preserves Y)
+	JSR PROT_Send
+	JSR PROT_WaitProcessing       ; wait for Arduino ACK (1 ms before streaming starts)
 
 	; Load TransferHandler page counter, reset byte index, enter P2TK
 	LDX ZP_IRQ_API_DATA_LENGTH   ; X = Phase2_pages (NMI handler page counter)
@@ -708,20 +708,20 @@ NEW_OPEN
 	BEQ +
 	JMP K_OPEN
 +
-	JSR IRQ_DisableDisplay
-	JSR IRQ_StartTalking
+	JSR PROT_DisableDisplay
+	JSR PROT_StartTalking
 	DELAYFRAMES 2
 	; Load filename pointer from KERNAL zero page ($BB/$BC)
 	; CRITICAL: Use zero page CONTENT, not ADDRESS
 	LDX KERNAL_FILENAME_LOW
 	LDY KERNAL_FILENAME_HIGH
 	LDA KERNAL_FILENAME_LENGTH
-	JSR IRQ_SetName
+	JSR PROT_SetName
 	LDX #01		; Flags=read
-	JSR IRQ_OpenFile
+	JSR PROT_OpenFile
 	BCC OPEN_SUCCESS
 	; CRITICAL: Cleanup protocol session on error
-	JSR IRQ_EndTalking
+	JSR PROT_EndTalking
 	LDA #128
 	SEC
 	JMP NEW_OPEN_FINISH
@@ -731,13 +731,13 @@ OPEN_SUCCESS
 
 	BCC +
 	; CRITICAL: Cleanup protocol session on error
-	JSR IRQ_EndTalking
+	JSR PROT_EndTalking
 	LDA #128
 	SEC
 	JMP NEW_OPEN_FINISH
 +
 	DELAYFRAMES 2
-	JSR IRQ_EndTalking
+	JSR PROT_EndTalking
 
 
 	#EXTRACTFILESIZE GENERALBUFFER, OPENEDFILELENGTH
@@ -758,7 +758,7 @@ OPEN_SUCCESS
 	LDA #0
 NEW_OPEN_FINISH
 	STA KERNAL_STATUS
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 
 	RTS
 
@@ -783,22 +783,22 @@ NEW_CLOSE
 	BEQ +
 	JMP K_CLOSE
 +
-	JSR IRQ_DisableDisplay
+	JSR PROT_DisableDisplay
 
-	JSR IRQ_StartTalking
+	JSR PROT_StartTalking
 
 	DELAYFRAMES 2
 	#CLOSEFILE
 	BCC +
 	; CRITICAL: Cleanup protocol session on error
-	JSR IRQ_EndTalking
+	JSR PROT_EndTalking
 	LDA #128
 	STA KERNAL_STATUS
 	SEC
 	RTS
 +
 	DELAYFRAMES 2
-	JSR IRQ_EndTalking
+	JSR PROT_EndTalking
 	RTS
 
 NEW_CLRCHN
@@ -839,7 +839,7 @@ NEW_CHRIN
 	LDA FILEINDEXLOW
 	BNE +			;Read from already filled buffer
 
-	JSR IRQ_StartTalking
+	JSR PROT_StartTalking
 	DELAYFRAMES 2
 
 	LDY #$00
@@ -847,18 +847,18 @@ NEW_CHRIN
 	LDA #1
 
 	STA ZP_IRQ_API_DATA_LENGTH
-	JSR IRQ_ReadFileNoCallback
+	JSR PROT_ReadFileNoCallback
 	BCC +						; If carry clear, success
 	; Read error handling
 	; CRITICAL: Cleanup protocol session on error
-	JSR IRQ_EndTalking
+	JSR PROT_EndTalking
 	LDA #128					; Read error flag
 	STA KERNAL_STATUS
 	SEC						; Set carry (error)
 	RTS
 +
 	DELAYFRAMES 2
-	JSR IRQ_EndTalking
+	JSR PROT_EndTalking
 	BCC +						; Check EndTalking success
 	; EndTalking error handling
 	LDA #128					; Communication error flag

@@ -35,7 +35,7 @@ PETGLPLUGINREAD				;Remove when callback in the transfer code fixed.
 MAIN		
 	JSR SAVESTATE		; Save VIC/$01 state for clean menu return
 	JSR INIT		; Clears screen, disables interrupts.	
-	JSR IRQ_StartTalking	; Initialize cartridge communication
+	JSR PROT_StartTalking	; Initialize cartridge communication
 	
 ALTENTRY	
 	CLD
@@ -43,12 +43,12 @@ ALTENTRY
 ;Lets try to open a file
 	;PRINTSTATUSANDWAIT OPENINGFILE, 100
 	DELAYFRAMES 5
-	JSR IRQ_DisableDisplay		
+	JSR PROT_DisableDisplay		
 	#OPENFILE FILE_PATH_BUF, #31, #01
 	BCC OPENINGCONT
 	JMP ERROR_OPENING_FILE
 OPENINGCONT	
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	DELAYFRAMES 5
 	;RINTSTATUSANDWAIT OPENINGSUCCESS, 200
 	;JMP FILEREAD
@@ -59,7 +59,7 @@ OPENINGCONT
 	LDA #$00
 	LDX #$00
 	LDY #$00
-	JSR IRQ_Stream
+	JSR PROT_Stream
 
 	;JMP STREAMTEST2
 	DELAYFRAMES 5
@@ -68,7 +68,7 @@ OPENINGCONT
 	JMP STREAMFILE
 	
 ERROR_OPENING_FILE	
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	PRINTSTATUSANDWAIT OPENINGFILEFAILED, 200		
 	JSR CleanReturnToMenu
 	RTS
@@ -78,7 +78,7 @@ STREAMFILE
 	STA PLAYSTATE
 	; PLAYINDEX is initialized inside SETUPMUSICTRANSFER
 	JSR SETUPMUSICTRANSFER
-	JSR IRQ_DisableDisplay
+	JSR PROT_DisableDisplay
 WAITAKEY
 	JSR GETIN
 	BEQ WAITAKEY
@@ -90,9 +90,9 @@ WAITAKEY
 	;JSR $FDA3			; Init CIA
 	;JSR $FD15			; Restore Vectors
 	;DELAYFRAMES 10		; Wait for Cartridge to go back to command mode
-	;JSR IRQ_CloseFile		; Close the file
-	;JSR IRQ_DisableDisplay
-	;JSR IRQ_ExitToMenu	
+	;JSR PROT_CloseFile		; Close the file
+	;JSR PROT_DisableDisplay
+	;JSR PROT_ExitToMenu	
 
 
 PlayRoutineSimple:
@@ -436,7 +436,7 @@ PlayBothBuffered_Exit:
 SETUPMUSICTRANSFER	
 	
 	
-	JSR IRQ_DisableDisplay
+	JSR PROT_DisableDisplay
 	
 	
 	SEI
@@ -724,7 +724,7 @@ WAIT1
 	JSR minikey
   	BEQ WAIT1
 	
-	JSR IRQ_DisableDisplay
+	JSR PROT_DisableDisplay
 
 	LDA MODULATION_ADDRESS
 	NOP
@@ -733,7 +733,7 @@ WAIT1
 	JSR DisplayReceived1	
 	DELAYFRAMES 25
 
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	JMP WAIT1
 	
 	
@@ -744,7 +744,7 @@ WAIT2
 	JSR minikey
   	BEQ WAIT2
 	
-	JSR IRQ_DisableDisplay
+	JSR PROT_DisableDisplay
 
 	LDA MODULATION_ADDRESS
 	NOP
@@ -755,7 +755,7 @@ WAIT2
 	JSR DisplayReceived2	
 	DELAYFRAMES 50
 
-	JSR IRQ_EnableDisplay
+	JSR PROT_EnableDisplay
 	JMP WAIT2
 	
 	
@@ -951,11 +951,11 @@ CleanReturnToMenu
 	STA $D01A			; Disable VIC raster IRQs
 	CLI
 
-	JSR IRQ_CloseFile		; Safe even if already closed
-	JSR IRQ_EndTalking		; End cartridge communication
+	JSR PROT_CloseFile		; Safe even if already closed
+	JSR PROT_EndTalking		; End cartridge communication
 	JSR RESTORESTATE		; Restore VIC/$01 state
-	JSR IRQ_DisableDisplay
-	JSR IRQ_ExitToMenu
+	JSR PROT_DisableDisplay
+	JSR PROT_ExitToMenu
 	RTS
 
 ;------------------------------------------------------------

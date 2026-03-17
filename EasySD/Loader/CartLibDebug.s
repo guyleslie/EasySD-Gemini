@@ -88,29 +88,29 @@ DEBUG_DumpFilename:
 ;-----------------------------------------------
 ; DEBUG_DumpFileSize - Dump file size params
 ;-----------------------------------------------
-; Uses zero page $80-$87 (IRQ_FILE_SIZE_*, etc.)
+; Uses zero page $80-$87 (PROT_FILE_SIZE_*, etc.)
 ;-----------------------------------------------
 DEBUG_DumpFileSize:
 	; File length (32-bit)
-	LDA $80				; IRQ_FILE_SIZE_LO
+	LDA $80				; PROT_FILE_SIZE_LO
 	STA DEBUG_FILE_LEN
-	LDA $81				; IRQ_FILE_SIZE_HI
+	LDA $81				; PROT_FILE_SIZE_HI
 	STA DEBUG_FILE_LEN+1
-	LDA $82				; IRQ_FILE_SIZE_U_LO
+	LDA $82				; PROT_FILE_SIZE_U_LO
 	STA DEBUG_FILE_LEN+2
-	LDA $83				; IRQ_FILE_SIZE_U_HI
+	LDA $83				; PROT_FILE_SIZE_U_HI
 	STA DEBUG_FILE_LEN+3
 
 	; Skip bytes
-	LDA $84				; IRQ_SKIP_BYTES_LO
+	LDA $84				; PROT_SKIP_BYTES_LO
 	STA DEBUG_SKIP_BYTES
-	LDA $85				; IRQ_SKIP_BYTES_HI
+	LDA $85				; PROT_SKIP_BYTES_HI
 	STA DEBUG_SKIP_BYTES+1
 
 	; Payload (calculated)
-	LDA $86				; IRQ_PAYLOAD_LO
+	LDA $86				; PROT_PAYLOAD_LO
 	STA DEBUG_REMAINDER
-	LDA $87				; IRQ_PAYLOAD_HI
+	LDA $87				; PROT_PAYLOAD_HI
 	STA DEBUG_REMAINDER+1
 
 	RTS
@@ -118,22 +118,22 @@ DEBUG_DumpFileSize:
 ;-----------------------------------------------
 ; DEBUG_DumpLoadAddr - Dump load address
 ;-----------------------------------------------
-; Uses IRQ_DATA_LOW/HIGH ($69/$6A)
+; Uses PROT_DATA_LOW/HIGH ($69/$6A)
 ;-----------------------------------------------
 DEBUG_DumpLoadAddr:
-	LDA $69				; IRQ_DATA_LOW
+	LDA $69				; PROT_DATA_LOW
 	STA DEBUG_LOAD_ADDR
-	LDA $6A				; IRQ_DATA_HIGH
+	LDA $6A				; PROT_DATA_HIGH
 	STA DEBUG_LOAD_ADDR+1
 	RTS
 
 ;-----------------------------------------------
 ; DEBUG_DumpPages - Dump calculated page count
 ;-----------------------------------------------
-; Uses IRQ_DATA_LENGTH ($6B)
+; Uses PROT_DATA_LENGTH ($6B)
 ;-----------------------------------------------
 DEBUG_DumpPages:
-	LDA $6B				; IRQ_DATA_LENGTH
+	LDA $6B				; PROT_DATA_LENGTH
 	STA DEBUG_PAGES
 	RTS
 
@@ -141,7 +141,7 @@ DEBUG_DumpPages:
 ; DEBUG_DumpFirst16Bytes - Dump loaded data
 ;-----------------------------------------------
 ; Dumps first 16 bytes from load address
-; Uses IRQ_DATA_LOW/HIGH as source
+; Uses PROT_DATA_LOW/HIGH as source
 ;-----------------------------------------------
 DEBUG_DumpFirst16Bytes:
 	LDY #$00

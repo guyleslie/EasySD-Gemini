@@ -60,8 +60,8 @@ StreamLargeFile:
     LDA #$00                ; initialDelay
     LDX #$00                ; countStreamedBytes
     LDY #$00                ; delayBetweenBytes
-    JSR IRQ_Stream
-    BCS _stream_error       ; If carry is set, IRQ_Stream failed
+    JSR PROT_Stream
+    BCS _stream_error       ; If carry is set, PROT_Stream failed
 
     LDY #$00                ; Y will be our index for (zp),y addressing
 

@@ -52,7 +52,7 @@
 ;
 ; STREAMING PIPELINE
 ; ------------------
-; 1. C64 calls IRQ_NIStream with A=50 (50 fragments × 8 bytes = 400 bytes/block)
+; 1. C64 calls PROT_NIStream with A=50 (50 fragments × 8 bytes = 400 bytes/block)
 ; 2. Arduino enters HandleNonInterruptedStream(): disables all interrupts,
 ;    pre-loads two 400-byte SD buffers (double-buffering on Arduino side), then
 ;    streams bytes synchronised to IO2 strobes from C64 NMI handlers.
@@ -64,7 +64,7 @@
 ;    copies the 4 bitmap quadrants to the inactive bank, writes screen color
 ;    data, and accumulates D800 colors in COLORBUFFER for all 10 rows.
 ; 5. Playback stops when the CVD file is exhausted and the plugin calls
-;    IRQ_ExitToMenu (drives SEL low, terminating the NI stream on Arduino).
+;    PROT_ExitToMenu (drives SEL low, terminating the NI stream on Arduino).
 ;
 ; VIDEO FILE: path provided by the EasySD menu via FILE_PATH_BUF (null-terminated).
 ;   The user selects any .CVD file from the menu and presses Enter.
@@ -94,9 +94,9 @@ DELAYFRAMES	.macro
 	
 	SAVESTATE
 	
-	JSR IRQ_DisableDisplay		
+	JSR PROT_DisableDisplay		
 	JSR INIT				;Clears screen, disables interrupts.	
-	JSR IRQ_StartTalking	
+	JSR PROT_StartTalking	
 	.CHANGEBANK 2	
 	
 	JSR INIT_GFX_MEM
@@ -125,16 +125,16 @@ CVD_STRLEN_DONE
 	TXA             ; A = path length
 	LDX #<FILE_PATH_BUF
 	LDY #>FILE_PATH_BUF
-	JSR IRQ_SetName
+	JSR PROT_SetName
 	LDX #01		; Flags=read
-	JSR IRQ_OpenFile
+	JSR PROT_OpenFile
 	BCC +
 	JMP ERROR_OPENING_FILE
 
 +
 	DELAYFRAMES 2
 	LDA #50     ; 50 * 8 = 400 bytes per block
-	JSR IRQ_NIStream
+	JSR PROT_NIStream
 	DELAYFRAMES 2
 	
 ZIBIRT
@@ -193,8 +193,8 @@ StopPressed
     SEI
     LDA #$00
     STA $D01A       ; Disable Raster IRQ
-    JSR IRQ_CloseFile
-    JSR IRQ_ExitToMenu
+    JSR PROT_CloseFile
+    JSR PROT_ExitToMenu
     RTS
 
 EXIT
@@ -336,12 +336,12 @@ INIT		; Input : None, Changed : A
 	LDA #$0B
 	STA $D021
 		
-	JSR IRQ_DisableInterrupts
+	JSR PROT_DisableInterrupts
 		
 	RTS
 	
 ERROR_OPENING_FILE	
-	JSR IRQ_ExitToMenu
+	JSR PROT_ExitToMenu
 	
 
 	

@@ -35,7 +35,7 @@
 ; EXIT:         JMP to game entry point (never returns to menu unless error)
 ;
 ; PROTOCOL INVARIANT:
-;   ALL EasySD sessions MUST be closed with IRQ_EndTalking on ALL exit paths.
+;   ALL EasySD sessions MUST be closed with PROT_EndTalking on ALL exit paths.
 ;
 ; KNOWN LIMITATIONS (V2):
 ;   - LOAD calls that bypass $0330 via direct JSR $E16F cannot be intercepted.
@@ -88,7 +88,7 @@ MAIN:
 	; Start EasySD session
 	; Arduino is in the game directory (user navigated there before selecting
 	; EASYLOAD.PRG).  We immediately capture the path for chdir safety.
-	JSR IRQ_StartTalking
+	JSR PROT_StartTalking
 
 	;--- Capture current directory path into RL_DIR_PATH ($E840) ---
 	; COMMAND_GET_PATH: Arduino sends dirFunc.currentPath (64 bytes) then
@@ -97,8 +97,8 @@ MAIN:
 	; even though $01=$37 (Kernal ROM is mapped there for reads).
 	; This path is later read by RL_HANDLER under $01=$35 (Kernal RAM).
 	LDA #COMMAND_GET_PATH
-	JSR IRQ_Send
-	JSR IRQ_WaitProcessing
+	JSR PROT_Send
+	JSR PROT_WaitProcessing
 	BCS ml_skip_path                ; skip on error — graceful degradation
 
 	LDA #<RL_DIR_PATH               ; = $40 (low byte of $E840)
@@ -108,7 +108,7 @@ MAIN:
 	LDA #1
 	STA ZP_IRQ_API_DATA_LENGTH      ; 1 page = 256 bytes
 	LDY #$00                        ; transfer mode x1 (CARTRIDGENMIHANDLERX1)
-	JSR IRQ_ReceiveFragmentNoCallback
+	JSR PROT_ReceiveFragmentNoCallback
 
 ml_skip_path:
 	;--- Load first game part ---
@@ -116,9 +116,9 @@ ml_skip_path:
 	LDA ML_FIRST_PART_LEN
 	LDX #<ML_FIRST_PART_NAME
 	LDY #>ML_FIRST_PART_NAME
-	JSR IRQ_SetName
+	JSR PROT_SetName
 	LDX #$01                        ; flags = read
-	JSR IRQ_OpenFile
+	JSR PROT_OpenFile
 	BCC ml_opened
 	JMP MAIN_ERROR
 
@@ -145,7 +145,7 @@ ml_opened:
 	LDA #1
 	STA ZP_IRQ_API_DATA_LENGTH
 	LDY #$00
-	JSR IRQ_ReadFileNoCallback
+	JSR PROT_ReadFileNoCallback
 	BCS MAIN_ERROR
 
 	; ML_HDRBUF[0..1] = PRG load address (little-endian)
@@ -204,8 +204,8 @@ ml_copy_254:
 	BCS MAIN_ERROR
 
 ml_close:
-	JSR IRQ_CloseFile
-	JSR IRQ_EndTalking
+	JSR PROT_CloseFile
+	JSR PROT_EndTalking
 
 	; Refresh load address pointer ($8B/$8C may be stale after copy loops)
 	LDA ML_HDRBUF
@@ -221,10 +221,10 @@ ml_close:
 ;================================================================================
 
 MAIN_ERROR:
-	JSR IRQ_EndTalking
+	JSR PROT_EndTalking
 ML_EXIT_TO_MENU:
 	JSR ML_RESTORESTATE
-	JSR IRQ_ExitToMenu
+	JSR PROT_ExitToMenu
 	JMP *                           ; unreachable
 
 ;================================================================================
