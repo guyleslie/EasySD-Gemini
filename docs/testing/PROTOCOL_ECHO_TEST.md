@@ -187,6 +187,45 @@ Expected output:
 
 ---
 
+## Coverage & Limitations
+
+### What is tested
+
+| Area | Coverage |
+|------|----------|
+| SD card init + file open | ✅ FD, GH, BD all require successful `sd.open()` |
+| Sequential SD read (16 B chunks) | ✅ FD verifies every byte |
+| SD read across 64 B boundaries | ✅ BD reads 2048 B in 32 × 64 B chunks |
+| PRG header parsing (load address) | ✅ GH reads first 2 bytes, checks little-endian |
+| `transferLength` / `padBytes` / `transferPages` arithmetic | ✅ GH mirrors `TransferGame()` + `SendHeader()` exactly |
+| P2TK trigger detection (`endAddress > $C002`) | ✅ GH — TESTPRG→N, HIGHPRG→Y |
+
+### What is NOT tested
+
+| Area | Reason |
+|------|--------|
+| C64↔Arduino cartridge bus (NMI, data bus writes) | Requires C64 hardware; `TransmitByteFast/Slow` not redirectable |
+| C64→Arduino command channel (software serial) | Requires C64 hardware |
+| `HandleApi()` command dispatch | Only exercised from C64 side |
+| `EnableCartridge()` / `ResetC64()` hardware control | Requires cartridge + C64 |
+| Plugin loading and execution (C64 side) | Requires C64 + real PRG run |
+| Directory navigation | Covered by separate self-test suite (`T` command) |
+| EEPROM persistence (SaveLastDir/RestoreLastDir) | Covered by self-test suite |
+
+**In short:** these are Arduino-side unit tests. They confirm the SD read path and header
+calculation logic are correct before involving the C64. Full end-to-end validation requires
+the VICE test suite (`test_vice_menu.py`) or real C64 hardware.
+
+---
+
+## Hardware Test Results
+
+| Date | Platform | Result | RAM free | Notes |
+|------|----------|--------|----------|-------|
+| 2026-03-17 | Breadboard, COM4, SPI_HALF_SPEED | **5/5 PASS** | 413 B | First hardware validation |
+
+---
+
 ## Implementation Notes
 
 - `ptReadFilename()` in `EasySD.ino`: blocks until `\n`/`\r` or 12-char limit.
