@@ -11,11 +11,11 @@ They share hardware signals but operate independently depending on context.
 
 | Signal | Direction | C64 Address / Pin | Arduino Pin | Purpose |
 |--------|-----------|-------------------|-------------|---------|
-| /IO2   | C64 → Arduino | $DF00–$DFFF active | D2 (INT0) | Transfer trigger (falling edge) |
+| /IO2   | C64 → Arduino | $DF00–$DFFF active | D3 (INT1) | Transfer trigger (falling edge) |
 | ROML   | C64 reads  | $8000–$9FFF       | D4–D7, A0–A3 | Data output (NMI transfer and streaming) |
-| /EXROM | Arduino → C64 | Expansion pin 9 | D3 (output) | Controls ROM visibility |
+| /EXROM | Arduino → C64 | Expansion pin 9 | D2 (output) | Controls ROM visibility |
 | /NMI   | Arduino → C64 | Expansion pin 28 | D8 (output) | Triggers NMI on C64 |
-| /RESET | C64 → Arduino | Expansion pin 30 | A4 / SEL (input) | Detects C64 reset (test use) |
+| /RESET | C64 → Arduino | Expansion pin 30 | A6 / SEL (analog input, external 10kΩ pullup) | Detects C64 reset (test use) |
 | /RESET | Arduino → C64 | Via MENU/RESET button | D9 (output) | Returns to menu |
 
 ### Clock Frequencies
@@ -54,7 +54,7 @@ I/O must be visible (`$37` or `$35`) for $DE00 reads to work.
 | 1     | 1      | No cart    | not visible         |
 
 EasySD operates in **8K mode** (/GAME=0, /EXROM=1): ROML is mapped at $8000–$9FFF.
-The Arduino controls /EXROM via D3.
+The Arduino controls /EXROM via D2.
 
 ---
 
@@ -310,9 +310,13 @@ At 0.985 MHz PAL: 73 / 985 000 ≈ **74 µs/byte → ~13.5 KB/s**
 
 ## SEL / Reset Detection
 
-Arduino A4 (SEL, pin 18) is connected to the C64 /RESET line on the
+Arduino A6 (SEL, analog-only pin) is connected to the C64 /RESET line on the
 expansion port (pin 30). `HandleStream()` polls this pin and aborts
 streaming if it goes LOW.
+
+A6 is analog-only on the ATmega328P — `digitalRead()`/`INPUT_PULLUP` are not
+supported. An external 10kΩ resistor pulls the line to +5V. The firmware uses
+`selRead()` (defined in `CartInterface.h`) which wraps `analogRead(A6) >= 512`.
 
 ---
 

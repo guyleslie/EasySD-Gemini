@@ -17,7 +17,7 @@ It also serves as the **data transfer medium** for the streaming protocol.
 
 | Signal | Direction | Description |
 |--------|-----------|-------------|
-| `/EXROM` | Arduino → C64 | Controls ROML visibility. LOW = chip enabled, HIGH = chip disabled. Driven by Arduino D3 (`PD3`). |
+| `/EXROM` | Arduino → C64 | Controls ROML visibility. LOW = chip enabled, HIGH = chip disabled. Driven by Arduino D2 (`PD2`). |
 | `A8–A11` | Arduino → chip | Higher address bits, driven by Arduino analog pins A0–A3 (`PORTC[3:0]`). |
 | `A12–A15` | Arduino → chip | Highest address bits, driven by Arduino D4–D7 (`PORTD[7:4]`). |
 | `A0–A7` | C64 → chip | Lower address bits, driven by C64 address bus. |
@@ -26,8 +26,8 @@ It also serves as the **data transfer medium** for the streaming protocol.
 ### EXROM control
 
 ```cpp
-void CartInterface::EnableCartridge()  { PORTD &= ~_BV(PD3); }  // EXROM LOW  → ROML active
-void CartInterface::DisableCartridge() { PORTD |= _BV(PD3);  }  // EXROM HIGH → ROML disabled
+void CartInterface::EnableCartridge()  { PORTD &= ~_BV(PD2); }  // EXROM LOW  → ROML active
+void CartInterface::DisableCartridge() { PORTD |= _BV(PD2);  }  // EXROM HIGH → ROML disabled
 ```
 
 `EnableCartridge()` must be called before any operation that requires the C64

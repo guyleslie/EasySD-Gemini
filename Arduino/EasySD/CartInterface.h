@@ -9,12 +9,16 @@
 #define PORT_MANIPULATION
 #define OPENCOLLECTORSTYLE
 
-#define IO2 2    // D2 → C64 /IO2 (INPUT, direct connection for $DF00-$DFFF trigger detect)
-#define EXROM 3
+#define IO2 3    // D3 → C64 /IO2 (INPUT, INT1, $DF00-$DFFF trigger detect)
+#define EXROM 2  // D2 → C64 /EXROM (OUTPUT, controls ROM visibility)
 #define NMI 8
 #define RESET 9
-#define SEL 18
-#define STATUS_LED 19  // A5 — status indicator LED
+#define SEL A6         // A6 — analog-only pin, external 10k pullup to +5V
+#define STATUS_LED 21  // A7 — NC pin, external LED if wired (A5 reserved for IRQ future use)
+
+// A6 is analog-only: no digitalRead/INPUT_PULLUP support.
+// Returns true when button is released (high), false when pressed (low).
+inline bool selRead() { return analogRead(SEL) >= 512; }
 
 #define PRE_WAIT 3
 #define INITIAL_WAIT 17

@@ -99,7 +99,7 @@ The C64 expansion port /NMI line has its own pull-up. No direct Arduino drive to
 
 ```
 C64 executes LDA $DF00    →  /IO2 pulse (LOW ~1 µs)
-                           →  Arduino INT0 ISR fires (latency: ~3.5 µs measured)
+                           →  Arduino INT1 ISR fires (latency: ~3.5 µs measured)
                            →  DoubleBufferedStreaming() calls SetPage(currentByte)
                               (~4-5 cycles on 16 MHz Arduino = ~0.3 µs)
 C64 executes LDA $DE00    →  reads byte from PORTD/PORTC

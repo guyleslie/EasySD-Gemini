@@ -976,12 +976,12 @@ void CartApi::HandleStream() {
      
       while(1) {
         while(usedBuffer == 0) {
-          if (!digitalRead(SEL)) goto out; // Original check
+          if (!selRead()) goto out; // Original check
           if (millis() - lastStreamRequestTime > STREAM_TIMEOUT_MS) goto out; // Timeout check
         }
-        workingFile.read(streamingBuffer1, DOUBLE_BUFFER_SIZE);   
+        workingFile.read(streamingBuffer1, DOUBLE_BUFFER_SIZE);
         while(usedBuffer == 1) {
-          if (!digitalRead(SEL)) goto out; // Original check
+          if (!selRead()) goto out; // Original check
           if (millis() - lastStreamRequestTime > STREAM_TIMEOUT_MS) goto out; // Timeout check
         }
         workingFile.read(streamingBuffer2, DOUBLE_BUFFER_SIZE);         
@@ -1080,12 +1080,12 @@ void CartApi::HandleNonInterruptedStream() {
             /* Synchronization block for each byte */
             // Note: We don't use millis() inside the inner loop for speed, 
             // but we need a way to detect timeout or reset.
-            // A simple cycle counter could work, but digitalRead(SEL) is safer.
-            
-            while (PIND & 0x04) {
-               if (!digitalRead(SEL)) goto ni_out; // Exit on C64 Reset
+            // A simple cycle counter could work, but selRead() is safer.
+
+            while (PIND & 0x08) {
+               if (!selRead()) goto ni_out; // Exit on C64 Reset
             }
-            while ((PIND & 0x04) == 0);  // Wait for rising edge
+            while ((PIND & 0x08) == 0);  // Wait for rising edge
             
             uint8_t val = activeBuffer[bufferIndex];
             PORTD = portDVal | (val & 0xF0);

@@ -166,8 +166,7 @@ void CartInterface::IOSetup() {
   pinMode(IO2, INPUT);
   pinMode(EXROM, OUTPUT);
   digitalWrite(EXROM, HIGH);
-  pinMode(SEL, INPUT);
-  digitalWrite(SEL, HIGH); //Activate internal pullup
+  // SEL is on A6 (analog-only): no pinMode/pullup needed, external 10k pullup used
   #ifdef OPENCOLLECTORSTYLE
     ResetHigh();
     NmiHigh();
@@ -283,13 +282,13 @@ void CartInterface::EnableCartridge() {
   #ifdef EASYSD_DEBUG_SERIAL
   Serial.println(F("AVR Enabling Cartridge"));
   #endif
-  PORTD &= ~_BV (PD3);
+  PORTD &= ~_BV (PD2);  // EXROM = D2
 }
 
 
 
-void CartInterface::DisableCartridge() {  
-  PORTD |= _BV (PD3);
+void CartInterface::DisableCartridge() {
+  PORTD |= _BV (PD2);   // EXROM = D2
 }
 
 void CartInterface::ResetLow() {

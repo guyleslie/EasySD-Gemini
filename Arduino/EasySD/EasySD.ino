@@ -138,13 +138,13 @@ void setup() {
 void loop() {
   cartApi.HandleApi();
   
-  if (!digitalRead(SEL) && state == stateNone) {
+  if (!selRead() && state == stateNone) {
     state = statePressed;
     pressTime = millis()/100;
   }
 
   uint16_t elapsed;
-  if (digitalRead(SEL) && state == statePressed) {
+  if (selRead() && state == statePressed) {
     state = stateReleased;          
     elapsed = millis()/100 - pressTime;
     if (elapsed > 5) {
