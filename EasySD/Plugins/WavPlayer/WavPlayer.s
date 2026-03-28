@@ -13,6 +13,10 @@ PLAYSTATE   = $A2
 PLAYTYPE    = $A3
 PLAYINDEX   = $A4
 
+; DigiMax MK3 detection — ZP scratch (free after detection)
+MK3_ACTIVE      = $FB   ; 0 = compat mode, 1 = MK3 streaming active
+DETECT_TIMEOUT  = $FC   ; outer loop counter during detection
+
 PLAYTYPE_ONLYSID = 0
 PLAYTYPE_DIGIMAX = 1
 PLAYTYPE_BOTH = 2
@@ -490,9 +494,10 @@ SetupBoth:
 	JSR DIGI_Init
 	
 	
-	JSR NMIDIGI_InitNew	
-	
-	
+	JSR NMIDIGI_InitNew
+	JSR DETECT_MK3			; MK3 detection + streaming config
+
+
 	LDA #<PlayBothBuffered
 	
 	
@@ -547,12 +552,114 @@ SetupSidOnly:
 	BEQ SetupInterrupt			;Fake unconditional
 	
 	
-SetupDigimax:	
-	
-	
+; =============================================================================
+; DETECT_MK3 — detect DigiMax MK3 and configure streaming mode
+; =============================================================================
+; Called from SetupDigimax / SetupBoth, AFTER NMIDIGI_InitNew, BEFORE SetupInterrupt.
+; Polls CIA_2_BASE + CIA_INT_MASK ($DD0D) for FLAG2 falling edges (bit 4).
+;
+; Loop-counter timeout: 13 cycles × 256 inner × 18 outer ≈ 60 000 cycles ≈ 60 ms.
+; No jiffy clock dependency — safe after KILLCIA.
+;
+; Phase 1 — magic sequence $AC $DE $AD $BE → ATmega responds with ≥1 FLAG2 pulse.
+;   0 pulses at timeout → compat mode (original Digimax or absent).
+;
+; Phase 2 — config bytes $01 (frame_size=1, mono) + $40 (autostart=64×16=1024 bytes).
+;   ATmega confirms with exactly 3 FLAG2 pulses → MK3_ACTIVE = 1.
+;   Timeout with <3 pulses → compat fallback.
+;
+; Registers: A, X, Y clobbered. MK3_ACTIVE ($FB) set on return.
+; =============================================================================
+
+DETECT_MK3:
+	LDA #0
+	STA MK3_ACTIVE			; assume compat until confirmed
+
+	; ── Phase 1: send magic sequence ──────────────────────────────────
+
+	LDA CIA_2_BASE + CIA_INT_MASK	; read-clear CIA2 ICR (discard stale edges)
+
+	LDA #$AC
+	STA CIA_2_BASE + DATA_B		; magic byte 1
+	LDA #$DE
+	STA CIA_2_BASE + DATA_B		; magic byte 2
+	LDA #$AD
+	STA CIA_2_BASE + DATA_B		; magic byte 3
+
+	LDA CIA_2_BASE + CIA_INT_MASK	; clear again before trigger byte
+
+	LDA #$BE
+	STA CIA_2_BASE + DATA_B		; magic byte 4 — triggers ATmega response
+
+	LDA #18
+	STA DETECT_TIMEOUT		; outer loop counter (~60 ms total)
+	LDX #0				; FLAG2 pulse counter
+
+PHASE1_OUTER:
+	LDY #0				; 256 inner iterations × 13 cycles ≈ 3.3 ms
+PHASE1_LOOP:
+	LDA CIA_2_BASE + CIA_INT_MASK
+	AND #$10			; bit 4 = FLAG2 falling edge
+	BNE PHASE1_GOT_PULSE
+	DEY
+	BNE PHASE1_LOOP
+	DEC DETECT_TIMEOUT
+	BNE PHASE1_OUTER
+	; timeout — check pulse count
+	CPX #0
+	BEQ DETECT_DONE			; 0 pulses → no MK3, stay compat
+	JMP PHASE2_START
+
+PHASE1_GOT_PULSE:
+	INX
+	JMP PHASE1_OUTER		; keep counting remaining pulses until timeout
+
+	; ── Phase 2: send streaming config ────────────────────────────────
+
+PHASE2_START:
+	LDA CIA_2_BASE + CIA_INT_MASK	; clear ICR before config bytes
+
+	LDA #$01
+	STA CIA_2_BASE + DATA_B		; frame_size = 1 (mono)
+	LDA #$40
+	STA CIA_2_BASE + DATA_B		; auto-start threshold = 64 (×16 = 1024 bytes)
+
+	LDA #18
+	STA DETECT_TIMEOUT		; reset outer counter
+	LDX #0				; confirmation pulse counter
+
+PHASE2_OUTER:
+	LDY #0
+PHASE2_LOOP:
+	LDA CIA_2_BASE + CIA_INT_MASK
+	AND #$10
+	BNE PHASE2_GOT_PULSE
+	DEY
+	BNE PHASE2_LOOP
+	DEC DETECT_TIMEOUT
+	BNE PHASE2_OUTER
+	; timeout with < 3 pulses → compat fallback
+	JMP DETECT_DONE
+
+PHASE2_GOT_PULSE:
+	INX
+	CPX #3
+	BEQ DETECT_MK3_OK		; all 3 pulses → streaming confirmed
+	JMP PHASE2_OUTER
+
+DETECT_MK3_OK:
+	LDA #1
+	STA MK3_ACTIVE
+
+DETECT_DONE:
+	RTS
+
+SetupDigimax:
+
+
 	JSR NMIDIGI_InitNew
-	
-	
+	JSR DETECT_MK3			; MK3 detection + streaming config
+
 
 	
 	
