@@ -111,17 +111,41 @@ SP2 HIGH → CMD_FLUSH_FIFO → [CMD_SET_RATE if 22K] → [CMD_SET_FRAME_SIZE if
 
 Converts any audio to the correct WAV format for WavPlayer.
 
+### Quick-start — choose by hardware
+
+| You have | Use mode | Command |
+|----------|----------|---------|
+| No add-on (SID only) | `sid` | `--mode sid` |
+| Original DigiMax | `sid` | `--mode sid` (4-bit optimised) |
+| DigiMax MK3, 11 kHz mono | `11k` | `--mode 11k` |
+| DigiMax MK3, 22 kHz mono | `22k` | `--mode 22k` |
+| DigiMax MK3, stereo | `stereo` | `--mode stereo` |
+
 ```bash
-# Presets (recommended):
+# SID-only or original DigiMax (no MK3) — 4-bit optimised, pop-free:
+python Tools/wavtodigimax.py input.mp3 out.wav --mode sid
+
+# DigiMax MK3 modes:
 python Tools/wavtodigimax.py input.mp3 out.wav --mode 11k     # PLAYTYPE_MK3
 python Tools/wavtodigimax.py input.mp3 out.wav --mode 22k     # PLAYTYPE_MK3_22K
 python Tools/wavtodigimax.py input.mp3 out.wav --mode stereo  # PLAYTYPE_MK3_STEREO
 
-# Manual:
+# Manual (advanced):
 python Tools/wavtodigimax.py input.mp3 out.wav --rate 11025 --channels 1
-python Tools/wavtodigimax.py input.mp3 out.wav --rate 22050 --channels 1
-python Tools/wavtodigimax.py input.mp3 out.wav --rate 11025 --channels 2
 ```
+
+**`--mode sid` processing pipeline** (why it sounds better than plain conversion):
+1. HP filter at 80 Hz — removes DC offset that causes a pop when playback starts/stops
+2. `dynaudnorm` loudness normalisation — maximises dynamic range within 4-bit limits
+3. TPDF dithering — adds shaped noise before 4-bit quantisation to reduce harsh
+   quantisation artefacts (16-level staircase → smoother perceived sound)
+4. 50 ms fade-in / fade-out to mid-scale — smooths the volume-register ramp at
+   start and end, preventing the remaining transient pop
+
+The output byte stores the 4-bit value in the upper nibble (`byte = val << 4`),
+matching WavPlayer's `SHIFT4BIT` lookup (`SHIFT4BIT[n] = n >> 4`).
+Using `--mode sid` with an original DigiMax (compat) is fine — DAC accuracy
+will be 4-bit instead of 8-bit, but the dithering still improves perceived quality.
 
 Requires `ffmpeg` in PATH.
 
