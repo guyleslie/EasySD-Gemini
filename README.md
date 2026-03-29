@@ -51,7 +51,7 @@ To build EasySD you need the following components:
 | **MicroSD card adapter (5V)** | Standard SPI module |
 | **EEPROM 512 Kbit** | AT27C512R-45PU or M27C512 — both compatible; holds the cartridge ROM |
 | **EasySD PCB** | See schematic above (designed in EasyEDA) |
-| **100 nF ceramic + 10–47 µF electrolytic capacitor** | Both directly at SD module VCC/GND pins — required for stable SPI |
+| **100 nF ceramic + 10–100 µF electrolytic capacitor** | Both directly at SD module VCC/GND pins — required for stable SPI |
 | **5mm LED + 220 Ω resistor** | Power indicator — connect between PCB 5V rail and GND (always lit when powered) |
 | **Tactile pushbutton** | Menu/Reset button |
 
@@ -138,7 +138,7 @@ The LED is connected directly to the PCB 5V rail and is **always lit when the ca
 
 ## Troubleshooting
 
-**SD card not detected** — Check that a 100 nF ceramic and a 10–47 µF electrolytic capacitor are fitted directly at the SD module's VCC/GND pins. Missing or misplaced bypass caps are the most common cause of SD init failures, especially on breadboard builds.
+**SD card not detected** — Check that a 100 nF ceramic and a 10–100 µF electrolytic capacitor are fitted directly at the SD module's VCC/GND pins. Missing or misplaced bypass caps are the most common cause of SD init failures, especially on breadboard builds.
 
 **Garbled screen on boot** — Check that the EEPROM is correctly seated and the PCB connections are solid.
 
