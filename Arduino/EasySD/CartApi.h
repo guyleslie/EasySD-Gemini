@@ -68,6 +68,8 @@
 
 #define COMMAND_NI_STREAM  26
 
+#define COMMAND_READ_NEXT_CHUNK  27   // NMI-buffered chunk transfer for MK3 path
+
 #define COMMAND_END_TALKING  30
 #define COMMAND_EXIT_TO_MENU  31
 
@@ -149,6 +151,7 @@ class CartApi {
    static void DoStreaming2();
    static void DoubleBufferedStreaming();   
    void HandleNonInterruptedStream();
+   void HandleReadNextChunk();
    static void SingleBufferedStreaming();
   
  public : 

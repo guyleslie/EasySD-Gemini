@@ -1040,6 +1040,46 @@ out:
 //  }      
 //}
 
+void CartApi::HandleReadNextChunk() {
+  uint8_t fileBuffer[BUFFER_SIZE];   // BUFFER_SIZE = 16
+  GetArgumentsStatic(1);
+  uint8_t numPages = Arguments[0];
+  uint32_t totalBytes = (uint32_t)numPages * 256;
+
+  if (!workingFile.isOpen()) {
+    HandleResponse(FILE_IS_NOT_OPENED, 0);
+    return;
+  }
+
+  // 0x80 = more data remaining; 0x81 = this is the last block (EOF)
+  uint32_t avail = workingFile.available();
+  uint8_t statusByte = (avail <= totalBytes) ? 0x81 : 0x80;
+
+  // Send status first — C64's PROT_WaitProcessing polls CARTRIDGE_BANK_VALUE.
+  // delayMicroseconds(1000) gives C64 ~1ms to set up the NMI transfer handler.
+  HandleResponse(statusByte, 1);
+  delayMicroseconds(1000);
+
+  // Transmit exactly numPages*256 bytes via NMI push
+  noInterrupts();
+  uint32_t sent = 0;
+  while (sent < totalBytes) {
+    uint16_t toRead = (uint16_t)min((uint32_t)BUFFER_SIZE, totalBytes - sent);
+    if (workingFile.available() > 0) {
+      int readCount = workingFile.read(fileBuffer, toRead);
+      for (int i = 0; i < readCount; i++) {
+        cartInterface.TransmitByteFastStd(fileBuffer[i]);
+      }
+      sent += (uint32_t)readCount;
+    } else {
+      // Pad with mid-scale silence (0x80 = silence for unsigned 8-bit audio)
+      cartInterface.TransmitByteFastStd(0x80);
+      sent++;
+    }
+  }
+  interrupts();
+}
+
 
 void CartApi::HandleNonInterruptedStream() {
   uint16_t bufferIndex = 0;
@@ -1213,6 +1253,7 @@ void CartApi::HandleApi() {
           case COMMAND_INVOKE_WITH_NAME : HandleInvokeWithName();break;
           case COMMAND_STREAM : HandleStream();break;          
           case COMMAND_NI_STREAM : HandleNonInterruptedStream(); break;
+          case COMMAND_READ_NEXT_CHUNK : HandleReadNextChunk(); break;
           case COMMAND_EXIT_TO_MENU : TransferMenu();break;            
         }
 
