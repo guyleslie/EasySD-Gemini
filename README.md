@@ -34,7 +34,7 @@ EasySD is a cartridge for the Commodore 64 that turns any FAT-formatted SD card 
 The cartridge has two parts working together:
 
 - An **Arduino Nano** reads the SD card and streams file data to the C64 at up to ~40 KB/s via the NMI line
-- A **512 KB EEPROM** holds the cartridge ROM: the file browser menu that boots when you turn on the C64
+- A **512 Kbit (64 KB) EEPROM** holds the cartridge ROM: the file browser menu that boots when you turn on the C64
 
 When you select a file, the menu loads the matching plugin from the SD card's `/PLUGINS/` folder, which handles playback or display. This keeps the ROM small and lets new file types be added without reflashing the EEPROM.
 
@@ -51,8 +51,8 @@ To build EasySD you need the following components:
 | **MicroSD card adapter (5V)** | Standard SPI module |
 | **EEPROM 512 Kbit** | AT27C512R-45PU or M27C512 — both compatible; holds the cartridge ROM |
 | **EasySD PCB** | See schematic above (designed in EasyEDA) |
-| **100 µF electrolytic capacitor** | Across SD card VCC/GND — required for stable SPI |
-| **5mm LED + 220 Ω resistor** | Status indicator (optional but recommended) |
+| **100 nF ceramic + 10–47 µF electrolytic capacitor** | Both directly at SD module VCC/GND pins — required for stable SPI |
+| **5mm LED + 220 Ω resistor** | Power indicator — connect between PCB 5V rail and GND (always lit when powered) |
 | **Tactile pushbutton** | Menu/Reset button |
 
 > **SD card:** FAT16 or FAT32 formatted. Any capacity works. Copy your files into the root or subdirectories; put the plugin files in a `/PLUGINS/` folder.
@@ -122,7 +122,7 @@ python Tools/build.py arduino-upload COM4
 python Tools/build.py arduino-upload-isp --isp-sck 100
 ```
 
-> After flashing, the Arduino firmware is complete. The EEPROM (`build/artifacts/FlashLib.h` → burned to AT27C512R-45PU) holds the C64-side ROM. Use a TL866 or similar EEPROM programmer to write it.
+> After flashing, the Arduino firmware is complete. Next, program the C64-side ROM into the AT27C512R-45PU EEPROM using a TL866 or similar parallel EEPROM programmer — see **Flash the EEPROM** below.
 
 ### Flash the EEPROM
 
@@ -132,18 +132,13 @@ The build produces `EasySD/build/easysd.prg` — this is the C64 cartridge ROM b
 
 ## Status LED
 
-The LED on pin A5 shows the Arduino boot status:
-
-| Blinks | Meaning |
-|--------|---------|
-| 3 | SD card initialised OK |
-| 6 | SD card init failed — check card and connections |
+The LED is connected directly to the PCB 5V rail and is **always lit when the cartridge is powered** — it is a power indicator, not an Arduino-controlled signal. The Arduino drives pin A7 (NC on the current PCB) with boot-status blink patterns in firmware, but these are not visible on the current hardware.
 
 ---
 
 ## Troubleshooting
 
-**SD card not detected** — Add or check the 100 µF capacitor across the SD module's VCC/GND pins. This is the most common cause of SD init failures, especially on breadboard builds.
+**SD card not detected** — Check that a 100 nF ceramic and a 10–47 µF electrolytic capacitor are fitted directly at the SD module's VCC/GND pins. Missing or misplaced bypass caps are the most common cause of SD init failures, especially on breadboard builds.
 
 **Garbled screen on boot** — Check that the EEPROM is correctly seated and the PCB connections are solid.
 
