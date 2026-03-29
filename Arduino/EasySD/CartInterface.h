@@ -13,8 +13,10 @@
 #define EXROM 2  // D2 → C64 /EXROM (OUTPUT, controls ROM visibility)
 #define NMI 8
 #define RESET 9
-#define SEL A6         // A6 — analog-only pin, external 10k pullup to +5V
-#define STATUS_LED 21  // A7 — NC pin, external LED if wired (A5 reserved for IRQ future use)
+#define SEL A6         // A6 — analog-only pin, MENU/RESET button; 10k pull-up to +5V, switch to GND
+#define STATUS_LED 21  // A7 — NC on PCB (LED is hardware-driven from cartridge 5V rail, not Arduino)
+// A5 = IRQ input from C64 cartridge port (future use — not yet read in firmware)
+// A4 = PHI2 input from C64 cartridge port (future use — not yet read in firmware)
 
 // A6 is analog-only: no digitalRead/INPUT_PULLUP support.
 // Returns true when button is released (high), false when pressed (low).

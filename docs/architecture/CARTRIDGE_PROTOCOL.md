@@ -15,8 +15,10 @@ They share hardware signals but operate independently depending on context.
 | ROML   | C64 reads  | $8000–$9FFF       | D4–D7, A0–A3 | Data output (NMI transfer and streaming) |
 | /EXROM | Arduino → C64 | Expansion pin 9 | D2 (output) | Controls ROM visibility |
 | /NMI   | Arduino → C64 | Expansion pin 28 | D8 (output) | Triggers NMI on C64 |
-| /RESET | C64 → Arduino | Expansion pin 30 | A6 / SEL (analog input, external 10kΩ pullup) | Detects C64 reset (test use) |
-| /RESET | Arduino → C64 | Via MENU/RESET button | D9 (output) | Returns to menu |
+| /RESET | C64 → Arduino | Expansion pin 30 | A6 / MENU/RESET (analog input, 10kΩ pull-up to +5V, switch to GND) | Detects MENU/RESET button press |
+| /RESET | Arduino → C64 | Via D9 output | D9 (output) | Triggers C64 reset |
+| IRQ    | — | — | A5 (input, future use) | C64 /IRQ line — not yet read in firmware |
+| PHI2   | — | — | A4 (input, future use) | C64 system clock — not yet read in firmware |
 
 ### Clock Frequencies
 
@@ -318,15 +320,23 @@ At 0.985 MHz PAL: 73 / 985 000 ≈ **74 µs/byte → ~13.5 KB/s**
 
 ---
 
-## SEL / Reset Detection
+## MENU/RESET Button (A6)
 
-Arduino A6 (SEL, analog-only pin) is connected to the C64 /RESET line on the
-expansion port (pin 30). `HandleStream()` polls this pin and aborts
-streaming if it goes LOW.
+Arduino A6 (MENU/RESET button, analog-only pin) is connected to a tactile switch
+on the PCB. The switch is normally open; pressing it connects A6 to GND.
+A 10kΩ pull-up resistor from +5V to A6 holds the line HIGH when the button is
+not pressed. `HandleStream()` polls this pin and aborts streaming if it goes LOW.
 
 A6 is analog-only on the ATmega328P — `digitalRead()`/`INPUT_PULLUP` are not
-supported. An external 10kΩ resistor pulls the line to +5V. The firmware uses
-`selRead()` (defined in `CartInterface.h`) which wraps `analogRead(A6) >= 512`.
+supported. The firmware uses `selRead()` (defined in `CartInterface.h`) which
+wraps `analogRead(A6) >= 512`:
+- Returns `true`  (≥ 512) when button is **not** pressed (A6 ≈ +5V via pull-up)
+- Returns `false` (< 512) when button is **pressed** (A6 ≈ 0V via switch to GND)
+
+The physical LED on the PCB is hardware-driven from the cartridge 5V rail — it is
+always on when the cartridge has power. `STATUS_LED` (A7, pin 21) is NC on the
+PCB; the `ledInit()`/`ledBootOk()` etc. calls in `StatusLed.h` toggle an NC pin
+and have no visible effect.
 
 ---
 

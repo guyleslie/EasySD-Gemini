@@ -2,7 +2,9 @@
 #define STATUS_LED_H
 
 // ============================================================
-// STATUS LED (A5 / pin 19) — release builds only.
+// STATUS LED (A7 / pin 21, NC) — release builds only.
+// The physical LED is hardware-driven from the cartridge 5V rail; these calls
+// toggle an NC pin and have no visible effect on the current PCB.
 // In debug mode all functions are empty: serial monitor covers
 // status information, so the LED is not needed.
 // ============================================================

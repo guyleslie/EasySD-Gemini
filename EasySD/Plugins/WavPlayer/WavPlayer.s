@@ -1686,7 +1686,7 @@ MK3_SendCmd:
 MK3_ConfigureMode:
 	LDA PLAYTYPE
 	CMP #PLAYTYPE_MK3
-	BEQ MCM_Done        ; mode 3: default 11k mono, no change needed
+	BEQ MCM_Mode3       ; mode 3: flush + stream_push only (defaults from detection)
 
 	JSR MK3_SP2_HIGH
 	LDA #$42
@@ -1697,12 +1697,13 @@ MK3_ConfigureMode:
 	BNE MCM_Stereo
 
 MCM_22K:
+	; CMD_SET_RATE_L takes exactly 2 arg bytes (lo, hi) — no CMD_SET_RATE_H opcode.
+	; Protocol arg-collection ignores is_cmd, but CMD_SET_RATE_H (0x21) would be
+	; consumed as the high byte, giving OCR1A=0x21D5=8661 instead of 725.
 	LDA #$20
 	JSR MK3_SendCmd     ; CMD_SET_RATE_L
 	LDA #$D5
-	JSR MK3_SendCmd     ; OCR1A low byte (725 = $02D5)
-	LDA #$21
-	JSR MK3_SendCmd     ; CMD_SET_RATE_H
+	JSR MK3_SendCmd     ; OCR1A low byte  (725 = $02D5)
 	LDA #$02
 	JSR MK3_SendCmd     ; OCR1A high byte
 	JMP MCM_Restart
@@ -1715,11 +1716,20 @@ MCM_Stereo:
 
 MCM_Restart:
 	LDA #$30
-	JSR MK3_SendCmd     ; CMD_STREAM_PUSH → re-enters PARSER_STREAM_RECV
+	JSR MK3_SendCmd     ; CMD_STREAM_PUSH → enters PARSER_STREAM_RECV
 	JSR MK3_SP2_LOW
 
 MCM_Done:
 	RTS
+
+MCM_Mode3:
+	; Mode 3 (11025 Hz mono): detection phase 2 already set frame_size=1 and
+	; autostart_thresh=1024 bytes. Only need flush + CMD_STREAM_PUSH to activate
+	; the MK3 FIFO path. OCR1A stays at default 1450 (11025 Hz).
+	JSR MK3_SP2_HIGH
+	LDA #$42
+	JSR MK3_SendCmd     ; CMD_FLUSH_FIFO → PARSER_IDLE, FIFO clean
+	JMP MCM_Restart     ; → CMD_STREAM_PUSH + SP2_LOW + RTS
 
 
 .include "../../Loader/CartLibStream.s"
