@@ -87,9 +87,9 @@ A projekt támogatja a `DEBUG=1` build flag-et (64tass: `-D DEBUG=1`), amely **j
 
 ### 4.1. DEBUG Mode Módosítások
 
-**CartLibHi.s - IRQ_WaitProcessing bypass:**
+**CartLibHi.s - PROT_WaitProcessing bypass:**
 ```assembly
-IRQ_WaitProcessing
+PROT_WaitProcessing
 .if DEBUG = 1
     ; DEBUG: Skip hardware wait, return immediate success
     CLC
@@ -122,7 +122,7 @@ SafeStream_Debug_Impl:
 **⚠️ DEBUG=1 build SOHA NEM futtatható valós EasySD hardveren!**
 
 **Miért?**
-- Az `IRQ_WaitProcessing` bypass miatt a C64 **nem vár** az Arduino válaszra
+- Az `PROT_WaitProcessing` bypass miatt a C64 **nem vár** az Arduino válaszra
 - A memória unitializált marad vagy hibás adatokat tartalmaz
 - A program "látszólag fut" de hibásan működik
 - **Silent failure** - nehezen diagnosztizálható hibák

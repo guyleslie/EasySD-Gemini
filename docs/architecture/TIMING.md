@@ -147,7 +147,60 @@ detects end-of-stream by a 100 ms timeout on /IO2 activity.
 
 ---
 
-## 3. READCART_MODULATED — CVD video (CvdPlayer)
+## 3. WavPlayer MK3 — NMI chunk transfer (COMMAND_READ_NEXT_CHUNK)
+
+**Files:** `EasySD/Plugins/WavPlayer/WavPlayer.s`, `Arduino/EasySD/CartApi.cpp`
+
+Unlike IO2 streaming, MK3 mode uses a double-buffer scheme: the C64 requests
+`BUFFER_PAGES × 256` bytes from Arduino via NMI, stores them in a RAM buffer,
+and a CIA1 ISR forwards each byte to the DigiMax MK3 via CIA2 DATA_B ($DD01)
+at the configured sample rate. The MK3 has an internal 1024-byte FIFO and plays
+independently once buffered.
+
+### Buffer and transfer
+
+| Parameter | Value | Notes |
+|-----------|-------|-------|
+| `BUFFER_PAGES` | 24 | → 6144 bytes per buffer |
+| Two buffers total | 12288 bytes | `AUDIO_BUF_A` + `AUDIO_BUF_B` in plugin RAM |
+| Transfer function | `TransmitByteFastStd()` | Same NMI timing as normal file load |
+| Transfer time (6144 B) | **~370 ms** | 6144 × ~60 µs/byte (NMI + SD read interleaved) |
+
+### Playback duration per buffer by mode
+
+| Mode | CIA1 timer | C64→MK3 rate | Buffer duration | Refill time | Margin |
+|------|-----------|-------------|-----------------|-------------|--------|
+| PLAYTYPE_MK3 (11K mono) | 89 | 11025 Hz | **557 ms** | ~370 ms | **+187 ms ✓** |
+| PLAYTYPE_MK3_22K (22K mono) | 44 | 22050 Hz | **278 ms** | ~370 ms | **−92 ms ⚠** |
+| PLAYTYPE_MK3_STEREO (stereo) | 44 | 22050 Hz | **278 ms** | ~370 ms | **−92 ms ⚠** |
+
+> **⚠ Known limitation — 22K and stereo modes:** the inactive buffer (278 ms) drains
+> faster than the refill (≈370 ms). After both buffers play through, the ISR wraps back
+> to the partially-filled buffer and reads stale data until the fill completes (~90 ms
+> gap). This can cause audible stuttering on long tracks.
+>
+> **Workaround:** increase `BUFFER_PAGES` from 24 to ≥38 so each buffer holds ≥395 ms
+> of audio, exceeding the refill time. This requires the plugin to use more RAM.
+
+### Sequence diagram
+
+```
+C64 main loop                  C64 CIA1 ISR (22050 Hz)      Arduino
+─────────────────              ──────────────────────       ──────────────────────
+ReadNextChunk(BUF_A) ────────────────────────────────────→ send 6144B via NMI
+ReadNextChunk(BUF_B) ────────────────────────────────────→ send 6144B via NMI
+CLI (start ISR)
+                               reads BUF_A → $DD01 (MK3)
+[idle loop]                    …at 22050 Hz…
+                               BUF_A done → swap to BUF_B, set FILL flag
+ReadNextChunk(BUF_A) ────────────────────────────────────→ send 6144B via NMI (~370ms)
+                               reads BUF_B → $DD01 (MK3)
+                               BUF_B done (278ms) → swap to BUF_A  ← ⚠ refill may not be done
+```
+
+---
+
+## 4. READCART_MODULATED — CVD video (CvdPlayer)
 
 **Files:** `EasySD/Plugins/CvdPlayer/NMI.s`, `EasySD/Loader/SystemMacros.s`
 
@@ -178,7 +231,7 @@ one 256-byte frame without VIC-II cycle stealing.
 
 ---
 
-## 4. Timing macros (SystemMacros.s)
+## 5. Timing macros (SystemMacros.s)
 
 ### WAITFOR
 
@@ -209,13 +262,13 @@ WAITVALUE .macro
 
 ---
 
-## 5. SPI / SD card
+## 6. SPI / SD card
 
 SdFat is initialised at `SPI_HALF_SPEED` (8 MHz). Tested stable on breadboard (8/8 tests pass). `SPI_QUARTER_SPEED` is no longer needed.
 
 ---
 
-## 6. All empirical timing values at a glance
+## 7. All empirical timing values at a glance
 
 | Location | Value | What it controls |
 |----------|-------|-----------------|
@@ -231,10 +284,16 @@ SdFat is initialised at `SPI_HALF_SPEED` (8 MHz). Tested stable on breadboard (8
 | `CvdPlayer.s` | `STARTRASTER = 241` | PAL vertical blank start |
 | `CartLib.s` `TransferHandler` | **27 cycles** / byte | NMI ISR execution time (PAL) |
 | `CartLibStream.s` `StreamLargeFile` | **73 cycles** / byte | Streaming loop (→ 13.5 KB/s) |
+| `WavPlayer.s` `BUFFER_PAGES` | **24** pages = 6144 B | MK3 double-buffer size per half |
+| `WavPlayer.s` CIA1 timer (11K) | **89** | 985248/89 ≈ 11070 Hz sample rate |
+| `WavPlayer.s` CIA1 timer (22K) | **44** | 985248/44 ≈ 22392 Hz sample rate |
+| `WavPlayer.s` MK3 OCR1A (11K) | **1450** | MK3 ATmega playback rate ≈ 11026 Hz |
+| `WavPlayer.s` MK3 OCR1A (22K) | **725** | MK3 ATmega playback rate ≈ 22039 Hz |
+| `CartApi.cpp` `HandleReadNextChunk` | **1 ms** delay | Gap between status byte and NMI start |
 
 ---
 
-## 7. Tuning history
+## 8. Tuning history
 
 These values were increased from original after hardware failures:
 

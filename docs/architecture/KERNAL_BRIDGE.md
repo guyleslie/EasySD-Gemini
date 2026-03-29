@@ -66,12 +66,12 @@ All five routines check `KERNAL_DEVICE_NUMBER` ($BA) first. If the device is not
 Every file operation that contacts the Arduino **must** follow this pattern:
 
 ```
-JSR IRQ_StartTalking
+JSR PROT_StartTalking
   ... EasySD API calls ...
-JSR IRQ_EndTalking
+JSR PROT_EndTalking
 ```
 
-**All error exit paths must call `IRQ_EndTalking` before returning.** Leaving the protocol session open corrupts subsequent operations — both within the same BASIC program and after return to the menu.
+**All error exit paths must call `PROT_EndTalking` before returning.** Leaving the protocol session open corrupts subsequent operations — both within the same BASIC program and after return to the menu.
 
 ---
 
@@ -123,8 +123,8 @@ KernalBridge.s
   └─ DebugMacros.s          — debug-mode print macros (DEBUG=1 only)
   └─ CartLibStream.s        — full EasySD API stack
       └─ CartZpMap.inc      — Zero Page register map
-      └─ CartLibHi.s        — LoadFileBySize, IRQ_OpenFile, etc.
-          └─ CartLib.s      — low-level IRQ_StartTalking / IRQ_Send
+      └─ CartLibHi.s        — LoadFileBySize, PROT_OpenFile, etc.
+          └─ CartLib.s      — low-level PROT_StartTalking / PROT_Send
               └─ CartLibCommon.s
                   └─ Common/System.inc   — C64 hardware addresses
                   └─ Common/EasySD.inc   — EasySD command codes, cartridge status
@@ -175,7 +175,7 @@ Before jumping away, the code sets up everything in low RAM and switches memory 
 - `LDA #$37 / STA $01` — restore default memory map (KERNAL+BASIC+I/O visible)
 - `JMP STARTADDR` — hand control to the loaded program
 
-**Note:** `CLOSEFILE` and `IRQ_EndTalking` are NOT called before Phase 2 — intentional protocol
+**Note:** `CLOSEFILE` and `PROT_EndTalking` are NOT called before Phase 2 — intentional protocol
 leak. The Arduino returns to `SoftStartListening` and all state resets on the next C64 reset.
 
 ### Phase 3 — Tail-Write Protection (Phase2_pages = 64 only)

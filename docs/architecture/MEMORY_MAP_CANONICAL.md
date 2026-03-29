@@ -73,7 +73,7 @@ While the CartMemoryMap.inc file defines `TRANSFER_BUFFER_ADDR = $C000` for refe
 **Note:** This region is defined in CartMemoryMap.inc for reference, but plugins are free to place NMI code elsewhere if needed. The $C1A0 start address was chosen historically to leave space after a hypothetical $C000 buffer, but with auto-placement, this constraint no longer applies strictly.
 
 **Actual Usage:**
-- Most plugins: NO NMI handlers (use standard IRQ_ReceiveFragment API)
+- Most plugins: NO NMI handlers (use standard PROT_ReceiveFragment API)
 - BurstLoader (Type B app): Uses custom NMI handlers, but loads at $080E (not subject to plugin constraints)
 
 ---
@@ -98,7 +98,7 @@ Main:
     #SETADDR FileBuffer, ZP_IRQ_API_DATA_LO
     LDA #1                          ; Read 1 page (256 bytes)
     STA ZP_IRQ_API_DATA_LENGTH
-    JSR IRQ_ReadFileNoCallback
+    JSR PROT_ReadFileNoCallback
 
     ; ... plugin logic ...
 
@@ -131,7 +131,7 @@ FileBuffer:
 **ALL Type A plugins MUST:**
 1. **Use CartLib API** via ZP pointers (do NOT bypass API)
 2. **Load at $C000** (entry point with `*=$C000` directive)
-3. **Return to menu** via RTS (do NOT call IRQ_ExitToMenu - that's for Type B apps)
+3. **Return to menu** via RTS (do NOT call PROT_ExitToMenu - that's for Type B apps)
 4. **Include API macros**: `.include "../../Loader/APIMacros.s"`
 
 ### 2.2 Buffer Placement Rules
@@ -153,7 +153,7 @@ FileBuffer:
 
 **Plugins MUST NOT:**
 - Assume buffer content persists across API calls (buffers are volatile)
-- Call IRQ_ExitToMenu (Type B apps only)
+- Call PROT_ExitToMenu (Type B apps only)
 - Overwrite menu memory ($080E+ region)
 - Use hardcoded I/O addresses (use API functions instead)
 
@@ -217,7 +217,7 @@ the standard `$C000+` plugin range. These regions exist only during multi-load g
 | `$E800`        | `RL_HANDLER`   | Handler entry point                          | Under Kernal ROM ($01=$35 to access) |
 | `$E840`        | `RL_DIR_PATH`  | Game dir path buffer, 64 B                   | Reserved; future chdir support |
 | `$E880`        | `RL_FNAME_BUF` | Assembled filename buffer, 36 B              | KERNAL name + ".PRG" |
-| `$E8A4`        | `RL_FILEINFO_BUF` | FAT directory entry buffer, 32 B          | IRQ_GetInfoForFile target |
+| `$E8A4`        | `RL_FILEINFO_BUF` | FAT directory entry buffer, 32 B          | PROT_GetInfoForFile target |
 | `$E8C4`        | `RL_HDR_BUF`   | First-page read buffer, 256 B                | PRG header + first 254 data bytes |
 
 **Dual-use of `$033C` (FILE_PATH_BUF / RL_STUB):**
@@ -291,7 +291,7 @@ Main:
 **Execution Model:**
 - Standalone app **replaces menu entirely** (overwrites $080E region)
 - **Fresh C64 state** (no shared memory concerns)
-- Exits to menu by calling **IRQ_ExitToMenu** (requests menu reload from micro)
+- Exits to menu by calling **PROT_ExitToMenu** (requests menu reload from micro)
 
 **Memory Constraints:**
 - **NONE** - owns entire $080E-$FFFF address space (except ROM)
@@ -311,11 +311,11 @@ Main:
 *=$080E
 AppEntry:
     SAVESTATE                    ; Save C64 state (macro)
-    JSR IRQ_StartTalking         ; Initialize cartridge API
+    JSR PROT_StartTalking         ; Initialize cartridge API
     ; ... application logic ...
 
     ; Exit to menu:
-    JSR IRQ_ExitToMenu           ; Request menu reload from micro
+    JSR PROT_ExitToMenu           ; Request menu reload from micro
     RTS                          ; C64 will be reset by micro
 ```
 
@@ -341,7 +341,7 @@ AppEntry:
 
 **Memory Map (BurstLoader):**
 ```
-$080E - Application entry point (SAVESTATE, JSR IRQ_StartTalking)
+$080E - Application entry point (SAVESTATE, JSR PROT_StartTalking)
 $A000 - Transfer buffer (400 bytes, TRANSFERBUFFER = $A000)
 $xxxx - NMI handlers and foreground code
 ```
@@ -451,7 +451,7 @@ MyBuffer:
 - [ ] Entry point at `*=$C000` (or address specified in PRG header)
 - [ ] Includes API macros: `.include "../../Loader/APIMacros.s"`
 - [ ] Uses `#SETADDR` macro to pass buffer address to API (or manual ZP setting)
-- [ ] Returns to menu via `RTS` (not `IRQ_ExitToMenu`)
+- [ ] Returns to menu via `RTS` (not `PROT_ExitToMenu`)
 - [ ] Does NOT overwrite menu memory ($080E-$0FFF region)
 
 **Recommended Practices:**
@@ -463,8 +463,8 @@ MyBuffer:
 
 **Mandatory Requirements:**
 - [ ] Entry point at `*=$080E`
-- [ ] Calls `IRQ_StartTalking` to initialize cartridge API
-- [ ] Exits to menu via `IRQ_ExitToMenu` (NOT `RTS`)
+- [ ] Calls `PROT_StartTalking` to initialize cartridge API
+- [ ] Exits to menu via `PROT_ExitToMenu` (NOT `RTS`)
 
 **Recommended Practices:**
 - [ ] Uses `SAVESTATE` macro to preserve C64 state
@@ -478,8 +478,8 @@ MyBuffer:
 # Verify entry point at $C000
 grep -n "\*=\$C000" EasySD/Plugins/*/*.s
 
-# Verify KernalBridge does NOT call IRQ_ExitToMenu (it launches programs, never returns to menu)
-grep -c "IRQ_ExitToMenu" EasySD/Loader/Bridges/KernalBridge/*.s  # Should be 0
+# Verify KernalBridge does NOT call PROT_ExitToMenu (it launches programs, never returns to menu)
+grep -c "PROT_ExitToMenu" EasySD/Loader/Bridges/KernalBridge/*.s  # Should be 0
 ```
 
 **Note (2026-03-09):** Type A plugins are in `EasySD/Plugins/`. KernalBridge and MultiLoad are in

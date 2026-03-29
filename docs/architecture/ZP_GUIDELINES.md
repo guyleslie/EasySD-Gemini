@@ -194,7 +194,7 @@ MyFunction:
 ; ✅ CORRECT: WORK used for multi-step operation
 PrepareFileLoad:
     ; Setup phase
-    JSR IRQ_GetInfoForFile
+    JSR PROT_GetInfoForFile
     LDA FileSize0
     STA ZP_WORK_FILE_SIZE_0  ; WORK valid from here...
     RTS
@@ -632,7 +632,7 @@ ZP_LF_API_SIZE2 = $82
 ZP_LF_API_SIZE3 = $83
 
 ; Caller code:
-JSR IRQ_GetInfoForFile
+JSR PROT_GetInfoForFile
 LDA FileSize0
 STA ZP_LF_API_SIZE0    ; ✅ Using symbolic name
 ; ...

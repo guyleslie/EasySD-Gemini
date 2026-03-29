@@ -28,10 +28,10 @@ EasySD uses a two-tier macro system in 64tass assembly.
 
 | Macro | Purpose | Replaces |
 |-------|---------|---------|
-| `OPENFILE buf, #len, #flags` | Set filename + open file | LDX/LDY/LDA/JSR IRQ_SetName + LDX/JSR IRQ_OpenFile (6 lines) |
-| `GETFILEINFO buf` | Read FAT directory entry into buf | LDA/STA × 2 + LDY #0 + JSR IRQ_GetInfoForFile (6 lines) |
+| `OPENFILE buf, #len, #flags` | Set filename + open file | LDX/LDY/LDA/JSR PROT_SetName + LDX/JSR PROT_OpenFile (6 lines) |
+| `GETFILEINFO buf` | Read FAT directory entry into buf | LDA/STA × 2 + LDY #0 + JSR PROT_GetInfoForFile (6 lines) |
 | `EXTRACTFILESIZE src, dst` | Copy 32-bit file size from FAT entry | LDA src+28..31 / STA dst..dst+3 (8 lines) |
-| `CLOSEFILE` | Close current file | JSR IRQ_CloseFile |
+| `CLOSEFILE` | Close current file | JSR PROT_CloseFile |
 | `SETADDR label, zp_lo` | 16-bit ZP pointer setup | LDA #<label / STA zp / LDA #>label / STA zp+1 (4 lines) |
 
 `SETADDR` is defined only in APIMacros.s (Tier 2). Files that include both APIMacros.s and CartLibStream.s get `SETADDR` via APIMacros.s; SystemMacros.s does not define it.

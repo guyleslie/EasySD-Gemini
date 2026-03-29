@@ -50,7 +50,7 @@ The system uses a **single-source-of-truth model** for navigating the directory 
     1.  The Arduino maintains the full current path in `currentPath` (a 64-byte string). It is the sole owner of filesystem state.
     2.  When a user enters a directory, a single `CHANGE_DIR` command is sent to the Arduino, which updates `currentPath` accordingly.
     3.  When a user goes back (`..`), a single `".."` command is sent to the Arduino. `GoBack()` truncates `currentPath` to the parent and calls `sd.chdir(parentAbsPath)`. No path replay is needed.
-    4.  For display (header row) and plugin path building, the C64 sends `COMMAND_GET_PATH` (command 9) and receives the current path as a 256-byte page (64-byte path + zero padding) into a scratch buffer (`PLUGIN_HEADER`), then copies the result into `PATHBUFFER`. This is handled by `IRQ_GetCurrentPath` in `EasySDMenu.s`.
+    4.  For display (header row) and plugin path building, the C64 sends `COMMAND_GET_PATH` (command 9) and receives the current path as a 256-byte page (64-byte path + zero padding) into a scratch buffer (`PLUGIN_HEADER`), then copies the result into `PATHBUFFER`. This is handled by `PROT_GetCurrentPath` in `EasySDMenu.s`.
     5.  `ExtractLastDirname` extracts the last path component from `PATHBUFFER` to populate `NAMELOW`/`NAMEHIGH` when needed.
 
 *   **Note on SdFat 2.x:** Professional C64 projects such as SD2IEC and Pi1541 use ChaN's FatFS library, which natively resolves `f_chdir("..")` through the FAT dotdot cluster chain. SdFat 2.x does not handle `".."` the same way in its path parser, so the Arduino side maintains an explicit `currentPath` string and uses absolute-path navigation for `GoBack()`. This is the correct workaround for the library in use.

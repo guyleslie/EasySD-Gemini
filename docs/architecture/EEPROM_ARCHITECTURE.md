@@ -133,11 +133,11 @@ void CartApi::HandleReadEeprom() {
 
 | Label | Registers in | Description |
 |-------|-------------|-------------|
-| `IRQ_SeekEeprom` | A = address high (bits 9–8), X = address low (bits 7–0) | Set pointer |
-| `IRQ_ReadEeprom` | — | Read one byte → returned in A |
-| `IRQ_WriteEeprom` | X = value | Write one byte |
+| `PROT_SeekEeprom` | A = address high (bits 9–8), X = address low (bits 7–0) | Set pointer |
+| `PROT_ReadEeprom` | — | Read one byte → returned in A |
+| `PROT_WriteEeprom` | X = value | Write one byte |
 
-All three communicate via the standard `IRQ_Send` / `IRQ_WaitProcessing`
+All three communicate via the standard `PROT_Send` / `PROT_WaitProcessing`
 protocol (IO2 software serial, C64 → Arduino).
 
 ### Last-visited directory persistence
@@ -175,6 +175,6 @@ and the menu starts at root — safe for fresh chips and corrupted data.
 | Size | 64 KB | 1 KB |
 | Arduino write | No (read-only at runtime) | Yes |
 | Purpose | IRQ loader ROM + streaming data transfer | Persistent settings storage |
-| C64 access | `LDA $80AB` (ROML, via SetPage) | `IRQ_ReadEeprom` / `IRQ_WriteEeprom` |
+| C64 access | `LDA $80AB` (ROML, via SetPage) | `PROT_ReadEeprom` / `PROT_WriteEeprom` |
 | Build artifact | `build/IRQLoaderRom.bin` (flash with programmer) | N/A |
 | Currently used | Yes (streaming, WavPlayer, CvdPlayer) | Yes (last-visited directory) |
