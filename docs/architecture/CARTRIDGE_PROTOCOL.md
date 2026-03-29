@@ -119,6 +119,16 @@ Y counts bytes within the current page.
 | Transfer rate | ~40 KB/s (measured) |
 | Max file size | Controlled by ZP_LF_SIZE (LoadFileBySize API, max 64 KB) |
 
+### NMI-Session Commands (selected CartApi commands used within an open session)
+
+| Command byte | Name | Arguments | Description |
+|-------------|------|-----------|-------------|
+| 27 (`0x1B`) | `COMMAND_READ_NEXT_CHUNK` | pages (1 byte) | Arduino pushes `pages×256` bytes via NMI into C64 buffer; returns status byte `0x80`=more / `0x81`=last block |
+
+Used exclusively by WavPlayer MK3 modes (`ReadNextChunk` subroutine, `WavPlayer.s`).
+The C64 sends command + page count via `PROT_Send`, receives status via `PROT_WaitProcessing`,
+then waits for NMI handler to finish all pages.
+
 ---
 
 ## Mechanism 2 — IO2-Triggered Streaming

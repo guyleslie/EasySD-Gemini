@@ -1,7 +1,7 @@
 # EasySD – WavPlayer Plugin
 
-Plays 4-bit or 8-bit PCM WAV audio files on the C64 from an SD card.
-Supports SID-only, DigiMax, and combined SID+DigiMax output modes.
+Plays 8-bit PCM WAV audio files on the C64 from an SD card.
+Supports SID-only, DigiMax compat, and DigiMax MK3 NMI-buffered output modes.
 
 ---
 
@@ -11,41 +11,119 @@ Supports SID-only, DigiMax, and combined SID+DigiMax output modes.
 |----------|-------|
 | Extension | `.WAV` |
 | Format | PCM (uncompressed) |
-| Bit depth | 4-bit or 8-bit |
-| Sample rate | Depends on file (plugin reads WAV header) |
+| Bit depth | 8-bit unsigned |
+| Sample rate | 11025 Hz (compat/MK3 11K/MK3 stereo) or 22050 Hz (MK3 22K) |
+| Channels | 1 (mono) or 2 (stereo for MK3 Stereo mode) |
 
-Standard WAV files (RIFF/PCM) are accepted. The plugin parses the WAV header
-to determine sample rate, bit depth, and audio data offset.
+Use `Tools/wavtodigimax.py` to convert any audio file to the correct format.
 
 ---
 
 ## Output Modes
 
-The plugin selects an output mode based on hardware and file contents:
+Selected at runtime via the mode selector menu shown before playback.
 
-| Mode | Constant | Output device |
-|------|----------|---------------|
-| SID only | `PLAYTYPE_ONLYSID` | C64 SID chip (4-bit DAC trick) |
-| DigiMax | `PLAYTYPE_DIGIMAX` | DigiMax cartridge (external DAC) |
-| Both | `PLAYTYPE_BOTH` | SID + DigiMax simultaneously |
+| Cursor | Label | `PLAYTYPE` | Hardware | When shown |
+|--------|-------|-----------|----------|------------|
+| 0 | `C64 SID ONLY` | 0 | C64 SID 4-bit DAC, IO2 | always |
+| 1 | `DIGIMAX` | 1 | DigiMax compat, IO2 | always |
+| 2 | `SID + DIGIMAX` | 2 | SID + DigiMax, IO2 | always |
+| 3 | `DIGIMAX MK3 11K` | 3 | MK3 NMI 11025 Hz mono | MK3 only |
+| 4 | `DIGIMAX MK3 22K` | 4 | MK3 NMI 22050 Hz mono | MK3 only |
+| 5 | `MK3 STEREO 11K` | 5 | MK3 NMI 11025 Hz stereo | MK3 only |
 
-Default at runtime: `PLAYTYPE_BOTH`. The mode can be changed in the source.
+Modes 3–5 appear only when a DigiMax MK3 is detected at startup.
 
 ---
 
 ## Streaming Architecture
 
-Unlike other plugins, WavPlayer does not buffer the entire file in RAM.
-It uses the cartridge streaming API (`PROT_Stream`) to feed audio data
-directly to the playback interrupt routine:
+### Compat modes (PLAYTYPE 0–2)
 
-1. File is opened and streaming mode is initialized via `PROT_Stream`.
-2. An IRQ/NMI-driven play routine reads samples from a 128-byte double
-   buffer (`STREAMINGBUFFERHALF = 64` bytes per half).
-3. The Arduino continuously sends audio data; the C64 consumes it in
-   real time via the interrupt handler.
+Uses IO2 streaming (`PROT_Stream`). A 128-byte double buffer and CIA1 IRQ
+feed samples at ~11 kHz. Susceptible to CIA jitter.
 
-This allows playback of files larger than available C64 RAM.
+### MK3 NMI-buffered modes (PLAYTYPE 3–5)
+
+Uses NMI double-buffer streaming:
+
+1. Two 6144-byte audio buffers (`AUDIO_BUF_A` at `$4000`, `AUDIO_BUF_B` at `$5800`).
+2. Buffers are pre-filled via `ReadNextChunk` (Arduino `COMMAND_READ_NEXT_CHUNK=27`
+   pushes pages via NMI).
+3. A CIA1 Timer A ISR (`PlaybackIRQ_Fast`) writes one byte per tick to `$DD01`
+   (CIA2 DATA_B → MK3 `/PC2` latch).
+4. The MK3 ATmega TIMER1 ISR drains its 4096-byte FIFO at crystal-exact rate.
+5. Main loop refills the inactive buffer while the active one plays.
+
+CIA1 timer values:
+
+| Mode | Timer A lo | Effective rate |
+|------|-----------|----------------|
+| PLAYTYPE_MK3 (11K mono) | 89 | 985248 / 89 ≈ 11070 Hz |
+| PLAYTYPE_MK3_22K | 44 | 985248 / 44 ≈ 22392 Hz |
+| PLAYTYPE_MK3_STEREO | 44 | 22392 ticks/s × frame_size=2 → 11025 stereo pairs/s |
+
+---
+
+## DigiMax MK3 Auto-Detection
+
+`DETECT_MK3` runs before the mode selector and sets `MK3_ACTIVE` (`$FB`).
+
+**Phase 1** — magic bytes `$AC $DE $AD $BE` → MK3 replies with ≥1 FLAG2 pulse.
+**Phase 2** — config bytes `$01` (frame_size=1) + `$40` (autostart) → 3 confirmation
+pulses → `MK3_ACTIVE = 1`.
+Timeout: `13 cycles × 256 × 18 ≈ 60 ms` per phase (loop-counter, no jiffy clock).
+
+---
+
+## MK3 Runtime Reconfiguration (SP2 extended commands)
+
+For modes 4 and 5, `MK3_ConfigureMode` reconfigures the MK3 after detection
+(mode 3 uses detection defaults and skips this step).
+
+**SP2 pin**: CIA2 SDR output (user port pin 7 → ATmega PD4, 10 kΩ pull-down on MK3 PCB).
+
+```
+SP2 HIGH  → LDA $DD0F : ORA #$40 : STA $DD0F  (CRB bit6=1 → SDR output)
+            LDA #$FF : STA $DD0C               (SDR write → SP2 HIGH)
+SP2 LOW   → LDA $DD0F : AND #$BF : STA $DD0F  (CRB bit6=0 → pull-down → LOW)
+```
+
+Commands sent via `STA $DD01` (CIA2 PA → MK3 INT0), 10 NOPs between writes:
+
+| Command byte | Meaning |
+|-------------|---------|
+| `$42` | CMD_FLUSH_FIFO — exits PARSER_STREAM_RECV → PARSER_IDLE |
+| `$20` + lo | CMD_SET_RATE_L — OCR1A low byte |
+| `$21` + hi | CMD_SET_RATE_H — OCR1A high byte |
+| `$23` + n | CMD_SET_FRAME_SIZE — 1=mono, 2=stereo |
+| `$30` | CMD_STREAM_PUSH — re-enters PARSER_STREAM_RECV |
+
+Reconfiguration sequence for modes 4/5:
+```
+SP2 HIGH → CMD_FLUSH_FIFO → [CMD_SET_RATE if 22K] → [CMD_SET_FRAME_SIZE if stereo]
+→ CMD_STREAM_PUSH → SP2 LOW
+```
+
+---
+
+## wavtodigimax.py
+
+Converts any audio to the correct WAV format for WavPlayer.
+
+```bash
+# Presets (recommended):
+python Tools/wavtodigimax.py input.mp3 out.wav --mode 11k     # PLAYTYPE_MK3
+python Tools/wavtodigimax.py input.mp3 out.wav --mode 22k     # PLAYTYPE_MK3_22K
+python Tools/wavtodigimax.py input.mp3 out.wav --mode stereo  # PLAYTYPE_MK3_STEREO
+
+# Manual:
+python Tools/wavtodigimax.py input.mp3 out.wav --rate 11025 --channels 1
+python Tools/wavtodigimax.py input.mp3 out.wav --rate 22050 --channels 1
+python Tools/wavtodigimax.py input.mp3 out.wav --rate 11025 --channels 2
+```
+
+Requires `ffmpeg` in PATH.
 
 ---
 
@@ -54,8 +132,10 @@ This allows playback of files larger than available C64 RAM.
 | Call | Purpose |
 |------|---------|
 | `PROT_StartTalking` | Wake Arduino at plugin start |
-| `PROT_OpenFile` | Open the selected WAV file |
-| `PROT_Stream` | Initialize streaming mode |
+| `#OPENFILE` | Open the selected WAV file (APIMacros Tier 2) |
+| `PROT_Stream` | Initialize IO2 streaming (compat modes) |
+| `PROT_SeekFile` | Skip 44-byte WAV header (MK3 modes) |
+| `PROT_Send` + `PROT_WaitProcessing` | `ReadNextChunk` command (MK3 modes) |
 | `PROT_CloseFile` | Close file on exit |
 | `PROT_EndTalking` | End Arduino session |
 | `PROT_ExitToMenu` | Return to EasySD menu |
@@ -68,65 +148,33 @@ Macros: `#OPENFILE` (Tier 2), `#SETBANK`, `#SAVEREGS`/`#RESTOREREGS` (Tier 1).
 
 | Key | Action |
 |-----|--------|
-| Any key | Stop playback and exit to menu |
+| Any key (compat) | Stop playback and exit to menu |
+| STOP key (MK3) | Stop playback and exit to menu |
 
 ---
 
-## DigiMax MK3 Streaming Mode
-
-WavPlayer **auto-detects** a DigiMax MK3 at startup via the `DETECT_MK3` routine.  No user
-configuration is required.  If an original Digimax or no hardware is found, compat mode
-is selected transparently.
-
-### Mode comparison
-
-| Mode | Hardware | Timing source | FIFO buffer | Quality |
-|------|----------|---------------|-------------|---------|
-| **Compat** (default) | Original Digimax or MK3 | C64 CIA1 IRQ (~11 kHz, jitter) | None | 8-bit, ~11 kHz, may click |
-| **MK3 streaming** (auto) | DigiMax MK3 only | ATmega TIMER1 (crystal, exact) | 4096 bytes ≈ 372 ms | 8-bit, 11025 Hz, **stable** |
-
-### Initialisation sequence
-
-1. `SetupDigimax` / `SetupBoth` calls `NMIDIGI_InitNew` (CIA2 setup — unchanged).
-2. `DETECT_MK3` is called immediately after.
-3. **Phase 1** — magic sequence `$AC $DE $AD $BE` sent on channel 0 (`$DD01`, PA3=1,
-   PA2=0).  MK3 responds with ≥1 FLAG2 pulse within ~60 ms; no pulse → compat mode.
-4. **Phase 2** — two config bytes sent:
-   - `$01` — frame_size = 1 (mono; 1 byte per ATmega TIMER1 tick, replicated to all 4 DAC channels)
-   - `$40` — auto-start threshold = 64 → 64 × 16 = 1024 bytes ≈ 93 ms pre-buffer
-5. ATmega replies with exactly **3 FLAG2 confirmation pulses** → `MK3_ACTIVE` (`$FB`) = 1.
-
-### Playback
-
-`PlayDigimax` / `PlayBothBuffered` write one byte per CIA1 tick to `$DD01` — **identical
-to compat**.  On MK3, each write triggers INT0 → byte enters the ATmega FIFO → TIMER1 ISR
-drains at crystal-exact 11025 Hz.  The FIFO absorbs CIA1/IO2 jitter → no clicks.
-Playback auto-starts when FIFO reaches 1024 bytes (~93 ms).
-
-### Timeout design
-
-`DETECT_MK3` uses a loop-counter timeout (not the jiffy clock `$A2`).  `KILLCIA` disables
-CIA1 interrupts before detection, so `$A2` stops updating — a jiffy-based timeout would
-freeze at 0 and loop forever on non-MK3 hardware.
-
-`13 cycles × 256 inner × 18 outer ≈ 60 000 cycles ≈ 60 ms @ 1 MHz` per phase.
-
-### Zero-page usage
+## Zero-Page Usage
 
 | Address | Label | Description |
 |---------|-------|-------------|
-| `$FB` | `MK3_ACTIVE` | 1 = MK3 streaming confirmed; 0 = compat mode |
-| `$FC` | `DETECT_TIMEOUT` | Scratch during detection only; free after `DETECT_DONE` |
+| `$FB` | `MK3_ACTIVE` | 1 = MK3 confirmed; 0 = compat |
+| `$FC` | `DETECT_TIMEOUT` | Scratch during detection; free after |
+| `$8B` | `ZP_WAV_PTR_LO` | Playback pointer lo |
+| `$8C` | `ZP_WAV_PTR_HI` | Playback pointer hi |
+| `$8D` | `ZP_WAV_END_HI` | Active buffer end hi-byte |
+| `$8E` | `ZP_WAV_ACTBUF` | 0=BUF_A active, 1=BUF_B active |
+| `$8F` | `ZP_WAV_FILL` | 0=idle, 1=fill inactive buffer |
+| `$90` | `ZP_WAV_EOFLAG` | 0=more data, $FF=last block |
+| `$91` | `ZP_WAV_TIMERLO` | CIA1 Timer A lo (89=11025 Hz, 44=22050 Hz/stereo) |
 
 ---
 
 ## Known Limitations
 
-- Only uncompressed PCM WAV files are supported. Compressed formats (µ-law, IMA ADPCM, etc.) are not.
-- DigiMax mode requires a DigiMax cartridge in the expansion port alongside EasySD.
-- In compat mode, timing accuracy depends on CIA interrupt stability; other software running concurrently may cause glitches.  **MK3 streaming mode eliminates this via the ATmega FIFO.**
-- MK3 streaming mode supports **11 kHz mono only**; higher rates exceed EasySD IO2 bandwidth (~13.5 KB/s).
-- Very high sample rates (above ~22 kHz) may exceed the streaming bandwidth in compat mode.
+- Only uncompressed 8-bit unsigned PCM WAV files are supported.
+- DigiMax compat modes (0–2) require a DigiMax cartridge alongside EasySD.
+- MK3 modes (3–5) require a DigiMax MK3 (auto-detected).
+- Compat mode timing depends on CIA1 stability; MK3 modes use crystal-exact ATmega TIMER1.
 
 ---
 

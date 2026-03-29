@@ -17,9 +17,30 @@ PLAYINDEX   = $A4
 MK3_ACTIVE      = $FB   ; 0 = compat mode, 1 = MK3 streaming active
 DETECT_TIMEOUT  = $FC   ; outer loop counter during detection
 
-PLAYTYPE_ONLYSID = 0
-PLAYTYPE_DIGIMAX = 1
-PLAYTYPE_BOTH = 2
+PLAYTYPE_ONLYSID    = 0           ; C64 SID 4-bit DAC, IO2 streaming
+PLAYTYPE_DIGIMAX    = 1           ; DigiMax compat, IO2 streaming
+PLAYTYPE_BOTH       = 2           ; SID + DigiMax, IO2 streaming
+PLAYTYPE_MK3        = 3           ; MK3 NMI 11025 Hz mono, CIA=89
+PLAYTYPE_MK3_22K    = 4           ; MK3 NMI 22050 Hz mono, CIA=44
+PLAYTYPE_MK3_STEREO = 5           ; MK3 NMI 11025 Hz stereo, CIA=44
+
+; MK3 audio double-buffer layout ($4000–$6FFF)
+AUDIO_BUF_A         = $4000       ; 6144 bytes: $4000–$57FF
+AUDIO_BUF_B         = $5800       ; 6144 bytes: $5800–$6FFF
+AUDIO_BUF_A_END_HI  = $58        ; hi-byte of first addr past BUF_A
+AUDIO_BUF_B_END_HI  = $70        ; hi-byte of first addr past BUF_B
+BUFFER_PAGES        = 24          ; 24 × 256 = 6144 bytes per buffer
+WAV_HEADER_SIZE     = 44          ; standard PCM WAV header (fixed for v1)
+COMMAND_READ_NEXT_CHUNK = 27      ; Arduino command: NMI-push numPages*256 bytes
+
+; ZP scratch for MK3 path (plugin-local, $8B-$90 per CartZpMap.inc)
+ZP_WAV_PTR_LO   = $8B   ; playback pointer lo (current byte address)
+ZP_WAV_PTR_HI   = $8C   ; playback pointer hi
+ZP_WAV_END_HI   = $8D   ; hi-byte of end address for active buffer
+ZP_WAV_ACTBUF   = $8E   ; 0 = BUF_A active, 1 = BUF_B active
+ZP_WAV_FILL     = $8F   ; 0 = idle, 1 = inactive buffer needs fill
+ZP_WAV_EOFLAG   = $90   ; 0 = more data, $FF = last block loaded
+ZP_WAV_TIMERLO  = $91   ; CIA1 Timer A low byte (89=11025 Hz, 44=22050 Hz/stereo)
 
 
 
@@ -65,10 +86,31 @@ OPENINGCONT
 	LDY #$00
 	JSR PROT_Stream
 
-	;JMP STREAMTEST2
 	DELAYFRAMES 5
-	LDA #PLAYTYPE_BOTH
+
+	; Detect MK3 BEFORE mode selector so it can show/hide the MK3 option
+	JSR DIGI_Init
+	JSR NMIDIGI_InitNew
+	JSR DETECT_MK3          ; sets MK3_ACTIVE = 0 or 1
+
+	; Mode selector screen — returns selected PLAYTYPE in A
+	JSR ShowModeSelector
 	STA PLAYTYPE
+
+	; Clear screen before playback
+	LDA #$93
+	JSR CHROUT
+
+	; Branch to MK3 NMI-buffered path if any MK3 mode selected
+	LDA PLAYTYPE
+	CMP #PLAYTYPE_MK3
+	BEQ StartMK3Playback
+	CMP #PLAYTYPE_MK3_22K
+	BEQ StartMK3Playback
+	CMP #PLAYTYPE_MK3_STEREO
+	BEQ StartMK3Playback
+
+	; Fall through to existing IO2 streaming paths (PLAYTYPE 0/1/2)
 	JMP STREAMFILE
 	
 ERROR_OPENING_FILE	
@@ -1126,5 +1168,558 @@ SAVED_D020:	.byte 0
 SAVED_D021:	.byte 0
 SAVED_D022:	.byte 0
 SAVED_D023:	.byte 0
+
+; ============================================================
+; ShowModeSelector — display playback mode selection menu
+; Returns: A = selected PLAYTYPE (0=SID only, 1=DigiMax, 2=MK3)
+; Prerequisite: DETECT_MK3 already called (MK3_ACTIVE set)
+; Uses GETIN (KERNAL) — called before CIA is killed, so this works.
+; ============================================================
+
+; Menu state (data)
+MENU_CURSOR     .byte 0    ; current selection index (0-based)
+MENU_MAX        .byte 0    ; number of items: 3 without MK3, 6 with MK3
+
+; Screen positions (row*40+$0400)
+MENU_ROW_SID     = $0400 +  2*40 + 2
+MENU_ROW_DIGI    = $0400 +  4*40 + 2
+MENU_ROW_BOTH    = $0400 +  6*40 + 2
+MENU_ROW_MK3_11K = $0400 +  8*40 + 2
+MENU_ROW_MK3_22K = $0400 + 10*40 + 2
+MENU_ROW_MK3_ST  = $0400 + 12*40 + 2
+
+; Translates cursor index → PLAYTYPE constant
+MODE_PLAYTYPE_TABLE: .byte 0, 1, 2, 3, 4, 5
+
+STR_TITLE:       .text "SELECT PLAYBACK MODE"
+                 .byte 0
+STR_SID:         .text "C64 SID ONLY"
+                 .byte 0
+STR_DIGIMAX:     .text "DIGIMAX"
+                 .byte 0
+STR_SID_DIGI:    .text "SID + DIGIMAX"
+                 .byte 0
+STR_MK3_11K:     .text "DIGIMAX MK3 11K"
+                 .byte 0
+STR_MK3_22K:     .text "DIGIMAX MK3 22K"
+                 .byte 0
+STR_MK3_STEREO:  .text "MK3 STEREO 11K"
+                 .byte 0
+
+ShowModeSelector:
+	; Black screen, clear
+	LDA #$00
+	STA $D020
+	STA $D021
+	LDA #$93
+	JSR CHROUT
+
+	; Set item count based on MK3_ACTIVE (3 base + 3 MK3 modes)
+	LDA #3
+	LDX MK3_ACTIVE
+	BEQ MSSEL_NO_MK3
+	LDA #6
+MSSEL_NO_MK3:
+	STA MENU_MAX
+
+	; Default cursor = 0 (SID only)
+	LDA #0
+	STA MENU_CURSOR
+
+	; Print title at row 1, col 2
+	LDA #<STR_TITLE
+	STA $FB
+	LDA #>STR_TITLE
+	STA $FC
+	LDA #<($0400 + 1*40 + 2)
+	STA $FD
+	LDA #>($0400 + 1*40 + 2)
+	STA $FE
+	JSR PrintStringAt
+
+MSSEL_LOOP:
+	JSR MS_Render       ; redraw all items, selected one inverted
+	JSR GETIN
+	BEQ MSSEL_LOOP      ; no key — keep polling
+
+	CMP #$11            ; cursor DOWN
+	BEQ MSSEL_DOWN
+	CMP #$91            ; cursor UP
+	BEQ MSSEL_UP
+	CMP #$0D            ; RETURN
+	BEQ MSSEL_SELECT
+	JMP MSSEL_LOOP
+
+MSSEL_DOWN:
+	INC MENU_CURSOR
+	LDA MENU_CURSOR
+	CMP MENU_MAX
+	BCC MSSEL_LOOP
+	LDA #0
+	STA MENU_CURSOR
+	JMP MSSEL_LOOP
+
+MSSEL_UP:
+	LDA MENU_CURSOR
+	BNE MSSEL_UP_DEC
+	LDA MENU_MAX
+	STA MENU_CURSOR
+MSSEL_UP_DEC:
+	DEC MENU_CURSOR
+	JMP MSSEL_LOOP
+
+MSSEL_SELECT:
+	LDX MENU_CURSOR
+	LDA MODE_PLAYTYPE_TABLE,X   ; translate cursor index to PLAYTYPE
+	RTS
+
+; ---- MS_Render: redraw all menu items, highlight selected ----
+MS_Render:
+	; SID item (index 0) — always shown
+	LDA #<STR_SID
+	STA $FB
+	LDA #>STR_SID
+	STA $FC
+	LDA #<MENU_ROW_SID
+	STA $FD
+	LDA #>MENU_ROW_SID
+	STA $FE
+	LDA MENU_CURSOR
+	BNE MSR_SID_NORMAL
+	JSR PrintStringInvAt
+	JMP MSR_DIGI
+MSR_SID_NORMAL:
+	JSR PrintStringAt
+
+MSR_DIGI:
+	; DIGIMAX item (index 1) — always shown
+	LDA #<STR_DIGIMAX
+	STA $FB
+	LDA #>STR_DIGIMAX
+	STA $FC
+	LDA #<MENU_ROW_DIGI
+	STA $FD
+	LDA #>MENU_ROW_DIGI
+	STA $FE
+	LDA MENU_CURSOR
+	CMP #1
+	BNE MSR_DIGI_NORMAL
+	JSR PrintStringInvAt
+	JMP MSR_BOTH
+MSR_DIGI_NORMAL:
+	JSR PrintStringAt
+
+MSR_BOTH:
+	; SID + DIGIMAX item (index 2) — always shown
+	LDA #<STR_SID_DIGI
+	STA $FB
+	LDA #>STR_SID_DIGI
+	STA $FC
+	LDA #<MENU_ROW_BOTH
+	STA $FD
+	LDA #>MENU_ROW_BOTH
+	STA $FE
+	LDA MENU_CURSOR
+	CMP #2
+	BNE MSR_BOTH_NORMAL
+	JSR PrintStringInvAt
+	JMP MSR_MK3_CHECK
+MSR_BOTH_NORMAL:
+	JSR PrintStringAt
+
+MSR_MK3_CHECK:
+	; MK3 items (index 3-5) — only if MENU_MAX = 6
+	LDA MENU_MAX
+	CMP #6
+	BNE MSR_DONE
+	; MK3 11K item (index 3)
+	LDA #<STR_MK3_11K
+	STA $FB
+	LDA #>STR_MK3_11K
+	STA $FC
+	LDA #<MENU_ROW_MK3_11K
+	STA $FD
+	LDA #>MENU_ROW_MK3_11K
+	STA $FE
+	LDA MENU_CURSOR
+	CMP #3
+	BNE MSR_MK3_11K_NORMAL
+	JSR PrintStringInvAt
+	JMP MSR_MK3_22K
+MSR_MK3_11K_NORMAL:
+	JSR PrintStringAt
+
+MSR_MK3_22K:
+	; MK3 22K item (index 4)
+	LDA #<STR_MK3_22K
+	STA $FB
+	LDA #>STR_MK3_22K
+	STA $FC
+	LDA #<MENU_ROW_MK3_22K
+	STA $FD
+	LDA #>MENU_ROW_MK3_22K
+	STA $FE
+	LDA MENU_CURSOR
+	CMP #4
+	BNE MSR_MK3_22K_NORMAL
+	JSR PrintStringInvAt
+	JMP MSR_MK3_ST
+MSR_MK3_22K_NORMAL:
+	JSR PrintStringAt
+
+MSR_MK3_ST:
+	; MK3 Stereo item (index 5)
+	LDA #<STR_MK3_STEREO
+	STA $FB
+	LDA #>STR_MK3_STEREO
+	STA $FC
+	LDA #<MENU_ROW_MK3_ST
+	STA $FD
+	LDA #>MENU_ROW_MK3_ST
+	STA $FE
+	LDA MENU_CURSOR
+	CMP #5
+	BNE MSR_MK3_ST_NORMAL
+	JSR PrintStringInvAt
+	JMP MSR_DONE
+MSR_MK3_ST_NORMAL:
+	JSR PrintStringAt
+MSR_DONE:
+	RTS
+
+; ---- PrintStringAt: null-terminated PETSCII string to screen ----
+; In: $FB/$FC = string ptr, $FD/$FE = screen dest
+PrintStringAt:
+	LDY #0
+PSA_LOOP:
+	LDA ($FB),Y
+	BEQ PSA_DONE
+	STA ($FD),Y
+	INY
+	JMP PSA_LOOP
+PSA_DONE:
+	RTS
+
+; ---- PrintStringInvAt: same but OR $80 (reverse video) ----
+PrintStringInvAt:
+	LDY #0
+PSI_LOOP:
+	LDA ($FB),Y
+	BEQ PSI_DONE
+	ORA #$80
+	STA ($FD),Y
+	INY
+	JMP PSI_LOOP
+PSI_DONE:
+	RTS
+
+; ============================================================
+; StartMK3Playback — NMI-buffered double-buffer playback path
+; ============================================================
+StartMK3Playback:
+	; Seek past 44-byte WAV header
+	LDA #<WAV_HEADER_SIZE
+	STA ZP_IRQ_API_SEEK_LO
+	LDA #>WAV_HEADER_SIZE
+	STA ZP_IRQ_API_SEEK_HI
+	LDX #SEEK_DIRECTION_START
+	JSR PROT_SeekFile
+
+	; Init state
+	LDA #$00
+	STA ZP_WAV_EOFLAG
+
+	; Pre-fill BUF_A (playback not started yet — SEI not needed)
+	LDA #<AUDIO_BUF_A
+	STA ZP_IRQ_API_DATA_LO
+	LDA #>AUDIO_BUF_A
+	STA ZP_IRQ_API_DATA_HI
+	JSR ReadNextChunk
+
+	; Pre-fill BUF_B
+	LDA #<AUDIO_BUF_B
+	STA ZP_IRQ_API_DATA_LO
+	LDA #>AUDIO_BUF_B
+	STA ZP_IRQ_API_DATA_HI
+	JSR ReadNextChunk
+
+	; Init playback pointer → BUF_A
+	SEI
+	LDA #<AUDIO_BUF_A
+	STA ZP_WAV_PTR_LO
+	LDA #>AUDIO_BUF_A
+	STA ZP_WAV_PTR_HI
+	LDA #AUDIO_BUF_A_END_HI
+	STA ZP_WAV_END_HI
+	LDA #$00
+	STA ZP_WAV_ACTBUF
+	STA ZP_WAV_FILL
+	LDY #$00            ; Y fixed at 0 for PlaybackIRQ_Fast indirect read
+
+	; Determine CIA1 timer value based on mode
+	LDA #89             ; default: 11025 Hz (PLAYTYPE_MK3)
+	LDX PLAYTYPE
+	CPX #PLAYTYPE_MK3_22K
+	BEQ SMK3_TIMER44
+	CPX #PLAYTYPE_MK3_STEREO
+	BNE SMK3_TIMER_SET
+SMK3_TIMER44:
+	LDA #44
+SMK3_TIMER_SET:
+	STA ZP_WAV_TIMERLO
+
+	JSR MK3_ConfigureMode   ; reconfigure MK3 FIFO rate/frame_size if needed
+
+	; Setup CIA1 Timer A
+	LDA #$7F
+	STA $DC0D           ; disable all CIA1 IRQs
+	LDA $DC0D           ; ack pending
+	LDA ZP_WAV_TIMERLO  ; 89 for 11025 Hz, 44 for 22050 Hz / stereo
+	STA $DC04
+	LDA #0
+	STA $DC05
+	LDA #$81            ; enable Timer A IRQ
+	STA $DC0D
+	LDA #<PlaybackIRQ_Fast
+	STA $0314
+	LDA #>PlaybackIRQ_Fast
+	STA $0315
+	LDA #(CRA_FORCE_LOAD + CRA_START)
+	STA $DC0E
+
+	CLI                 ; PLAYBACK STARTS
+
+MK3MainLoop:
+	; Check STOP key (CIA1 port A/B matrix scan: row 7 selects STOP column)
+	LDA #$7F
+	STA $DC00           ; select keyboard row 7
+	LDA $DC01           ; read columns
+	PHA
+	LDA #$FF
+	STA $DC00           ; restore: deselect all rows
+	PLA
+	AND #$80
+	BEQ MK3_STOP        ; bit7 = 0 → STOP pressed
+
+	; Check fill request
+	LDA ZP_WAV_FILL
+	BEQ MK3MainLoop
+
+	; EOF set + fill request = last buffer was just drained → done
+	LDA ZP_WAV_EOFLAG
+	BNE MK3_STOP
+
+	; Fill the INACTIVE buffer
+	LDA ZP_WAV_ACTBUF
+	BNE MK3_FILL_A      ; active=BUF_B → fill BUF_A
+MK3_FILL_B:
+	LDA #<AUDIO_BUF_B
+	STA ZP_IRQ_API_DATA_LO
+	LDA #>AUDIO_BUF_B
+	STA ZP_IRQ_API_DATA_HI
+	JMP MK3_DO_FILL
+MK3_FILL_A:
+	LDA #<AUDIO_BUF_A
+	STA ZP_IRQ_API_DATA_LO
+	LDA #>AUDIO_BUF_A
+	STA ZP_IRQ_API_DATA_HI
+MK3_DO_FILL:
+	LDA #$00
+	STA ZP_WAV_FILL
+	JSR ReadNextChunk
+	JMP MK3MainLoop
+
+MK3_STOP:
+	SEI
+	LDA #$7F
+	STA $DC0D           ; disable CIA1 Timer A IRQ
+	LDA $DC0D           ; ack pending
+	CLI
+	JSR CleanReturnToMenu
+	RTS
+
+; ============================================================
+; PlaybackIRQ_Fast — CIA1 Timer A ISR, 11025 Hz
+; Y register is kept 0 throughout playback (fixed offset for indirect read)
+; Aligned to page boundary to avoid BNE crossing penalty
+; ============================================================
+.align $100
+PlaybackIRQ_Fast:
+	PHA                             ; 3
+	LDA $DC0D                       ; 4 — ACK CIA1 (clears timer IRQ flag)
+
+	LDA (ZP_WAV_PTR_LO),Y          ; 5 — Y=0 fixed throughout playback
+	STA $DD01                       ; 4 — CIA2 DATA_B → DigiMax MK3 /PC2 latch
+
+	INC ZP_WAV_PTR_LO               ; 5
+	BNE PF_NO_PAGE                  ; 2/3
+	INC ZP_WAV_PTR_HI               ; 5
+	LDA ZP_WAV_PTR_HI               ; 3
+	CMP ZP_WAV_END_HI               ; 3
+	BEQ PF_SWAP                     ; 2/3
+PF_NO_PAGE:
+	PLA                             ; 4
+	RTI                             ; 6
+	; Total normal path: 3+4+5+4+5+2+4+6 = 33 cycles ✓
+
+PF_SWAP:
+	; Buffer boundary reached — swap active buffer, signal main loop to fill
+	LDA ZP_WAV_ACTBUF
+	EOR #$01
+	STA ZP_WAV_ACTBUF
+	BEQ PF_USE_A            ; new active = 0 → use BUF_A
+PF_USE_B:
+	LDA #<AUDIO_BUF_B
+	STA ZP_WAV_PTR_LO
+	LDA #>AUDIO_BUF_B
+	STA ZP_WAV_PTR_HI
+	LDA #AUDIO_BUF_B_END_HI
+	STA ZP_WAV_END_HI
+	JMP PF_REQ_FILL
+PF_USE_A:
+	LDA #<AUDIO_BUF_A
+	STA ZP_WAV_PTR_LO
+	LDA #>AUDIO_BUF_A
+	STA ZP_WAV_PTR_HI
+	LDA #AUDIO_BUF_A_END_HI
+	STA ZP_WAV_END_HI
+PF_REQ_FILL:
+	LDA #$01
+	STA ZP_WAV_FILL
+	PLA
+	RTI
+
+; ============================================================
+; ReadNextChunk — send COMMAND_READ_NEXT_CHUNK, receive
+;                 BUFFER_PAGES*256 bytes via NMI into buffer
+; In:  ZP_IRQ_API_DATA_LO/HI = target buffer base address
+; Out: ZP_WAV_EOFLAG: set to $FF if Arduino reports last block
+; ============================================================
+ReadNextChunk:
+	SEI
+
+	; Install NMI vector → CARTRIDGENMIHANDLERX1 (X1 = 1 byte per NMI pulse)
+	LDA NMITAB              ; = <CARTRIDGENMIHANDLERX1
+	STA SOFTNMIVECTOR
+	LDA #$80                ; high byte of $80AF ROM address
+	STA SOFTNMIVECTOR+1
+
+	; Reset transfer-done flag; set page count for NMI handler (X=pages, Y=index)
+	LDA #$00
+	STA ZP_IRQ_STATE_WAITHANDLE
+	LDX #BUFFER_PAGES       ; NMI handler counts down X pages
+	LDY #$00                ; byte index within current page
+
+	; Send command byte + page count argument within current session
+	LDA #COMMAND_READ_NEXT_CHUNK
+	JSR PROT_Send
+	LDA #BUFFER_PAGES
+	JSR PROT_Send
+
+	; Switch bank so CARTRIDGE_BANK_VALUE is readable
+	#SETBANK PP_CONFIG_DEFAULT
+
+	; Wait for Arduino status byte (0x80=more, 0x81=last)
+	JSR PROT_WaitProcessing
+	BCS RNC_ERROR
+
+	; A = status from Arduino
+	AND #$01                ; bit0: 0=more data, 1=last block
+	BEQ RNC_NOT_EOF
+	LDA #$FF
+	STA ZP_WAV_EOFLAG
+RNC_NOT_EOF:
+
+	CLI                     ; enable CIA1 IRQ BEFORE waiting for NMI transfer
+
+	; Wait for NMI handler to finish all BUFFER_PAGES pages
+	CLV
+	#WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC
+	RTS
+
+RNC_ERROR:
+	LDA #$FF
+	STA ZP_WAV_EOFLAG
+	CLI
+	RTS
+
+; ============================================================
+; MK3_SP2_HIGH — drive SP2 line HIGH (CIA2 SDR output = $FF)
+; MK3_SP2_LOW  — release SP2 line LOW (external pull-down takes over)
+; MK3_SendCmd  — In: A = byte; sends to MK3 via CIA2 DATA_B ($DD01)
+; ============================================================
+MK3_SP2_HIGH:
+	LDA $DD0F
+	ORA #$40            ; CRB bit6=1: SDR as output
+	STA $DD0F
+	LDA #$FF
+	STA $DD0C           ; SDR write → SP2 HIGH
+	RTS
+
+MK3_SP2_LOW:
+	LDA $DD0F
+	AND #$BF            ; CRB bit6=0: SDR as input → pull-down → SP2 LOW
+	STA $DD0F
+	RTS
+
+MK3_SendCmd:
+	STA $DD01           ; CIA2 DATA_B → triggers MK3 /PC2 INT0
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	NOP
+	RTS
+
+; ============================================================
+; MK3_ConfigureMode — reconfigure MK3 for selected PLAYTYPE
+; Called from StartMK3Playback, inside SEI, before CIA1 setup.
+; Mode 3 (PLAYTYPE_MK3):        default 11025 Hz mono — no change needed.
+; Mode 4 (PLAYTYPE_MK3_22K):    set OCR1A=725 (22050 Hz mono).
+; Mode 5 (PLAYTYPE_MK3_STEREO): set frame_size=2 (11025 Hz stereo).
+; ============================================================
+MK3_ConfigureMode:
+	LDA PLAYTYPE
+	CMP #PLAYTYPE_MK3
+	BEQ MCM_Done        ; mode 3: default 11k mono, no change needed
+
+	JSR MK3_SP2_HIGH
+	LDA #$42
+	JSR MK3_SendCmd     ; CMD_FLUSH_FIFO → exits PARSER_STREAM_RECV → PARSER_IDLE
+
+	LDA PLAYTYPE
+	CMP #PLAYTYPE_MK3_22K
+	BNE MCM_Stereo
+
+MCM_22K:
+	LDA #$20
+	JSR MK3_SendCmd     ; CMD_SET_RATE_L
+	LDA #$D5
+	JSR MK3_SendCmd     ; OCR1A low byte (725 = $02D5)
+	LDA #$21
+	JSR MK3_SendCmd     ; CMD_SET_RATE_H
+	LDA #$02
+	JSR MK3_SendCmd     ; OCR1A high byte
+	JMP MCM_Restart
+
+MCM_Stereo:
+	LDA #$23
+	JSR MK3_SendCmd     ; CMD_SET_FRAME_SIZE
+	LDA #$02
+	JSR MK3_SendCmd     ; frame_size=2 (L+R pair per tick)
+
+MCM_Restart:
+	LDA #$30
+	JSR MK3_SendCmd     ; CMD_STREAM_PUSH → re-enters PARSER_STREAM_RECV
+	JSR MK3_SP2_LOW
+
+MCM_Done:
+	RTS
+
 
 .include "../../Loader/CartLibStream.s"
