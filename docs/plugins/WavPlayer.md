@@ -55,13 +55,21 @@ Uses NMI double-buffer streaming:
 4. The MK3 ATmega TIMER1 ISR drains its 4096-byte FIFO at crystal-exact rate.
 5. Main loop refills the inactive buffer while the active one plays.
 
-CIA1 timer values:
+CIA1 timer values (N+1 rule: period = timer+1 clocks):
 
 | Mode | Timer A lo | Effective rate |
 |------|-----------|----------------|
-| PLAYTYPE_MK3 (11K mono) | 89 | 985248 / 89 ≈ 11070 Hz |
-| PLAYTYPE_MK3_22K | 44 | 985248 / 44 ≈ 22392 Hz |
-| PLAYTYPE_MK3_STEREO | 44 | 22392 ticks/s × frame_size=2 → 11025 stereo pairs/s |
+| PLAYTYPE_MK3 (11K mono) | 89 | 985248 / **90** = **10947 Hz** |
+| PLAYTYPE_MK3_22K | 44 | 985248 / **45** = **21894 Hz** |
+| PLAYTYPE_MK3_STEREO | 44 | 21894 ticks/s × frame_size=2 → **10947 stereo pairs/s** |
+
+MK3 OCR1A calibrated to match C64 rate (N+1: period = OCR1A+1 counts):
+
+| Mode | OCR1A sent | MK3 rate | Net drift |
+|------|-----------|----------|-----------|
+| PLAYTYPE_MK3 | 1461 | 16000000/1462 = **10944 Hz** | +2.6 B/s → FIFO fills slowly ✓ |
+| PLAYTYPE_MK3_22K | 730 | 16000000/731  = **21888 Hz** | +6.0 B/s → FIFO fills slowly ✓ |
+| PLAYTYPE_MK3_STEREO | 1461 | 10944 Hz × 2 = **21889 B/s** | +5.2 B/s → FIFO fills slowly ✓ |
 
 ---
 
@@ -198,7 +206,10 @@ Macros: `#OPENFILE` (Tier 2), `#SETBANK`, `#SAVEREGS`/`#RESTOREREGS` (Tier 1).
 - Only uncompressed 8-bit unsigned PCM WAV files are supported.
 - DigiMax compat modes (0–2) require a DigiMax cartridge alongside EasySD.
 - MK3 modes (3–5) require a DigiMax MK3 (auto-detected).
-- Compat mode timing depends on CIA1 stability; MK3 modes use crystal-exact ATmega TIMER1.
+- Compat mode timing depends on CIA1 stability; MK3 modes use calibrated ATmega TIMER1.
+- `TransmitByteFastMK3` (35 µs inter-byte delay) is untested on all hardware revisions.
+  If NMI transfers fail, revert `CartApi.cpp` `HandleReadNextChunk` to `TransmitByteFastStd`
+  and rely on the stale-read silence guard (Phase 3) for quality protection.
 
 ---
 

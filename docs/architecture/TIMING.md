@@ -154,8 +154,26 @@ detects end-of-stream by a 100 ms timeout on /IO2 activity.
 Unlike IO2 streaming, MK3 mode uses a double-buffer scheme: the C64 requests
 `BUFFER_PAGES × 256` bytes from Arduino via NMI, stores them in a RAM buffer,
 and a CIA1 ISR forwards each byte to the DigiMax MK3 via CIA2 DATA_B ($DD01)
-at the configured sample rate. The MK3 has an internal 1024-byte FIFO and plays
+at the configured sample rate. The MK3 has an internal 4096-byte FIFO and plays
 independently once buffered.
+
+### Rate calibration (N+1 formula)
+
+CIA 6526 timer period = **N+1 clocks** (CIA datasheet, confirmed by Lemon64 forum):
+- CIA1 timer=89 → 985248 / 90 = **10947 Hz** (not 11025/11070 Hz)
+- CIA1 timer=44 → 985248 / 45 = **21894 Hz** (not 22050/22392 Hz)
+
+ATmega CTC timer period = **OCR1A+1 counts** (ATmega328P datasheet):
+- OCR1A=1450 → 16000000 / 1451 = **11026 Hz** (MK3 default, 79 Hz faster than C64)
+- OCR1A=1461 → 16000000 / 1462 = **10944 Hz** (calibrated, +2.6 B/s inflow)
+- OCR1A=725  → 16000000 / 726  = **22039 Hz** (MK3 old, 145 Hz faster than C64)
+- OCR1A=730  → 16000000 / 731  = **21888 Hz** (calibrated, +6.0 B/s inflow)
+
+**Without calibration**: MK3 always runs slightly faster than the C64, draining the
+4096-byte FIFO in seconds (11K) or seconds (22K) → underrun → audio stops.
+
+**With calibration** (sent via `MK3_ConfigureMode`): MK3 runs slightly slower than
+C64 → FIFO fills at +2.6–6.0 B/s → sustained playback with no underrun.
 
 ### Buffer and transfer
 
@@ -163,39 +181,52 @@ independently once buffered.
 |-----------|-------|-------|
 | `BUFFER_PAGES` | 24 | → 6144 bytes per buffer |
 | Two buffers total | 12288 bytes | `AUDIO_BUF_A` + `AUDIO_BUF_B` in plugin RAM |
-| Transfer function | `TransmitByteFastStd()` | Same NMI timing as normal file load |
-| Transfer time (6144 B) | **~370 ms** | 6144 × ~60 µs/byte (NMI + SD read interleaved) |
+| Transfer function | `TransmitByteFastMK3()` | 35µs delay → 22133 Hz fill rate |
+| Transfer time (6144 B) | **~295 ms** | 6144 × ~48 µs/byte (NMI + SD read interleaved) |
 
 ### Playback duration per buffer by mode
 
-| Mode | CIA1 timer | C64→MK3 rate | Buffer duration | Refill time | Margin |
-|------|-----------|-------------|-----------------|-------------|--------|
-| PLAYTYPE_MK3 (11K mono) | 89 | 11025 Hz | **557 ms** | ~370 ms | **+187 ms ✓** |
-| PLAYTYPE_MK3_22K (22K mono) | 44 | 22050 Hz | **278 ms** | ~370 ms | **−92 ms ⚠** |
-| PLAYTYPE_MK3_STEREO (stereo) | 44 | 22050 Hz | **278 ms** | ~370 ms | **−92 ms ⚠** |
+CIA1 timer uses N+1 rule; rates below are actual:
 
-> **⚠ Known limitation — 22K and stereo modes:** the inactive buffer (278 ms) drains
-> faster than the refill (≈370 ms). After both buffers play through, the ISR wraps back
-> to the partially-filled buffer and reads stale data until the fill completes (~90 ms
-> gap). This can cause audible stuttering on long tracks.
->
-> **Workaround:** increase `BUFFER_PAGES` from 24 to ≥38 so each buffer holds ≥395 ms
-> of audio, exceeding the refill time. This requires the plugin to use more RAM.
+| Mode | CIA1 timer | C64→MK3 rate | MK3 OCR1A | MK3 rate | Buffer duration | Refill time | Margin |
+|------|-----------|-------------|-----------|----------|-----------------|-------------|--------|
+| PLAYTYPE_MK3 (11K mono) | 89 | **10947 Hz** | 1461 | **10944 Hz** | **561 ms** | ~295 ms | **+266 ms ✓** |
+| PLAYTYPE_MK3_22K (22K mono) | 44 | **21894 Hz** | 730 | **21888 Hz** | **281 ms** | ~295 ms | **−14 ms** |
+| PLAYTYPE_MK3_STEREO (stereo) | 44 | **21894 B/s** | 1461 | **21889 B/s** | **281 ms** | ~295 ms | **−14 ms** |
+
+> **Note — 22K and stereo modes:** with `TransmitByteFastMK3` the fill rate
+> (22133 Hz) exceeds the C64 ISR rate (21894 Hz). The NMI fill completes faster
+> than playback → buffer is always ready before the ISR needs it. The −14 ms margin
+> is a worst-case approximation; in practice the stale-read guard (`ZP_WAV_SILENCE`)
+> outputs mid-scale silence for any remaining gap, inaudible at 22 kHz.
+
+### Stale-read guard
+
+`ZP_WAV_BUF_READY` ($92) and `ZP_WAV_SILENCE` ($93) prevent ISR from reading
+partially-filled buffer data:
+
+- `ReadNextChunk` clears `ZP_WAV_BUF_READY` at start, sets it to 1 after `WAITFOR`.
+- `PF_SWAP` (ISR): if `ZP_WAV_BUF_READY=0`, enters silence mode instead of swapping.
+- ISR silence path: sends `$80` (mid-scale) to `$DD01` without advancing pointer.
+- Main loop: clears `ZP_WAV_SILENCE` after `ReadNextChunk` returns → ISR resumes
+  from start of freshly filled buffer on the next tick.
 
 ### Sequence diagram
 
 ```
-C64 main loop                  C64 CIA1 ISR (22050 Hz)      Arduino
+C64 main loop                  C64 CIA1 ISR (21894 Hz)      Arduino
 ─────────────────              ──────────────────────       ──────────────────────
-ReadNextChunk(BUF_A) ────────────────────────────────────→ send 6144B via NMI
-ReadNextChunk(BUF_B) ────────────────────────────────────→ send 6144B via NMI
+ReadNextChunk(BUF_A) ────────────────────────────────────→ send 6144B via NMI (~295ms)
+ReadNextChunk(BUF_B) ────────────────────────────────────→ send 6144B via NMI (~295ms)
 CLI (start ISR)
                                reads BUF_A → $DD01 (MK3)
-[idle loop]                    …at 22050 Hz…
+[idle loop]                    …at 21894 Hz…
                                BUF_A done → swap to BUF_B, set FILL flag
-ReadNextChunk(BUF_A) ────────────────────────────────────→ send 6144B via NMI (~370ms)
+ReadNextChunk(BUF_A) ────────────────────────────────────→ send 6144B via NMI (~295ms)
                                reads BUF_B → $DD01 (MK3)
-                               BUF_B done (278ms) → swap to BUF_A  ← ⚠ refill may not be done
+                               BUF_B done (281ms) → check BUF_READY:
+                                 ready → swap to BUF_A normally
+                                 not ready → ZP_WAV_SILENCE=1, send $80 until ready
 ```
 
 ---
@@ -285,11 +316,12 @@ SdFat is initialised at `SPI_HALF_SPEED` (8 MHz). Tested stable on breadboard (8
 | `CartLib.s` `TransferHandler` | **27 cycles** / byte | NMI ISR execution time (PAL) |
 | `CartLibStream.s` `StreamLargeFile` | **73 cycles** / byte | Streaming loop (→ 13.5 KB/s) |
 | `WavPlayer.s` `BUFFER_PAGES` | **24** pages = 6144 B | MK3 double-buffer size per half |
-| `WavPlayer.s` CIA1 timer (11K) | **89** | 985248/89 ≈ 11070 Hz sample rate |
-| `WavPlayer.s` CIA1 timer (22K) | **44** | 985248/44 ≈ 22392 Hz sample rate |
-| `WavPlayer.s` MK3 OCR1A (11K) | **1450** | MK3 ATmega playback rate ≈ 11026 Hz |
-| `WavPlayer.s` MK3 OCR1A (22K) | **725** | MK3 ATmega playback rate ≈ 22039 Hz |
+| `WavPlayer.s` CIA1 timer (11K) | **89** | 985248/(**89+1**) = **10947 Hz** (N+1 rule) |
+| `WavPlayer.s` CIA1 timer (22K) | **44** | 985248/(**44+1**) = **21894 Hz** (N+1 rule) |
+| `WavPlayer.s` MK3 OCR1A (11K) | **1461** | 16000000/(1461+1) = **10944 Hz** ≈ C64 10947 Hz |
+| `WavPlayer.s` MK3 OCR1A (22K) | **730** | 16000000/(730+1)  = **21888 Hz** ≈ C64 21894 Hz |
 | `CartApi.cpp` `HandleReadNextChunk` | **1 ms** delay | Gap between status byte and NMI start |
+| `CartInterface.cpp` `TransmitByteFastMK3` | Post-NMI: **35 µs** | MK3 path: 22133 Hz fill > 21894 Hz ISR |
 
 ---
 

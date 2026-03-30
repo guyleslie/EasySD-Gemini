@@ -1068,12 +1068,12 @@ void CartApi::HandleReadNextChunk() {
     if (workingFile.available() > 0) {
       int readCount = workingFile.read(fileBuffer, toRead);
       for (int i = 0; i < readCount; i++) {
-        cartInterface.TransmitByteFastStd(fileBuffer[i]);
+        cartInterface.TransmitByteFastMK3(fileBuffer[i]);
       }
       sent += (uint32_t)readCount;
     } else {
       // Pad with mid-scale silence (0x80 = silence for unsigned 8-bit audio)
-      cartInterface.TransmitByteFastStd(0x80);
+      cartInterface.TransmitByteFastMK3(0x80);
       sent++;
     }
   }

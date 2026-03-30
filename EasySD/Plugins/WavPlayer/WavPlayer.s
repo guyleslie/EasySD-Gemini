@@ -40,7 +40,11 @@ ZP_WAV_END_HI   = $8D   ; hi-byte of end address for active buffer
 ZP_WAV_ACTBUF   = $8E   ; 0 = BUF_A active, 1 = BUF_B active
 ZP_WAV_FILL     = $8F   ; 0 = idle, 1 = inactive buffer needs fill
 ZP_WAV_EOFLAG   = $90   ; 0 = more data, $FF = last block loaded
-ZP_WAV_TIMERLO  = $91   ; CIA1 Timer A low byte (89=11025 Hz, 44=22050 Hz/stereo)
+ZP_WAV_TIMERLO   = $91  ; CIA1 Timer A low byte (89=11025 Hz, 44=22050 Hz/stereo)
+ZP_WAV_BUF_READY = $92  ; 0=fill in progress,  1=inactive buffer fully ready for ISR
+ZP_WAV_SILENCE   = $93  ; 0=play normally,      1=output silence (stale-read guard)
+; NOTE: $92/$93 overlap ZP_STREAM_API_REMAIN0/1 (CartZpMap.inc) — safe because
+;       StreamLargeFile is never active during MK3 playback.
 
 
 
@@ -1454,6 +1458,9 @@ StartMK3Playback:
 	LDA #$00
 	STA ZP_WAV_ACTBUF
 	STA ZP_WAV_FILL
+	STA ZP_WAV_SILENCE      ; 0 = play normally (no stale guard yet)
+	LDA #$01
+	STA ZP_WAV_BUF_READY    ; 1 = BUF_B (inactive) is pre-filled and ready
 	LDY #$00            ; Y fixed at 0 for PlaybackIRQ_Fast indirect read
 
 	; Determine CIA1 timer value based on mode
@@ -1527,6 +1534,8 @@ MK3_DO_FILL:
 	LDA #$00
 	STA ZP_WAV_FILL
 	JSR ReadNextChunk
+	LDA #$00
+	STA ZP_WAV_SILENCE      ; exit silence mode — buffer is now fresh
 	JMP MK3MainLoop
 
 MK3_STOP:
@@ -1548,6 +1557,9 @@ PlaybackIRQ_Fast:
 	PHA                             ; 3
 	LDA $DC0D                       ; 4 — ACK CIA1 (clears timer IRQ flag)
 
+	LDA ZP_WAV_SILENCE              ; 3 — stale-read guard
+	BNE PF_SILENT_PATH              ; 2 (not taken in normal case)
+
 	LDA (ZP_WAV_PTR_LO),Y          ; 5 — Y=0 fixed throughout playback
 	STA $DD01                       ; 4 — CIA2 DATA_B → DigiMax MK3 /PC2 latch
 
@@ -1560,7 +1572,16 @@ PlaybackIRQ_Fast:
 PF_NO_PAGE:
 	PLA                             ; 4
 	RTI                             ; 6
-	; Total normal path: 3+4+5+4+5+2+4+6 = 33 cycles ✓
+	; Normal path: 3+4+3+2+5+4+5+2+4+6 = 38 cycles ✓ (within 38-cycle budget at 22K)
+
+PF_SILENT_PATH:
+	; Inactive buffer not yet filled — feed MK3 FIFO with mid-scale silence.
+	; ZP_WAV_PTR is not advanced; main loop clears ZP_WAV_SILENCE after fill.
+	LDA #$80                        ; mid-scale for unsigned 8-bit PCM
+	STA $DD01                       ; 4 — keep MK3 FIFO fed
+	PLA
+	RTI
+	; Silence path: 3+4+3+3+2+4+4+6 = 29 cycles ✓
 
 PF_SWAP:
 	; Buffer boundary reached — swap active buffer, signal main loop to fill
@@ -1584,8 +1605,20 @@ PF_USE_A:
 	LDA #AUDIO_BUF_A_END_HI
 	STA ZP_WAV_END_HI
 PF_REQ_FILL:
+	LDA ZP_WAV_BUF_READY    ; was the inactive buffer fully filled?
+	BEQ PF_SWAP_STALE
+	LDA #$00
+	STA ZP_WAV_BUF_READY    ; clear: main loop must refill this buffer next
 	LDA #$01
 	STA ZP_WAV_FILL
+	PLA
+	RTI
+PF_SWAP_STALE:
+	; Fill not complete — output silence until main loop catches up.
+	; ZP_WAV_PTR already points to start of the new (not-yet-ready) buffer.
+	LDA #$01
+	STA ZP_WAV_SILENCE
+	STA ZP_WAV_FILL         ; still request fill
 	PLA
 	RTI
 
@@ -1597,6 +1630,10 @@ PF_REQ_FILL:
 ; ============================================================
 ReadNextChunk:
 	SEI
+
+	; Mark buffer as filling (ISR will output silence if it reaches the end before we finish)
+	LDA #$00
+	STA ZP_WAV_BUF_READY
 
 	; Install NMI vector → CARTRIDGENMIHANDLERX1 (X1 = 1 byte per NMI pulse)
 	LDA NMITAB              ; = <CARTRIDGENMIHANDLERX1
@@ -1635,11 +1672,17 @@ RNC_NOT_EOF:
 	; Wait for NMI handler to finish all BUFFER_PAGES pages
 	CLV
 	#WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC
+
+	; Signal: buffer fully filled and ready for ISR to play
+	LDA #$01
+	STA ZP_WAV_BUF_READY
 	RTS
 
 RNC_ERROR:
 	LDA #$FF
 	STA ZP_WAV_EOFLAG
+	LDA #$01
+	STA ZP_WAV_BUF_READY    ; unblock ISR silence guard even on error
 	CLI
 	RTS
 
@@ -1679,9 +1722,13 @@ MK3_SendCmd:
 ; ============================================================
 ; MK3_ConfigureMode — reconfigure MK3 for selected PLAYTYPE
 ; Called from StartMK3Playback, inside SEI, before CIA1 setup.
-; Mode 3 (PLAYTYPE_MK3):        default 11025 Hz mono — no change needed.
-; Mode 4 (PLAYTYPE_MK3_22K):    set OCR1A=725 (22050 Hz mono).
-; Mode 5 (PLAYTYPE_MK3_STEREO): set frame_size=2 (11025 Hz stereo).
+;
+; CIA1 timer N+1 rule: timer=89 → 985248/90=10947 Hz; timer=44 → 985248/45=21894 Hz.
+; MK3 OCR1A N+1 rule: 16000000/(OCR1A+1). Calibrated to match C64 CIA1 rate.
+;
+; Mode 3 (PLAYTYPE_MK3):        OCR1A=1461 → 10944 Hz ≈ C64 10947 Hz (+2.6 B/s).
+; Mode 4 (PLAYTYPE_MK3_22K):    OCR1A=730  → 21888 Hz ≈ C64 21894 Hz (+6.0 B/s).
+; Mode 5 (PLAYTYPE_MK3_STEREO): OCR1A=1461 + frame_size=2 → 21889 B/s ≈ 21894 B/s.
 ; ============================================================
 MK3_ConfigureMode:
 	LDA PLAYTYPE
@@ -1697,18 +1744,26 @@ MK3_ConfigureMode:
 	BNE MCM_Stereo
 
 MCM_22K:
+	; OCR1A=730 → 16000000/731=21888 Hz ≈ C64 CIA 21894 Hz (drift +6 B/s, FIFO stable).
 	; CMD_SET_RATE_L takes exactly 2 arg bytes (lo, hi) — no CMD_SET_RATE_H opcode.
 	; Protocol arg-collection ignores is_cmd, but CMD_SET_RATE_H (0x21) would be
-	; consumed as the high byte, giving OCR1A=0x21D5=8661 instead of 725.
+	; consumed as the high byte, giving a wrong OCR1A value. Send lo+hi directly.
 	LDA #$20
 	JSR MK3_SendCmd     ; CMD_SET_RATE_L
-	LDA #$D5
-	JSR MK3_SendCmd     ; OCR1A low byte  (725 = $02D5)
+	LDA #$DA
+	JSR MK3_SendCmd     ; OCR1A low byte  (730 = $02DA)
 	LDA #$02
 	JSR MK3_SendCmd     ; OCR1A high byte
 	JMP MCM_Restart
 
 MCM_Stereo:
+	; OCR1A=1461 × frame_size=2 → 16000000/1462×2=21889 B/s ≈ C64 21894 B/s (+5 B/s).
+	LDA #$20
+	JSR MK3_SendCmd     ; CMD_SET_RATE_L
+	LDA #$B5
+	JSR MK3_SendCmd     ; OCR1A low byte  (1461 = $05B5)
+	LDA #$05
+	JSR MK3_SendCmd     ; OCR1A high byte
 	LDA #$23
 	JSR MK3_SendCmd     ; CMD_SET_FRAME_SIZE
 	LDA #$02
@@ -1723,12 +1778,18 @@ MCM_Done:
 	RTS
 
 MCM_Mode3:
-	; Mode 3 (11025 Hz mono): detection phase 2 already set frame_size=1 and
-	; autostart_thresh=1024 bytes. Only need flush + CMD_STREAM_PUSH to activate
-	; the MK3 FIFO path. OCR1A stays at default 1450 (11025 Hz).
+	; Mode 3 (11025 Hz mono): OCR1A=1461 → 16000000/1462=10944 Hz ≈ C64 10947 Hz.
+	; Default OCR1A=1450 gives 16000000/1451=11026 Hz — MK3 78 Hz faster than C64
+	; → FIFO drains in ~52s. Calibrated 1461 gives +2.6 B/s inflow: FIFO stays full.
 	JSR MK3_SP2_HIGH
 	LDA #$42
 	JSR MK3_SendCmd     ; CMD_FLUSH_FIFO → PARSER_IDLE, FIFO clean
+	LDA #$20
+	JSR MK3_SendCmd     ; CMD_SET_RATE_L
+	LDA #$B5
+	JSR MK3_SendCmd     ; OCR1A low byte  (1461 = $05B5)
+	LDA #$05
+	JSR MK3_SendCmd     ; OCR1A high byte
 	JMP MCM_Restart     ; → CMD_STREAM_PUSH + SP2_LOW + RTS
 
 

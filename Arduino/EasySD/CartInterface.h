@@ -85,6 +85,7 @@ class CartInterface {
   void TransmitByteFast(unsigned char val);
   void StreamByteSlow(unsigned char value);
   void TransmitByteFastStd(unsigned char val);
+  void TransmitByteFastMK3(unsigned char val);  // 35µs delay: 22133 Hz > C64 21894 Hz
   void StreamByte(unsigned char value);
   void InitTransfer();
   void HandleReceive();

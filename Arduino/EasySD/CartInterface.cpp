@@ -366,6 +366,28 @@ void CartInterface::TransmitByteFastStd(unsigned char val)
    }
 }
 
+// MK3 audio path: 35µs inter-byte delay → ~22133 Hz fill rate.
+// Must exceed C64 CIA1 rate (21894 Hz) so the ISR never laps the NMI fill.
+// Block-end delay kept at 80µs (same as FastStd) for safe page-boundary handling.
+void CartInterface::TransmitByteFastMK3(unsigned char val)
+{
+   SetPage(val);
+   if (transferIndex==255) {
+      NmiLow();
+      delayMicroseconds(10);
+      NmiHigh();
+      delayMicroseconds(80);  // block-end: extra margin at 256-byte boundary
+      transferIndex = 0;
+      blockIndex++;
+   } else {
+      NmiLow();
+      delayMicroseconds(10);
+      NmiHigh();
+      delayMicroseconds(35);  // 35µs → 45µs/byte → 22222 Hz (avg 22133 Hz with block-end)
+      transferIndex++;
+   }
+}
+
 void CartInterface::StreamByte(unsigned char value)
 {
     SetPage(value);
