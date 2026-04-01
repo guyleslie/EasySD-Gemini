@@ -1733,7 +1733,7 @@ MK3_SendCmd:
 MK3_ConfigureMode:
 	LDA PLAYTYPE
 	CMP #PLAYTYPE_MK3
-	BEQ MCM_Mode3       ; mode 3: flush + stream_push only (defaults from detection)
+	BEQ MCM_Mode3       ; mode 3: flush + OCR1A + 4× oversample + stream_push
 
 	JSR MK3_SP2_HIGH
 	LDA #$42
@@ -1778,18 +1778,24 @@ MCM_Done:
 	RTS
 
 MCM_Mode3:
-	; Mode 3 (11025 Hz mono): OCR1A=1461 → 16000000/1462=10944 Hz ≈ C64 10947 Hz.
-	; Default OCR1A=1450 gives 16000000/1451=11026 Hz — MK3 78 Hz faster than C64
-	; → FIFO drains in ~52s. Calibrated 1461 gives +2.6 B/s inflow: FIFO stays full.
+	; Mode 3 (11025 Hz mono, 4× oversampling):
+	;   OCR1A=1461 stored → timer_apply_period divides by 4 → OCR1A=365
+	;   MK3 TIMER1 fires at 16000000/366 ≈ 43716 Hz ≈ 4 × 10929 Hz.
+	;   C64 CIA1 sends at 985248/90=10947 Hz → MK3 slightly slower (+18 B/s FIFO fill).
+	;   CMD_SET_OVERSAMPLE $04 activates linear interpolation in TIMER1_COMPA_vect.
 	JSR MK3_SP2_HIGH
 	LDA #$42
 	JSR MK3_SendCmd     ; CMD_FLUSH_FIFO → PARSER_IDLE, FIFO clean
 	LDA #$20
 	JSR MK3_SendCmd     ; CMD_SET_RATE_L
 	LDA #$B5
-	JSR MK3_SendCmd     ; OCR1A low byte  (1461 = $05B5)
+	JSR MK3_SendCmd     ; OCR1A low byte  (1461 = $05B5; firmware divides by 4 → 365)
 	LDA #$05
 	JSR MK3_SendCmd     ; OCR1A high byte
+	LDA #$24
+	JSR MK3_SendCmd     ; CMD_SET_OVERSAMPLE
+	LDA #$04
+	JSR MK3_SendCmd     ; factor = 4
 	JMP MCM_Restart     ; → CMD_STREAM_PUSH + SP2_LOW + RTS
 
 
