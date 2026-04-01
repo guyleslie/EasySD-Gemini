@@ -177,6 +177,74 @@ def convert_sid_optimized(input_path: str, sample_rate: int = 11025) -> bytes:
     return bytes(output)
 
 
+def convert_hiresm(input_path: str, sample_rate: int = 11025) -> bytes:
+    """Decode and process audio for hi-res mono playback (PCB v2, --mode hiresm).
+
+    Splits each 16-bit audio sample into two bytes [MSB, LSB] interleaved as a
+    2-channel 8-bit WAV.  Intended for WavPlayer mode 5 (MK3 STEREO 11K,
+    frame_size=2) on a PCB v2 board where:
+      CH0 (4.7 kΩ) carries the MSB — full amplitude contribution
+      CH1 (1.2 MΩ) carries the LSB — 1/256 amplitude contribution
+
+    The two resistors in parallel implement a 16-bit DAC with ~48 dB SNR gain
+    over 8-bit.  On the current PCB (R15=4.7kΩ) CH1 carries full weight, so
+    this mode sounds identical to plain 8-bit on existing hardware — the LSB
+    byte is simply inaudible.  Use --mode 11k if targeting the current PCB.
+
+    Processing pipeline:
+      1. ffmpeg: source → 16-bit signed PCM mono 11025 Hz, HP filter 80 Hz,
+         dynaudnorm loudness normalisation
+      2. TPDF dither at 16-bit scale (amplitude ±0.5 LSB at 16-bit resolution)
+      3. Convert each sample to unsigned 16-bit: u16 = (s16 + 32768) & 0xFFFF
+      4. Split: MSB = u16 >> 8,  LSB = u16 & 0xFF
+      5. Interleave as [MSB, LSB, MSB, LSB, ...] — 2-channel 8-bit output
+
+    Returns raw 2-channel 8-bit PCM bytes (no WAV header).
+    """
+    raw = _run_ffmpeg([
+        'ffmpeg',
+        '-i', input_path,
+        '-ar', str(sample_rate),
+        '-ac', '1',
+        '-af', 'highpass=f=80,dynaudnorm=p=0.95:s=5',
+        '-acodec', 'pcm_s16le',
+        '-f', 's16le',
+        '-',
+    ])
+
+    if not raw:
+        print("ERROR: ffmpeg produced no PCM data.", file=sys.stderr)
+        sys.exit(1)
+
+    samples = _array('h', raw)   # signed 16-bit host-endian
+    n = len(samples)
+
+    # TPDF dither at 16-bit scale: ±0.5 LSB at 16-bit (amplitude = 1.0/65535)
+    fade_len = min(int(sample_rate * 0.05), n // 4)   # 50 ms
+    output = bytearray(n * 2)   # 2 bytes per sample (MSB + LSB)
+    rand = random.random
+
+    for i, s in enumerate(samples):
+        dither = (rand() - rand()) * 0.5   # TPDF, ±0.5 at int16 scale
+        val = int(s + dither + 0.5)
+        if val < -32768: val = -32768
+        if val >  32767: val =  32767
+
+        # Fade-in / fade-out to mid-scale (0x8000 unsigned = silence)
+        if i < fade_len:
+            fade = i / fade_len
+            val = int(0 * (1.0 - fade) + val * fade + 0.5)
+        elif i >= n - fade_len:
+            fade = (n - 1 - i) / fade_len
+            val = int(0 * (1.0 - fade) + val * fade + 0.5)
+
+        u16 = (val + 32768) & 0xFFFF
+        output[i * 2]     = (u16 >> 8) & 0xFF   # MSB → CH0 (4.7 kΩ, full weight)
+        output[i * 2 + 1] =  u16       & 0xFF   # LSB → CH1 (1.2 MΩ on PCB v2)
+
+    return bytes(output)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description='Convert audio to WavPlayer-compatible 8-bit PCM WAV.',
@@ -192,13 +260,14 @@ def main() -> None:
         help='Number of channels: 1=mono (default), 2=stereo',
     )
     parser.add_argument(
-        '--mode', choices=['11k', '22k', 'stereo', 'sid'], default=None,
+        '--mode', choices=['11k', '22k', 'stereo', 'sid', 'hiresm'], default=None,
         help=(
             'Preset mode: '
             '11k=11025 Hz mono (MK3), '
             '22k=22050 Hz mono (MK3 22K), '
             'stereo=11025 Hz stereo (MK3 stereo), '
-            'sid=11025 Hz mono with 4-bit dither+HP filter (SID/DigiMax compat)'
+            'sid=11025 Hz mono with 4-bit dither+HP filter (SID/DigiMax compat), '
+            'hiresm=11025 Hz 2-ch [MSB,LSB] split (PCB v2 hi-res mono, WavPlayer mode 5)'
         ),
     )
     args = parser.parse_args()
@@ -212,6 +281,8 @@ def main() -> None:
         args.rate, args.channels = 11025, 2
     elif args.mode == 'sid':
         args.rate, args.channels = 11025, 1
+    elif args.mode == 'hiresm':
+        args.rate, args.channels = 11025, 2   # 2-channel: MSB + LSB interleaved
 
     if not os.path.isfile(args.input):
         print(f"ERROR: Input file not found: {args.input}", file=sys.stderr)
@@ -223,6 +294,12 @@ def main() -> None:
             f"at {args.rate} Hz mono  [SID 4-bit optimised: HP filter + TPDF dither + fade] …"
         )
         pcm_data = convert_sid_optimized(args.input, args.rate)
+    elif args.mode == 'hiresm':
+        print(
+            f"Converting '{args.input}' → '{args.output}' "
+            f"at {args.rate} Hz  [hi-res mono: 16-bit split → MSB/LSB 2-ch, PCB v2] …"
+        )
+        pcm_data = convert_hiresm(args.input, args.rate)
     else:
         ch_desc = 'mono' if args.channels == 1 else 'stereo'
         print(f"Converting '{args.input}' → '{args.output}' at {args.rate} Hz {ch_desc} …")
@@ -245,6 +322,9 @@ def main() -> None:
     print(f"Output: {args.output}")
     if args.mode == 'sid':
         print("Note: samples stored as upper nibble (val<<4) for SID SHIFT4BIT table.")
+    if args.mode == 'hiresm':
+        print("Note: 2-channel output: ch0=MSB (4.7kΩ path), ch1=LSB (1.2MΩ path, PCB v2 only).")
+        print("      Use WavPlayer mode 5 (MK3 STEREO 11K). Requires PCB v2 for full 16-bit DAC.")
 
 
 if __name__ == '__main__':
