@@ -1,8 +1,8 @@
 # EasySD MultiLoad Plugin — Multi-Load Game Launcher
 
 **Document Type:** Reference / User Guide
-**Version:** 2.0
-**Created:** 2026-03-15 (Sprint 14 V1), **Updated:** 2026-03-16 (Sprint 15 V2)
+**Version:** 3.0
+**Created:** 2026-03-15 (Sprint 14 V1), **Updated:** 2026-04-04 (V3 — multi-disk, ZIP output, --from-disk)
 **Status:** Current
 
 ---
@@ -19,21 +19,27 @@ targets device 8. Matching calls are served from the SD card at approximately 10
 
 ---
 
-## 2. Quick Start (V2)
+## 2. Quick Start (V3)
 
 ```bash
 # 1. Build the template (once per firmware update)
 python Tools/build.py multiload
 
-# 2. Generate game-specific launcher
-python Tools/create_multiload.py LOADER      # first part is LOADER.PRG
-# Output: EasySD/build/multiload/EASYLOAD.PRG
+# 2. Preview disk contents
+python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...] --list-only
 
-# 3. Copy to SD card
-#    /MULTILOAD/TURRICAN/
+# 3. Generate game ZIP (first file on first disk = first part, auto-detected)
+python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...]
+# Output: EasySD/build/multiload/GAMENAME.ZIP
+
+# Override first part name if needed:
+python Tools/create_multiload.py --from-disk DISK1.d64 --first-part "LOADER"
+
+# 4. Extract the ZIP to SD card root:
+#    /MULTILOAD/GAMENAME/
 #      EASYLOAD.PRG    ← generated launcher (select this from EasySD menu)
-#      LOADER.PRG      ← first game part (ML_FIRST_PART_NAME = "LOADER")
-#      LEVEL1.PRG      ← LOAD "LEVEL1",8,1 from game code
+#      LOADER.PRG      ← first game part
+#      LEVEL1.PRG      ← subsequent parts (loaded by game via LOAD "LEVEL1",8,1)
 #      LEVEL2.PRG
 ```
 
@@ -65,7 +71,107 @@ Navigate to the game directory in the EasySD menu and select `EASYLOAD.PRG`.
 
 ---
 
-## 4. Components
+## 4. Game Compatibility Guide
+
+### 4.1 Compatible: Sequential Multi-Load Games
+
+These games load program parts one after another as the player progresses through the game.
+The previous part triggers the next `LOAD` call — there is no random access by the player.
+
+**Key indicators of compatibility:**
+
+| Signal | Details |
+|--------|---------|
+| Small file count | Typically 3–30 files per disk |
+| Sequential naming | `PART1`/`PART2`, `11`/`12`/`21`/`22`, `LA1`/`LB1`/`LC1` |
+| Single main PRG | One large loader that chains into level/data files |
+| SD2IEC compatible note | NFO says "loads on SD2IEC" → standard Kernal LOAD, ideal |
+| Multi-disk with no duplicates | Each disk contributes unique files for later stages |
+
+**Known compatible games (tested with create_multiload.py):**
+
+| Game | Disks | Files | Notes |
+|------|-------|-------|-------|
+| Barbarian 1&2 (Palace) | 1 | 4 | BOOT→MENU→game choice; simple chain |
+| The Last Ninja +12DGI | 2 | 27 | Main + 4 files/level × 6 levels |
+| Turrican 2 (notw) | 2 | 22 | "no transwarp" version; world-based loading |
+| Robocop Ocean fix2 | 1 | 3 | SD2IEC-fixed release; 85 KB main file |
+
+### 4.2 Not Compatible: Random-Access Loaders
+
+These games load files by name or ID based on player actions (entering a town, selecting a
+level, etc.). The same file may be loaded at any point, in any order.
+EasySD has no seek-within-file API, so these games cannot run.
+
+**Key indicators of incompatibility:**
+
+| Signal | Details |
+|--------|---------|
+| Large file count | 50+ files, often 100–350 |
+| Hex or alphabetical data names | `A0`, `B3`, `EF`, `FA`–`FY`, `MA`–`MY` |
+| Large single data file (>64 KB) | Cannot fit in C64 RAM; must be seeked into |
+| Identical files across disks | Many duplicates between disks = redundant region data |
+| RPG / open-world structure | Map/town/dungeon data loaded on demand |
+
+**Known incompatible games:**
+
+| Game | Files | Reason |
+|------|-------|--------|
+| Ultima IV Remastered | 10 | 136 KB GAM file; random seeks |
+| Ultima V Remastered | 229 | Dynamic file load by name; BackBit/custom API |
+| Knights of Legend | 354 | Hex-named room data; random access |
+| Lemmings | 112 | Level select → FA–FY / TA–TY / MA–MY by player choice |
+| Sam's Journey | 163 | Hex-named rooms; identical files duplicated across 4 disks |
+
+### 4.3 Special Cases
+
+**Transwarp / fast loader variants:**
+Games with a Transwarp or other custom fast loader replace the Kernal LOAD vector with their
+own serial routine. The MultiLoad hook intercepts `JSR $FFD5` (Kernal LOAD dispatch), not the
+fast loader's own entry point — so the hook cannot intercept those calls.
+- **Solution:** use a "notw" (no transwarp) or "standard loader" version of the crack.
+  Example: `t2rab-1-notw.d64` instead of `t2rab-1.d64` for Turrican 2.
+
+**EasyFlash packages:**
+D64/D81 images containing a `.CRT` file (cartridge image) and an EasyProg flasher PRG.
+These require a physical EasyFlash cartridge — incompatible with EasySD.
+
+**BackBit format:**
+Games distributed for the BackBit hardware use a BackBit-specific file-access API, not
+standard Kernal LOAD. Identified by the `-BackBit` suffix in the disk label or filename.
+Not compatible.
+
+### 4.4 Assessment Workflow
+
+```
+1. python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2...] --list-only
+
+2. Count files:
+     < 30 files  → promising
+     30–60 files → borderline, inspect names carefully
+     > 60 files  → likely random-access, skip
+
+3. Inspect file naming:
+     Sequential numbers (11/12/21, LA1/LB1) → sequential loader ✅
+     Hex names (A0/B3/EF) or alpha series (FA–FY) → random-access ❌
+
+4. Check for large single data files:
+     Any file > 64 KB → likely seeked into, not fully loaded ❌
+
+5. Check NFO (if available):
+     "SD2IEC compatible" → ideal candidate ✅
+     "transwarp" / "fast loader" → look for a notw version ⚠️
+     "EasyFlash" or ".CRT" → incompatible ❌
+
+6. If compatible: convert and test
+     python Tools/create_multiload.py --from-disk DISK1.d64 [...]
+     Extract ZIP → SD card /MULTILOAD/GAMENAME/
+     Select EASYLOAD.PRG from EasySD menu
+```
+
+---
+
+## 5. Components
 
 ### 4.1 Config Block (`$C003–$C014`)
 
@@ -81,12 +187,14 @@ The `EASYLOAD.PRG` binary starts with a fixed-layout config block immediately af
 
 **File offset mapping** (for manual inspection or alternative patching tools):
 
+`bootplugin.prg` is a raw binary (`64tass -b`, no load address header). File offset = RAM address − `$C000`.
+
 ```
-File byte 0-1   : load address $0801 (BASIC SYS wrapper from easysd.obj, 15 bytes)
-File byte 15    : $C000 — JMP opcode
-File byte 18    : $C003 — ML_CONFIG_VERSION
-File byte 19    : $C004 — ML_FIRST_PART_LEN
-File bytes 20-35: $C005 — ML_FIRST_PART_NAME (16 bytes)
+File byte 0     : $C000 — JMP opcode
+File byte 1-2   : $C001-$C002 — JMP target (lo/hi)
+File byte 3     : $C003 — ML_CONFIG_VERSION
+File byte 4     : $C004 — ML_FIRST_PART_LEN
+File bytes 5-20 : $C005-$C014 — ML_FIRST_PART_NAME (16 bytes)
 ```
 
 ### 4.2 RL_STUB — Kernal LOAD Trampoline (`$033C`, 52 bytes)
@@ -212,7 +320,7 @@ RL_INSTALL:
 
 ---
 
-## 5. Memory Layout (V2)
+## 6. Memory Layout (V2)
 
 ### 5.1 ResidentLoader Area (during game execution)
 
@@ -251,7 +359,7 @@ Overflow guard: `.if * > $DF00 .error "overflow" .endif`
 
 ---
 
-## 6. EASYLOAD.PRG Boot Flow
+## 7. EASYLOAD.PRG Boot Flow
 
 ```
 User navigates to /MULTILOAD/TURRICAN/ in EasySD menu
@@ -284,7 +392,7 @@ has drifted.
 
 ---
 
-## 7. NMI Transfer Under $01=$35
+## 8. NMI Transfer Under $01=$35
 
 The NMI-driven transfer protocol requires the CPU to read the NMI vector at `$FFFA/$FFFB`.
 
@@ -305,7 +413,7 @@ LORAM=1 in both cases. TransferHandler at `$80AF` is therefore always reachable.
 
 ---
 
-## 8. SA=0 (MEMUSS) Support
+## 9. SA=0 (MEMUSS) Support
 
 When a game uses `SETLFS #1,#8,#0` + `JSR $FFD5` (secondary address 0), the Kernal ignores
 the PRG header address and loads to the address held in X/Y registers (`MEMUSS` low/high).
@@ -319,31 +427,61 @@ the PRG header address and loads to the address held in X/Y registers (`MEMUSS` 
 
 ---
 
-## 9. create_multiload.py
+## 10. create_multiload.py (V3)
+
+### Modes
 
 ```bash
+# --- D64/D81 disk image mode (V3) ---
+
+# Preview: list all files from one or more disk images
+python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...] --list-only
+
+# Generate ZIP (first file on first disk = first part)
+python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...]
+
+# Override which file is the first part
+python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...] --first-part "LOADER"
+
+# --- Autoswap list mode (V3) ---
+python Tools/create_multiload.py --from-autoswap autoswap.lst [--first-part NAME]
+
+# --- Legacy positional mode (V2, still works) ---
 python Tools/create_multiload.py FIRST_PART_NAME
 ```
 
-Reads the template `EasySD/build/plugins/bootplugin.prg`, patches the config block,
-writes `EasySD/build/multiload/EASYLOAD.PRG`.
+### Output
 
-**What it patches:**
+- **ZIP:** `EasySD/build/multiload/GAMENAME.ZIP`
+  - `GAMENAME` = parent folder name of the first disk image (uppercased)
+  - ZIP contents mirror the SD card layout:
+    ```
+    MULTILOAD/GAMENAME/EASYLOAD.PRG
+    MULTILOAD/GAMENAME/FIRSTPART.PRG
+    MULTILOAD/GAMENAME/FILE2.PRG
+    ...
+    ```
+- **Multi-disk deduplication:** if the same filename appears on multiple disks, the first occurrence (lowest disk number) is used.
+- **Legacy mode output:** `EasySD/build/multiload/EASYLOAD.PRG` (single file, no ZIP)
+
+### What it patches in bootplugin.prg
+
+Reads `EasySD/build/plugins/bootplugin.prg` (raw binary, `$C000` base), patches the config
+block, packages as ZIP.
 
 | File offset | Field              | Value                         |
-|-------------|--------------------|-------------------------------|
-| 18          | ML_CONFIG_VERSION  | unchanged (must be 2)         |
-| 19          | ML_FIRST_PART_LEN  | `len(FIRST_PART_NAME)`        |
-| 20–35       | ML_FIRST_PART_NAME | name bytes + zero padding     |
+|-------------|-------------------|-------------------------------|
+| 3           | ML_CONFIG_VERSION  | unchanged (must be 2)         |
+| 4           | ML_FIRST_PART_LEN  | `len(FIRST_PART_NAME)`        |
+| 5–20        | ML_FIRST_PART_NAME | name bytes + zero padding     |
 
 **Verification checks:**
-- PRG load address must be `$0801`
 - ML_CONFIG_VERSION must be `2`
 - Name length must be 1–16 characters
 
 ---
 
-## 10. Build System Integration
+## 11. Build System Integration
 
 | Command | Output | Notes |
 |---------|--------|-------|
@@ -356,7 +494,7 @@ writes `EasySD/build/multiload/EASYLOAD.PRG`.
 
 ---
 
-## 11. Known Limitations
+## 12. Known Limitations
 
 | Limitation | Detail |
 |------------|--------|
@@ -367,7 +505,7 @@ writes `EasySD/build/multiload/EASYLOAD.PRG`.
 
 ---
 
-## 12. Key Source Files
+## 13. Key Source Files
 
 | File | Purpose |
 |------|---------|

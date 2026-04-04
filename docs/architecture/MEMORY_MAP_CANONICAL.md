@@ -486,8 +486,8 @@ grep -c "PROT_ExitToMenu" EasySD/Loader/Bridges/KernalBridge/*.s  # Should be 0
 `EasySD/Loader/Bridges/` and are special cases (they launch programs rather than returning to menu).
 There are no active Type B standalone apps in this codebase.
 
-**Note (2026-03-15):** MultiLoad installs a resident hook at $033C (RL_STUB, 20 bytes) and $E800
-(RL_HANDLER, ~400 bytes). These regions are outside the $C000-$CFFF plugin range; see Section 3.3.
+**Note (2026-03-15):** MultiLoad installs a resident hook at $033C (RL_STUB, 52 bytes) and $E800
+(RL_HANDLER + RL_MINI_CARTLIB, ~1244 bytes). These regions are outside the $C000-$CFFF plugin range; see Section 3.3.
 
 ---
 
