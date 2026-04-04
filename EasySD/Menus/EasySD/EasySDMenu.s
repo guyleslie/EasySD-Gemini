@@ -1490,13 +1490,13 @@ PRINTDIRHEADER
 	BNE _pdh_subdir
 
 	; At root: write "ROOT" reversed at col 5-8
-	LDA #$D2		; R ($52|$80)
+	LDA #$92		; R ($12|$80) — screen code $12, inverted
 	STA $042D
-	LDA #$CF		; O ($4F|$80)
+	LDA #$8F		; O ($0F|$80) — screen code $0F, inverted
 	STA $042E
-	LDA #$CF		; O
+	LDA #$8F		; O
 	STA $042F
-	LDA #$D4		; T ($54|$80)
+	LDA #$94		; T ($14|$80) — screen code $14, inverted
 	STA $0430
 	LDY #$04		; Y=4 → place ─■ at col 9-10
 	JMP _pdh_done_copy
@@ -1516,7 +1516,7 @@ _pdh_copy
 	CMP #$7B
 	BCS _pdh_noconv
 	SEC
-	SBC #$20
+	SBC #$60		; lowercase $61-$7A → screen code $01-$1A
 _pdh_noconv
 	ORA #$80		; reverse video
 	STA $042D, Y		; col 5+Y
@@ -1894,6 +1894,7 @@ COLORDATA
 ; ------------------------------------------------------------
 ; TAP UI strings (0-terminated)
 ; ------------------------------------------------------------
+.enc "screen"		; .TEXT strings below use C64 screen code encoding (A=$01, etc.)
 MSG_TAP_PROMPT
 	.TEXT "   TAP: C=CONVERT+RUN  S=SAVE PRG"
 	.BYTE 0
@@ -1929,6 +1930,7 @@ MSG_SD_READ_ERR
 MSG_VICE_DEBUG
 	.TEXT "   VICE DEBUG MODE"
 	.BYTE 0
+.enc "none"		; restore default encoding
 
 ; Plugin load address parsing support
 PLUGIN_LOAD_ADDR_LO
