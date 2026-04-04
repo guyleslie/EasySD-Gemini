@@ -1777,7 +1777,7 @@ SID
 .include "Filename.s"
 
 PRGSCREENDATA
-	; Generated from PETMATE menu.asm by build.py (lowercase/uppercase charset)
+	; Generated from PETMATE petmate frame.asm by build.py (lowercase/uppercase charset)
 	.binary "../../build/menu.bin"
 
 CURPAGEINDEX	.BYTE 0

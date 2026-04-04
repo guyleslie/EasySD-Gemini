@@ -52,7 +52,7 @@ python Tools/build.py arduino-setup
 
 **What it does:**
 1. Compiles C64 assembly code (64tass)
-2. Converts PETMATE menu export (`menu.asm` → `menu.bin`)
+2. Converts PETMATE frame export (`petmate frame.asm` → `menu.bin`)
 3. Generates Arduino header files (`FlashLib.h`, `BuildConfig.h`)
 4. Compiles plugins
 

@@ -72,7 +72,7 @@ python Tools/build.py release --skip-arduino
 
 ### Build Artifact Flow
 
-PETMATE `menu.asm` → `convert_petmate_asm()` → `menu.bin` → C64 assembly (`.binary "menu.bin"`) → 64tass → `.prg` binaries → `bin2ardh` → `build/artifacts/FlashLib.h` → copied to `Arduino/EasySD/` → `arduino-cli compile` → firmware HEX. The `debug-vice` target skips Arduino artifact generation entirely.
+PETMATE `petmate frame.asm` → `convert_petmate_asm()` → `menu.bin` → C64 assembly (`.binary "../../build/menu.bin"`) → 64tass → `.prg` binaries → `bin2ardh` → `build/artifacts/FlashLib.h` → copied to `Arduino/EasySD/` → `arduino-cli compile` → firmware HEX. The `debug-vice` target skips Arduino artifact generation entirely.
 
 ### C64 Include Hierarchy (strict linear chain, no include guards in 64tass)
 
@@ -148,7 +148,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 | `EasySD/Loader/CartLibHi.s` | High-level C64 APIs (LoadFileBySize) |
 | `EasySD/Loader/CartLibStream.s` | Streaming API (SafeStream, StreamLargeFile) |
 | `EasySD/Menus/EasySD/EasySDMenu.s` | Main menu program |
-| `EasySD/Menus/EasySD/menu.asm` | PETMATE frame export (edit in PETMATE, re-export here) |
+| `EasySD/Menus/EasySD/petmate frame.asm` | PETMATE frame export (edit in PETMATE, re-export here) |
 | `EasySD/Loader/Bridges/KernalBridge/KernalBridge.s` | P2TK PRG loader bridge |
 | `Arduino/EasySD/EasySD.ino` | Arduino entry point |
 | `Arduino/EasySD/CartApi.cpp` | Command routing (register new commands here) |

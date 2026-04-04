@@ -401,7 +401,7 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
 
     # Convert PETMATE frame export -> raw binary for .binary include
-    petmate_asm = ctx.irq_root / "Menus" / "EasySD" / "menu.asm"
+    petmate_asm = ctx.irq_root / "Menus" / "EasySD" / "petmate frame.asm"
     petmate_bin = ctx.build_dir / "menu.bin"
     if petmate_asm.exists():
         convert_petmate_asm(petmate_asm, petmate_bin)
