@@ -155,7 +155,7 @@ EasySD has two cooperating halves:
 
 **Arduino firmware** (`Arduino/EasySD/`) — manages SD card, FAT filesystem, directory navigation, file streaming. Entry point: `EasySD.ino`. Command routing: `CartApi.cpp`. Directory logic: `DirFunction.cpp`. ATmega328P constraint: 2 KB SRAM, ~415 bytes free at boot.
 
-**C64 software** (`EasySD/`) — 6502 assembly built with 64tass. Cartridge ROM includes the communication library (`Loader/`), file browser menu (`Menus/EasySD/`), and plugin system (`Plugins/`).
+**C64 software** (`EasySD/`) — 6502 assembly built with 64tass. Cartridge ROM includes the communication library (`Loader/`), file browser menu (`Menu/EasySD/`), and plugin system (`Plugins/`).
 
 **Data transfer:**
 | Mechanism | Rate | Used by |

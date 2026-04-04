@@ -446,6 +446,6 @@ Install VICE 3.9+ and pass the correct path: `--vice-path "C:\path\to\x64sc.exe"
 | `Tools/build.py` | Build system (generates PRG + labels) |
 | `EasySD/build/symbol/easysd.vs` | VICE-format symbol file |
 | `EasySD/build/easysd-debug.prg` | Debug C64 binary with mock data |
-| `EasySD/Menus/EasySD/EasySDMenu.s` | C64 menu source (mock data definitions) |
+| `EasySD/Menu/EasySD/EasySDMenu.s` | C64 menu source (mock data definitions) |
 | `docs/build/BUILD_SYSTEM.md` | Build system documentation |
 | `Tools/test_arduino_comm.py` | Arduino serial test suite (similar pattern) |

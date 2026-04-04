@@ -68,7 +68,7 @@ python Tools/build.py release --skip-arduino
 
 **Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. On boot: 3-attempt SD init, then `RestoreLastDir()` (EEPROM persistence of last-visited path), then `dirFunc.Prepare()`.
 
-**C64 software** (`EasySD/`): Cartridge ROM with communication library (`Loader/`), main file browser menu (`Menus/EasySD/EasySDMenu.s`), and file-type plugins (`Plugins/`).
+**C64 software** (`EasySD/`): Cartridge ROM with communication library (`Loader/`), main file browser menu (`Menu/EasySD/EasySDMenu.s`), and file-type plugins (`Plugins/`).
 
 ### Build Artifact Flow
 
@@ -147,8 +147,8 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 | `EasySD/Loader/APIMacros.s` | Tier 2 macros (explicit include required) |
 | `EasySD/Loader/CartLibHi.s` | High-level C64 APIs (LoadFileBySize) |
 | `EasySD/Loader/CartLibStream.s` | Streaming API (SafeStream, StreamLargeFile) |
-| `EasySD/Menus/EasySD/EasySDMenu.s` | Main menu program |
-| `EasySD/Menus/EasySD/petmate frame.asm` | PETMATE frame export (edit in PETMATE, re-export here) |
+| `EasySD/Menu/EasySD/EasySDMenu.s` | Main menu program |
+| `EasySD/Menu/EasySD/petmate frame.asm` | PETMATE frame export (edit in PETMATE, re-export here) |
 | `EasySD/Loader/Bridges/KernalBridge/KernalBridge.s` | P2TK PRG loader bridge |
 | `Arduino/EasySD/EasySD.ino` | Arduino entry point |
 | `Arduino/EasySD/CartApi.cpp` | Command routing (register new commands here) |

@@ -260,7 +260,7 @@ python Tools/build.py debug-arduino
 - **ZP Map**: EasySD/Loader/CartZpMap.inc
 - **Hardware Constants**: EasySD/Loader/Common/IRQHack.inc
 - **Standard C64 Addresses**: EasySD/Loader/Common/System.inc
-- **Main Menu Logic**: EasySD/Menus/EasySD/EasySDMenu.s
+- **Main Menu Logic**: EasySD/Menu/EasySD/EasySDMenu.s
 - **C64 Build System**: Tools/build.py
 
 ### Arduino Side

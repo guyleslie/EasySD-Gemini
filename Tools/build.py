@@ -401,7 +401,7 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
 
     # Convert PETMATE frame export -> raw binary for .binary include
-    petmate_asm = ctx.irq_root / "Menus" / "EasySD" / "petmate frame.asm"
+    petmate_asm = ctx.irq_root / "Menu" / "EasySD" / "petmate frame.asm"
     petmate_bin = ctx.build_dir / "menu.bin"
     if petmate_asm.exists():
         convert_petmate_asm(petmate_asm, petmate_bin)
@@ -409,7 +409,7 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
         print(f"WARNING: {petmate_asm} not found, skipping PETMATE conversion")
 
     # Menu asm -> prg
-    menu_src = ctx.irq_root / "Menus" / "EasySD" / "EasySDMenu.s"
+    menu_src = ctx.irq_root / "Menu" / "EasySD" / "EasySDMenu.s"
     out_prg = ctx.build_dir / menu_prg_name
     labels = ctx.sym_dir / "easysd.txt"
     vice_labels = ctx.sym_dir / "easysd.vs"
@@ -443,7 +443,7 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
 
     if build_arduino:
         # KeyBooter (if it exists)
-        key_src = ctx.irq_root / "Menus" / "Keybooter" / "KeyBooter.s"
+        key_src = ctx.irq_root / "Menu" / "Keybooter" / "KeyBooter.s"
         if key_src.exists():
             print(f"[CORE] 64tass: {key_src.relative_to(ctx.irq_root)}")
             run_cmd([tass, "-c", "--long-branch", str(key_src), "-o", str(ctx.build_dir / "keybooter.prg"), "--labels", str(ctx.sym_dir / "KeyBooter.txt")], cwd=ctx.irq_root)
@@ -459,7 +459,7 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
         print(f"[CORE] 64tass: {irq_src.relative_to(ctx.irq_root)}")
         run_cmd([tass, "-c", "-b", str(irq_src), "-o", str(irq_bin), "--labels", str(ctx.sym_dir / "IRQLoader.txt")], cwd=ctx.irq_root)
 
-        warn_src = ctx.irq_root / "Menus" / "WarningMenu" / "Warning.s"
+        warn_src = ctx.irq_root / "Menu" / "WarningMenu" / "Warning.s"
         warning_prg = ctx.build_dir / "warning.prg"
         print(f"[CORE] 64tass: {warn_src.relative_to(ctx.irq_root)}")
         run_cmd([tass, "-c", "--long-branch", str(warn_src), "-o", str(warning_prg), "--labels", str(ctx.sym_dir / "Warning.s.txt")], cwd=ctx.irq_root)
