@@ -30,8 +30,9 @@ nul
 sdcard/*.CVID
 sdcard/*.cvid
 
-# Backup archives
+# Backup archives (multiload/ ZIPs are tracked — see !multiload/*.zip below)
 *.zip
+!multiload/*.zip
 
 # Old backup files
 *.old
