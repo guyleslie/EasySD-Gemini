@@ -68,7 +68,8 @@ CART_ROM_RESTORE .macro
 	JSR DISPLAYPETGRAPHICS
 	DELAYFRAMES 75
 
-	JSR PROT_DisableDisplay	
+	JSR PROT_DisableDisplay
+	JSR LOAD_CUSTOM_CHARSET		; copy custom charset to $3800, then update $D018
 	JSR DISPLAYSCREENGRAPHICS
 	LDA #$40
 	STA $028A		; Disable all key repeat (RPTFLG)
@@ -1088,7 +1089,7 @@ NOTEND_A
 	CMP #$7B            ; <= 'z'?
 	BCS WRITECHAR_A     ; No → use as-is
 	SEC
-	SBC #$20            ; Lowercase $61-$7A → uppercase $41-$5A
+	SBC #$60            ; Lowercase $61-$7A → C64 screen codes $01-$1A (A-Z)
 WRITECHAR_A
 	STA (COLLOW), Y     ; Write to screen memory
 	INY
@@ -1336,7 +1337,7 @@ _DDEC_DONE
 ; Called after PRINTPAGE to overlay scroll hints on rows 2 and 22.
 ; Row 2,  cols 30-35 ($046E): " ↑MORE" if previous pages exist
 ; Row 22, cols 30-35 ($078E): " vMORE" if next pages exist
-;   ↑ = $5E,  v = $16 (placeholder — replace with custom char later)
+;   ↑ = $1E (screen code for PETSCII $5E),  v = $16 (placeholder — replace with custom char later)
 ;   M=$0D  O=$0F  R=$12  E=$05 (C64 screen codes)
 ;   Color: green ($05) via color RAM $D86E / $DB8E
 ; Clobbers: A, Y
@@ -1353,8 +1354,8 @@ DRAW_SCROLL_INDICATORS
 	LDA #$20
 	STA $046E,Y		; space
 	INY
-	LDA #$5E
-	STA $046E,Y		; ↑
+	LDA #$1E
+	STA $046E,Y		; ↑ (screen code $1E = PETSCII $5E)
 	INY
 	LDA #$0D
 	STA $046E,Y		; M
@@ -1385,8 +1386,8 @@ _dsi_check_below
 	LDA #$20
 	STA $078E,Y		; space
 	INY
-	LDA #$16
-	STA $078E,Y		; v (placeholder ↓)
+	LDA #$1F
+	STA $078E,Y		; ↓ (custom char $1F from CharPad charset)
 	INY
 	LDA #$0D
 	STA $078E,Y		; M
@@ -1407,6 +1408,57 @@ _dsi_down_col
 	BPL _dsi_down_col
 
 _dsi_done
+	RTS
+
+; ------------------------------------------------------------
+; LOAD_CUSTOM_CHARSET
+; Copies CUSTOM_CHARSET (2KB, from CharPad binary export) to RAM at $3800-$3FFF.
+; VIC bank 0, slot 7 = $3800 → $D018 already set to ORA #$0E by DISPLAYSCREENGRAPHICS.
+; Must be called before screen is enabled (during init, display blanked).
+; Clobbers: A, X
+; ------------------------------------------------------------
+LOAD_CUSTOM_CHARSET
+	LDX #0
+_lcc_p0
+	LDA CUSTOM_CHARSET+$000,X
+	STA $3800,X
+	INX
+	BNE _lcc_p0
+_lcc_p1
+	LDA CUSTOM_CHARSET+$100,X
+	STA $3900,X
+	INX
+	BNE _lcc_p1
+_lcc_p2
+	LDA CUSTOM_CHARSET+$200,X
+	STA $3A00,X
+	INX
+	BNE _lcc_p2
+_lcc_p3
+	LDA CUSTOM_CHARSET+$300,X
+	STA $3B00,X
+	INX
+	BNE _lcc_p3
+_lcc_p4
+	LDA CUSTOM_CHARSET+$400,X
+	STA $3C00,X
+	INX
+	BNE _lcc_p4
+_lcc_p5
+	LDA CUSTOM_CHARSET+$500,X
+	STA $3D00,X
+	INX
+	BNE _lcc_p5
+_lcc_p6
+	LDA CUSTOM_CHARSET+$600,X
+	STA $3E00,X
+	INX
+	BNE _lcc_p6
+_lcc_p7
+	LDA CUSTOM_CHARSET+$700,X
+	STA $3F00,X
+	INX
+	BNE _lcc_p7
 	RTS
 
 ; ------------------------------------------------------------
@@ -1624,9 +1676,10 @@ DISPLAYPETGRAPHICS
 	RTS
 	
 DISPLAYSCREENGRAPHICS
-	; Switch to lowercase/uppercase charset for PETMATE frame
+	; Point VIC charset to $3800 (bank 0 slot 7) — custom charset loaded there by LOAD_CUSTOM_CHARSET
 	LDA $D018
-	ORA #$02
+	AND #$F0		; preserve screen memory bits (upper nybble), clear charset bits
+	ORA #$0E		; slot 7 → $3800-$3FFF in VIC bank 0
 	STA $D018
 
 	LDA PRGSCREENDATA
@@ -1884,5 +1937,11 @@ PLUGIN_LOAD_ADDR_HI
 	.BYTE 0
 PLUGIN_HEADER
 	.FILL 256	; Buffer for reading plugin header (first 256 bytes including load address)
+
+; Custom charset data (2KB, CharPad export).
+; LOAD_CUSTOM_CHARSET copies this to $3800-$3FFF (VIC bank 0, slot 7) at startup.
+; Char $1F = ↓ arrow (replaces original right-arrow).
+CUSTOM_CHARSET
+	.binary "upper case chars.bin"
 
 	
