@@ -17,6 +17,11 @@ RASTERTIME = $60 ; Frame counter for timeout
 BITTARGET  = $64 ; Sync handle for foreground wait
 
 
+* = $0801
+	.word (+), 2015
+	.null $9E, "2062"
++	.word 0
+
 	*=$080E
 	JSR INIT		;Clears screen, disables interrupts.	
 	JSR PRINTTITLE		;Prints title of the screen					

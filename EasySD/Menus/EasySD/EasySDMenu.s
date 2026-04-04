@@ -56,6 +56,11 @@ CART_ROM_RESTORE .macro
 
 
 
+* = $0801
+	.word (+), 2015
+	.null $9E, "2062"
++	.word 0
+
 	*=$080E
 	LDX #$FB
 	TXS

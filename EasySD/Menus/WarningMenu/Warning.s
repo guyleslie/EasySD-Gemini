@@ -11,7 +11,12 @@
 ;command and waiting if overflow flag (which is the 6th bit of this location) is clear.
 BITTARGET	= $64
 
-	*=$080E						  	  	  	  	
+* = $0801
+	.word (+), 2015
+	.null $9E, "2062"
++	.word 0
+
+	*=$080E
 
 	JSR INIT		;Clears screen, disables interrupts.		
 	JSR PRINTTITLE		

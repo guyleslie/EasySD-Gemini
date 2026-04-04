@@ -223,14 +223,6 @@ def ensure_dirs(ctx: Context) -> None:
     ctx.plugins_out_dir.mkdir(exist_ok=True)
 
 
-def concat_files(out_path: Path, *inputs: Path) -> None:
-    out_path.parent.mkdir(parents=True, exist_ok=True)
-    with out_path.open("wb") as w:
-        for ip in inputs:
-            with ip.open("rb") as r:
-                shutil.copyfileobj(r, w)
-
-
 def convert_petmate_asm(src: Path, dst: Path) -> None:
     """Convert PETMATE .asm export (!byte directives) to raw binary."""
     data = []
@@ -407,16 +399,6 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
     prebuild_checks(ctx)
 
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
-    petcat = resolve_tool(ctx, ["petcat", "petcat.exe"])
-
-    # BASIC header -> build/easysd.obj
-    bas_src = ctx.irq_root / "Menus" / "EasySD" / "EasySDMenu.bas"
-    bas_obj = ctx.build_dir / "easysd.obj"
-    print(f"[CORE] petcat: {bas_src.relative_to(ctx.irq_root)}")
-    with bas_src.open("rb") as r, bas_obj.open("wb") as w:
-        p = subprocess.run([str(petcat), "-w2"], stdin=r, stdout=w, cwd=str(ctx.irq_root))
-    if p.returncode != 0:
-        raise SystemExit(p.returncode)
 
     # Convert PETMATE frame export -> raw binary for .binary include
     petmate_asm = ctx.irq_root / "Menus" / "EasySD" / "menu.asm"
@@ -426,20 +408,20 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
     else:
         print(f"WARNING: {petmate_asm} not found, skipping PETMATE conversion")
 
-    # Menu asm -> bin
+    # Menu asm -> prg
     menu_src = ctx.irq_root / "Menus" / "EasySD" / "EasySDMenu.s"
-    menu_bin = ctx.build_dir / "easysd.bin"
+    out_prg = ctx.build_dir / menu_prg_name
     labels = ctx.sym_dir / "easysd.txt"
     vice_labels = ctx.sym_dir / "easysd.vs"
     listing = ctx.lst_dir / "easysdLst.txt"
     print(f"[CORE] 64tass: {menu_src.relative_to(ctx.irq_root)}")
     run_cmd(
         [
-            tass, "-c", "-b", "--long-branch",
+            tass, "-c", "--long-branch",
             "-D", f"DEBUG={debug}",
             "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
             str(menu_src),
-            "-o", str(menu_bin),
+            "-o", str(out_prg),
             "--labels", str(labels),
             "-L", str(listing),
         ],
@@ -448,7 +430,7 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
     # Generate VICE-format labels for binary monitor / test_vice_menu.py
     run_cmd(
         [
-            tass, "-c", "-b", "--long-branch",
+            tass, "-c", "--long-branch",
             "-D", f"DEBUG={debug}",
             "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
             str(menu_src),
@@ -459,21 +441,12 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
         cwd=ctx.irq_root
     )
 
-    # Link: obj + menu_bin -> menu_prg
-    out_prg = ctx.build_dir / menu_prg_name
-    print(f"[CORE] link: build/{menu_prg_name}")
-    concat_files(out_prg, bas_obj, menu_bin)
-    menu_bin.unlink(missing_ok=True)
-
     if build_arduino:
         # KeyBooter (if it exists)
         key_src = ctx.irq_root / "Menus" / "Keybooter" / "KeyBooter.s"
         if key_src.exists():
             print(f"[CORE] 64tass: {key_src.relative_to(ctx.irq_root)}")
-            key_bin = ctx.build_dir / "KeyBooter.s.bin"
-            run_cmd([tass, "-c", "-b", str(key_src), "-o", str(key_bin), "--labels", str(ctx.sym_dir / "KeyBooter.txt")], cwd=ctx.irq_root)
-            concat_files(ctx.build_dir / "keybooter.prg", bas_obj, key_bin)
-            key_bin.unlink(missing_ok=True)
+            run_cmd([tass, "-c", "--long-branch", str(key_src), "-o", str(ctx.build_dir / "keybooter.prg"), "--labels", str(ctx.sym_dir / "KeyBooter.txt")], cwd=ctx.irq_root)
 
         # Loader stub + IRQLoader + Warning
         stub_src = ctx.irq_root / "Loader" / "LoaderStub.65s"
@@ -487,13 +460,9 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
         run_cmd([tass, "-c", "-b", str(irq_src), "-o", str(irq_bin), "--labels", str(ctx.sym_dir / "IRQLoader.txt")], cwd=ctx.irq_root)
 
         warn_src = ctx.irq_root / "Menus" / "WarningMenu" / "Warning.s"
-        warn_bin = ctx.build_dir / "Warning.bin"
-        print(f"[CORE] 64tass: {warn_src.relative_to(ctx.irq_root)}")
-        run_cmd([tass, "-c", "-b", str(warn_src), "-o", str(warn_bin), "--labels", str(ctx.sym_dir / "Warning.s.txt")], cwd=ctx.irq_root)
-
         warning_prg = ctx.build_dir / "warning.prg"
-        concat_files(warning_prg, bas_obj, warn_bin)
-        warn_bin.unlink(missing_ok=True)
+        print(f"[CORE] 64tass: {warn_src.relative_to(ctx.irq_root)}")
+        run_cmd([tass, "-c", "--long-branch", str(warn_src), "-o", str(warning_prg), "--labels", str(ctx.sym_dir / "Warning.s.txt")], cwd=ctx.irq_root)
 
         # Arduino artifact generation
         defaultmenu_h = ctx.build_dir / "defaultmenu.h"
@@ -535,21 +504,11 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
 
         print("[CORE] Arduino/EPROM artifacts generated.")
 
-    if not (ctx.build_dir / "easysd.obj").exists():
-        raise SystemExit("ERROR: build/easysd.obj missing (plugins need it).")
-
     print("[CORE] OK")
 
 
 def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_prereq: bool = True) -> None:
     ensure_dirs(ctx)
-
-    bas_obj = ctx.build_dir / "easysd.obj"
-    if ensure_core_prereq and not bas_obj.exists():
-        print("[PLUGINS] Missing build/easysd.obj -> building core prereq (no Arduino)...")
-        build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=False, arduino_debug=0,
-                   menu_prg_name=("easysd-debug.prg" if debug else "easysd.prg"))
-
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
 
     print("==============================================================")
@@ -564,7 +523,6 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
             print(f"WARNING: Plugin source not found: {src}")
             continue
 
-        out_bin = ctx.plugins_out_dir / f"{out_base}.bin"
         out_prg = ctx.plugins_out_dir / f"{out_base}.prg"
         labels = ctx.sym_dir / f"{out_base}.txt"
         listing = ctx.lst_dir / f"{out_base}LST.txt"
@@ -575,14 +533,12 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
                 "-D", f"DEBUG={debug}",
                 "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
                 str(src),
-                "-o", str(out_bin),
+                "-o", str(out_prg),
                 "--labels", str(labels),
                 "-L", str(listing),
             ],
             cwd=ctx.irq_root
         )
-        concat_files(out_prg, bas_obj, out_bin)
-        out_bin.unlink(missing_ok=True)
 
     print("[PLUGINS] OK")
 
@@ -590,17 +546,8 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
 def build_multiload(ctx: Context, *, debug: int, debug_break: int) -> None:
     """Build only BOOT.PRG (MultiLoad plugin) without rebuilding all plugins."""
     ensure_dirs(ctx)
-
-    bas_obj = ctx.build_dir / "easysd.obj"
-    if not bas_obj.exists():
-        print("[MULTILOAD] Missing build/easysd.obj -> building core prereq (no Arduino)...")
-        build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=False,
-                   arduino_debug=0,
-                   menu_prg_name=("easysd-debug.prg" if debug else "easysd.prg"))
-
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
     src = ctx.irq_root / "Loader" / "Bridges" / "MultiLoad" / "MultiLoad.s"
-    out_bin = ctx.plugins_out_dir / "bootplugin.bin"
     out_prg = ctx.plugins_out_dir / "bootplugin.prg"
     labels  = ctx.sym_dir / "bootplugin.txt"
     listing = ctx.lst_dir / "bootpluginLST.txt"
@@ -612,14 +559,12 @@ def build_multiload(ctx: Context, *, debug: int, debug_break: int) -> None:
             "-D", f"DEBUG={debug}",
             "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
             str(src),
-            "-o", str(out_bin),
+            "-o", str(out_prg),
             "--labels", str(labels),
             "-L", str(listing),
         ],
         cwd=ctx.irq_root
     )
-    concat_files(out_prg, bas_obj, out_bin)
-    out_bin.unlink(missing_ok=True)
     print("[MULTILOAD] OK")
     print(f"  Output: {out_prg}")
     print("  Copy bootplugin.prg to the game directory on the SD card as BOOT.PRG")
