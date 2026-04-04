@@ -420,7 +420,7 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
 
     # Convert PETMATE frame export -> raw binary for .binary include
     petmate_asm = ctx.irq_root / "Menus" / "EasySD" / "menu.asm"
-    petmate_bin = ctx.irq_root / "Menus" / "EasySD" / "menu.bin"
+    petmate_bin = ctx.build_dir / "menu.bin"
     if petmate_asm.exists():
         convert_petmate_asm(petmate_asm, petmate_bin)
     else:

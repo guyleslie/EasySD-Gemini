@@ -1773,7 +1773,7 @@ SID
 
 PRGSCREENDATA
 	; Generated from PETMATE menu.asm by build.py (lowercase/uppercase charset)
-	.binary "menu.bin"
+	.binary "../../build/menu.bin"
 
 CURPAGEINDEX	.BYTE 0
 
