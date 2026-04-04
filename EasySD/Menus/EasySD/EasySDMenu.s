@@ -147,33 +147,54 @@ SKIPMUSIC
   	BEQ ENTER		; Then launch the selected item
 	JMP INPUT_GET		; If other key then leave control to the main loop
 		  	
-UP	
+UP
 	LDX #COMMANDENTERMASK
 	STX COMMANDBYTE
-	JSR GETCURRENTROW
+	JSR GETCURRENTROW		; X = current row
+	BNE UP_MOVE			; X > 0 → normal move
+	; --- at top of page (X=0) ---
+	LDA CURPAGEINDEX		; on first page?
+	BEQ UP_STOP			; yes → stop
+	; has previous page → clear arrow, set flag, load prev page
+	JSR CLEARARROW			; clear row 0
+	LDA #1
+	STA CURSOR_GOTO_LAST		; signal NEWCONTENT: cursor to last item
+	JMP EXECPREV
+UP_STOP
+	JMP INPUT_GET			; first page first item: stop
+UP_MOVE
 	JSR CLEARARROW
-	TXA
-	BNE NORMALUP
-	LDX CURPAGEITEMS
-NORMALUP	
 	DEX
-	JSR SETCURRENTROWHEAD 	
+	JSR SETCURRENTROWHEAD
 	JSR SETARROW
 	JMP INPUT_GET
 
 DOWN
 	LDX #COMMANDENTERMASK
-	STX COMMANDBYTE	
-	JSR GETCURRENTROW	
+	STX COMMANDBYTE
+	JSR GETCURRENTROW		; X = current row
+	INX				; tentative next row
+	CPX CURPAGEITEMS		; at end of page?
+	BNE DOWN_MOVE			; no → normal move
+	; --- at page boundary ---
+	LDA CURPAGEINDEX
+	CLC
+	ADC #1
+	CMP PAGECOUNT			; CURPAGEINDEX+1 >= PAGECOUNT?
+	BCS DOWN_STOP			; yes → last page, stop
+	; has next page → clear arrow and load next page (cursor to row 0)
+	JSR GETCURRENTROW		; restore X = old row (CURRENTROW unchanged)
 	JSR CLEARARROW
-	INX
-	CPX CURPAGEITEMS
-	BNE ROLLINGDOWN
-	LDX #$00
-ROLLINGDOWN	
-	JSR SETCURRENTROWHEAD 
+	JMP NEXTPAGE
+DOWN_STOP
+	JMP INPUT_GET			; last page last item: stop
+DOWN_MOVE
+	DEX				; restore old row for CLEARARROW
+	JSR CLEARARROW
+	INX				; new row
+	JSR SETCURRENTROWHEAD
 	JSR SETARROW
-	JMP INPUT_GET	
+	JMP INPUT_GET
 
 ; Below routine fills the COMMANDBYTE to the relevant action taken by the user.
 ; With the start of the ENTER control byte is sent to micro by modulating raster interrupts
@@ -357,8 +378,8 @@ DOREADDIRECTORY
 	LDA #$03		;Max 256*3 bytes of data
 	STA ZP_IRQ_API_DATA_LENGTH	
 	
-	LDY #$00		
-	LDX #20			;Max 20 directory items
+	LDY #$00
+	LDX #21			;Max 21 directory items
 	LDA CURPAGEINDEX
 .if DEBUG = 0
 	JSR PROT_ReadDirectoryNC
@@ -808,8 +829,17 @@ NEWCONTENT
 	JSR GETCURRENTROW
 	JSR CLEARARROW
 	JSR PRINTDIRHEADER	; 1. directory header row
-	JSR PRINTPAGE		; 2. filenames + decorations
-	LDX #00
+	JSR PRINTPAGE		; 2. filenames + decorations + scroll indicators
+	LDA CURSOR_GOTO_LAST	; cursor to last item? (UP across page boundary)
+	BEQ _nc_first
+	LDA #0
+	STA CURSOR_GOTO_LAST
+	LDX CURPAGEITEMS
+	DEX			; last item index
+	JMP _nc_setcursor
+_nc_first
+	LDX #0
+_nc_setcursor
 	JSR SETCURRENTROWHEAD
 	JSR SETARROW
 
@@ -1062,9 +1092,16 @@ NOTEND_A
 WRITECHAR_A
 	STA (COLLOW), Y     ; Write to screen memory
 	INY
-	CPY #$20            ; Print 32 characters (full line)
+	CPY #$1A            ; Print 26 characters (cols 4-29)
 	BNE FILENAMEPRINT_A
-	RTS	
+	; Pad cols 30-35 with spaces so scroll indicators can overwrite cleanly
+	LDA #$20
+_fname_pad
+	STA (COLLOW), Y
+	INY
+	CPY #$20            ; 32 total
+	BNE _fname_pad
+	RTS
 
 CLEARLINE	; Input : None, Changed: Y, A
 	LDY #$00
@@ -1210,7 +1247,7 @@ SETCOL
 NEXTFILE
 	JMP SETCOL	
 FINISH
-	CPX #$14
+	CPX #$15		; 21 = MAXDIRITEMS
 	BEQ ACTUALFINISH
 	JSR SETCURRENTROW
 	JSR CLEARLINE
@@ -1220,6 +1257,7 @@ FINISH
 	
 ACTUALFINISH
 	JSR DRAWDECORATIONS
+	JSR DRAW_SCROLL_INDICATORS
 	LDX #COMMANDENTERMASK
 	STX COMMANDBYTE
 	RTS
@@ -1234,7 +1272,7 @@ ACTUALFINISH
 DRAWDECORATIONS
 	LDX #$00
 _DDEC_LOOP
-	CPX #$14		; 20 = max items
+	CPX #$15		; 21 = MAXDIRITEMS
 	BEQ _DDEC_DONE
 	JSR SETCURRENTROWHEAD	; COLLOW = col 2 of row X
 	CPX CURPAGEITEMS
@@ -1291,6 +1329,84 @@ _DDEC_SETCOL
 	INX
 	JMP _DDEC_LOOP
 _DDEC_DONE
+	RTS
+
+; ------------------------------------------------------------
+; DRAW_SCROLL_INDICATORS
+; Called after PRINTPAGE to overlay scroll hints on rows 2 and 22.
+; Row 2,  cols 30-35 ($046E): " ↑MORE" if previous pages exist
+; Row 22, cols 30-35 ($078E): " vMORE" if next pages exist
+;   ↑ = $5E,  v = $16 (placeholder — replace with custom char later)
+;   M=$0D  O=$0F  R=$12  E=$05 (C64 screen codes)
+;   Color: green ($05) via color RAM $D86E / $DB8E
+; Clobbers: A, Y
+; ------------------------------------------------------------
+DRAW_SCROLL_INDICATORS
+	LDA PAGECOUNT
+	CMP #1
+	BEQ _dsi_done		; single page → nothing to show
+
+	; --- ↑MORE on row 2, when previous page exists ---
+	LDA CURPAGEINDEX
+	BEQ _dsi_check_below
+	LDY #0
+	LDA #$20
+	STA $046E,Y		; space
+	INY
+	LDA #$5E
+	STA $046E,Y		; ↑
+	INY
+	LDA #$0D
+	STA $046E,Y		; M
+	INY
+	LDA #$0F
+	STA $046E,Y		; O
+	INY
+	LDA #$12
+	STA $046E,Y		; R
+	INY
+	LDA #$05
+	STA $046E,Y		; E
+	LDA #$05		; green
+	LDY #5
+_dsi_up_col
+	STA $D86E,Y
+	DEY
+	BPL _dsi_up_col
+
+_dsi_check_below
+	; --- vMORE on row 22, when next page exists ---
+	LDA CURPAGEINDEX
+	CLC
+	ADC #1
+	CMP PAGECOUNT		; CURPAGEINDEX+1 >= PAGECOUNT?
+	BCS _dsi_done		; on last page → nothing
+	LDY #0
+	LDA #$20
+	STA $078E,Y		; space
+	INY
+	LDA #$16
+	STA $078E,Y		; v (placeholder ↓)
+	INY
+	LDA #$0D
+	STA $078E,Y		; M
+	INY
+	LDA #$0F
+	STA $078E,Y		; O
+	INY
+	LDA #$12
+	STA $078E,Y		; R
+	INY
+	LDA #$05
+	STA $078E,Y		; E
+	LDA #$05		; green
+	LDY #5
+_dsi_down_col
+	STA $DB8E,Y
+	DEY
+	BPL _dsi_down_col
+
+_dsi_done
 	RTS
 
 ; ------------------------------------------------------------
@@ -1569,6 +1685,7 @@ DISPLAYSCREENGRAPHICS
 COMMANDBYTE	.BYTE 0
 COMMANDARG  .BYTE 0, 0, 0, 0
 CURRENTROW	.BYTE 0
+CURSOR_GOTO_LAST .BYTE 0	; 1 = place cursor at last item after page load (UP across page boundary)
 CURPAGENAMELOW	.BYTE <GAMELIST
 CURPAGENAMEHIGH .BYTE >GAMELIST
 BITPOS		.BYTE 0
@@ -1585,7 +1702,7 @@ COLS
 ;	.WORD $0724, $074C, $0774, $079C, $07C4
 	
 MAXFILENAMELENGTH = 32	
-MAXDIRITEMS = 20	
+MAXDIRITEMS = 21
 -       = GAMELIST + range(0, MAXDIRITEMS * MAXFILENAMELENGTH, MAXFILENAMELENGTH)
 NAMESLO   .byte <(-)
 NAMESHI   .byte >(-)
@@ -1614,10 +1731,10 @@ CURPAGEITEMS	.BYTE 5
 PAGECOUNT		.BYTE 1
 GAMELIST
 DIRLOAD = GAMELIST - 2
-; Reserve space for 20 directory entries (20 * 32 bytes = 640 bytes)
+; Reserve space for 21 directory entries (21 * 32 bytes = 672 bytes)
 ; In DEBUG mode: SETDIR1/2/3 copies MOCK_DIR1/2/3 data here
 ; In release mode: PROT_ReadDirectory fills this from SD card
-	.FILL (20 * 32), 0
+	.FILL (MAXDIRITEMS * 32), 0
 
 
 CHARDATA
