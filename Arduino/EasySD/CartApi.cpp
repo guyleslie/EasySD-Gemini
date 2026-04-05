@@ -1371,31 +1371,34 @@ void CartApi::TransferMenu() {
 
   //int menu_data_length = (readFromFile? workingFile.size() : data_len) ;
   int menu_data_length = (readFromFile? workingFile.size() : data_len) ;
-  cartInterface.EnableCartridge();
+
+  // Phase 1: EXROM LOW only — data bus stays tristate so EEPROM can present
+  // CBM80 ($8004-$8008) undisturbed. ATmega output sinks 40 mA vs EEPROM
+  // source 4 mA, so any non-tristate Arduino output overrides the EEPROM and
+  // the CBM80 check fails even with the chip installed.
+  cartInterface.EnableExromOnly();
   cartInterface.ResetC64();
-  
-  
-  delay(300);  
-  
+
+  delay(300);  // CBM80 window: EEPROM drives bus, sets $0318 NMI vector
+
+  // Phase 2: data bus OUTPUT — safe now, NMI handler is already installed
+  cartInterface.EnableDataBus();
 
   unsigned char low;
   unsigned char high;
 
   if (!readFromFile) {
-    low = pgm_read_byte(cartridgeData);  
-    high = pgm_read_byte(cartridgeData+1);  
+    low = pgm_read_byte(cartridgeData);
+    high = pgm_read_byte(cartridgeData+1);
   } else {
     low = workingFile.read();
-    high = workingFile.read();    
+    high = workingFile.read();
   }
 
-  //long fileNamesDataLength = 16 + dirFunc.NMax * 32; // 16 byte header + 
-  //long transferLength = menu_data_length + fileNamesDataLength - 2; 
-  long transferLength = menu_data_length - 2; 
-  long padBytes = (transferLength%256==0) ? 0 : 256 - transferLength%256; 
-  byte transferPages = (byte)(transferLength/256 + (padBytes>0 ? 1 : 0));  
+  long transferLength = menu_data_length - 2;
+  long padBytes = (transferLength%256==0) ? 0 : 256 - transferLength%256;
+  byte transferPages = (byte)(transferLength/256 + (padBytes>0 ? 1 : 0));
 
-  //SendHeader(low, high, transferPages,menu_data_length-2, TYPE_MENU); 
   SendHeader(low, high, transferPages,transferLength, TYPE_MENU, cartInterface.TransferMode); 
   cartInterface.ResetIndex();
   

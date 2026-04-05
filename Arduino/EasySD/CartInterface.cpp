@@ -290,6 +290,22 @@ void CartInterface::EnableCartridge() {
   PORTD &= ~_BV (PD2);  // EXROM LOW — cartridge visible to C64
 }
 
+void CartInterface::EnableExromOnly() {
+  // EXROM LOW — cartridge ROM becomes visible to C64 (ROML active).
+  // Data bus pins intentionally left as INPUT (tristate) so the EEPROM can
+  // drive the data bus undisturbed. Required for the CBM80 check at $8004-$8008:
+  // if data pins were OUTPUT(0x00) here, ATmega's 40mA sink would override the
+  // EEPROM's 4mA source and CBM80 detection would fail even with EEPROM installed.
+  PORTD &= ~_BV (PD2);
+}
+
+void CartInterface::EnableDataBus() {
+  // Switch data bus pins to OUTPUT — call after delay(300) CBM80 window,
+  // immediately before NMI data transfers begin (SendHeader / TransmitByte*).
+  DDRD |= 0xF0;   // D4-D7: OUTPUT
+  DDRC |= 0x0F;   // A0-A3: OUTPUT
+}
+
 
 
 void CartInterface::DisableCartridge() {
