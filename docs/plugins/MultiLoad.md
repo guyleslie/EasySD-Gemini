@@ -502,6 +502,7 @@ block, packages as ZIP.
 | Game loads to `$E800–$EBxx` | Overwrites handler + mini-CartLib. Extremely rare (Kernal ROM area). |
 | Direct `JSR $E16F` (bypass `$0330`) | Cannot be intercepted without a dedicated expansion port cartridge. Not used by typical games. |
 | `LOAD` with device ≠ 8 | Passed through to original Kernal LOAD vector; works normally. |
+| ZIP folder naming collision | `create_multiload.py` derives the game folder name from the **parent folder** of the first D64 file (priority 1), then disk label (priority 2), then filename stem (priority 3). If multiple D64 files are stored in a generic folder (e.g. `NEW/`), the resulting ZIPs all use `MULTILOAD/NEW/` — extracting them overwrites each other. **Workaround:** store each game's disk images in a correctly-named subfolder (e.g. `BARBARIAN/game.d64`), or rename the MULTILOAD subfolder manually after extraction. A `--game-name` override option does not yet exist. |
 
 ---
 

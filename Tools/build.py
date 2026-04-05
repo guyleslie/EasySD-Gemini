@@ -362,6 +362,7 @@ PLUGIN_MATRIX = [
     ("Plugins/MusPlayer",               "MusPlayer.s",        "musplugin"),
     ("Loader/Bridges/KernalBridge",     "KernalBridge.s",     "prgplugin"),
     ("Loader/Bridges/MultiLoad",        "MultiLoad.s",        "bootplugin"),
+    ("Plugins/HWTest",                  "HWTest.s",           "hwtplugin"),
 ]
 
 # Standalone VICE test programs (include their own BASIC stub, built as PRG directly)

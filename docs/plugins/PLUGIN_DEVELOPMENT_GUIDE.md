@@ -165,6 +165,7 @@ Full map: `EasySD/Loader/CartZpMap.inc`.
 | MusPlayer | adopted |
 | PetsciiDisplayer | adopted |
 | CvdPlayer | not needed (uses NIStream) |
+| HWTest | not needed (direct NMI setup, no file I/O) |
 
 ---
 

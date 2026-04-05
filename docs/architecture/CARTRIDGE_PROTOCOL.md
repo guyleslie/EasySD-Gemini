@@ -126,9 +126,11 @@ Y counts bytes within the current page.
 | Command byte | Name | Arguments | Description |
 |-------------|------|-----------|-------------|
 | 27 (`0x1B`) | `COMMAND_READ_NEXT_CHUNK` | pages (1 byte) | Arduino pushes `pages×256` bytes via NMI into C64 buffer; returns status byte `0x80`=more / `0x81`=last block |
+| 32 (`0x20`) | `COMMAND_HWTEST` | none | Arduino sends `SUCCESSFUL` ($80), then pushes 256 bytes via NMI: 10 known bit-patterns ($01,$02,$04,$08,$10,$20,$40,$80,$55,$AA) followed by 246 zero bytes. C64 verifies the first 10 bytes against the expected patterns to confirm data bus and NMI signal integrity. |
 
-Used exclusively by WavPlayer MK3 modes (`ReadNextChunk` subroutine, `WavPlayer.s`).
-The C64 sends command + page count via `PROT_Send`, receives status via `PROT_WaitProcessing`,
+`COMMAND_READ_NEXT_CHUNK` is used by WavPlayer MK3 modes (`ReadNextChunk` subroutine, `WavPlayer.s`).
+`COMMAND_HWTEST` is used by the HWTest plugin (`Plugins/HWTest/HWTest.s`) for hardware diagnostics.
+Both commands: C64 sends via `PROT_Send`, receives status via `PROT_WaitProcessing`,
 then waits for NMI handler to finish all pages.
 
 ---

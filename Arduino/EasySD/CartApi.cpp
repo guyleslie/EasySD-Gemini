@@ -1081,6 +1081,23 @@ void CartApi::HandleReadNextChunk() {
 }
 
 
+void CartApi::HandleHwTest() {
+  // Send 10 known bit-pattern bytes via NMI, then pad to 256 bytes (1 full page).
+  // C64 verifies each pattern to confirm data bus and NMI wire integrity.
+  static const uint8_t pat[10] = {
+    0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x55, 0xAA
+  };
+  HandleResponse(SUCCESSFUL, 1);  // 1ms: C64 reads response, sets up NMI handler
+  noInterrupts();
+  for (uint8_t i = 0; i < 10; i++)
+    cartInterface.TransmitByteFastStd(pat[i]);
+  for (uint16_t i = 10; i < 256; i++)
+    cartInterface.TransmitByteFastStd(0x00);
+  interrupts();
+  cartInterface.SoftStartListening();
+}
+
+
 void CartApi::HandleNonInterruptedStream() {
   uint16_t bufferIndex = 0;
   uint16_t bufferLength;
@@ -1254,6 +1271,7 @@ void CartApi::HandleApi() {
           case COMMAND_STREAM : HandleStream();break;          
           case COMMAND_NI_STREAM : HandleNonInterruptedStream(); break;
           case COMMAND_READ_NEXT_CHUNK : HandleReadNextChunk(); break;
+          case COMMAND_HWTEST : HandleHwTest(); break;
           case COMMAND_EXIT_TO_MENU : TransferMenu();break;            
         }
 

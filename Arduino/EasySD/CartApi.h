@@ -72,6 +72,7 @@
 
 #define COMMAND_END_TALKING  30
 #define COMMAND_EXIT_TO_MENU  31
+#define COMMAND_HWTEST  32
 
 #define SEEK_FROM_BEGINNING 0
 #define SEEK_FROM_CURRENT 1
@@ -152,6 +153,7 @@ class CartApi {
    static void DoubleBufferedStreaming();   
    void HandleNonInterruptedStream();
    void HandleReadNextChunk();
+   void HandleHwTest();
    static void SingleBufferedStreaming();
   
  public : 
