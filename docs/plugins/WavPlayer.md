@@ -89,8 +89,9 @@ Timeout: `13 cycles × 256 × 18 ≈ 60 ms` per phase (loop-counter, no jiffy cl
 
 ## MK3 Runtime Reconfiguration (SP2 extended commands)
 
-For modes 4–6, `MK3_ConfigureMode` reconfigures the MK3 after detection
-(mode 3 uses detection defaults and skips this step).
+All MK3 modes (3–6) call `MK3_ConfigureMode`. Mode 3 uses its own branch
+(`MCM_Mode3`) that sends FLUSH + SET_RATE(1461) + SET_OVERSAMPLE(4) + STREAM_PUSH.
+Modes 4–6 share the common entry path (SP2_HIGH + FLUSH_FIFO) then branch by PLAYTYPE.
 
 **SP2 pin**: CIA2 SDR output (user port pin 7 → ATmega PD4, 10 kΩ pull-down on MK3 PCB).
 
@@ -105,8 +106,7 @@ Commands sent via `STA $DD01` (CIA2 PA → MK3 INT0), 10 NOPs between writes:
 | Command byte | Meaning |
 |-------------|---------|
 | `$42` | CMD_FLUSH_FIFO — exits PARSER_STREAM_RECV → PARSER_IDLE |
-| `$20` + lo | CMD_SET_RATE_L — OCR1A low byte |
-| `$21` + hi | CMD_SET_RATE_H — OCR1A high byte |
+| `$20` + lo + hi | CMD_SET_RATE_L — OCR1A value as two raw bytes (lo then hi); do NOT send CMD_SET_RATE_H ($21) opcode — protocol would consume it as the hi byte |
 | `$24` + n | CMD_SET_OVERSAMPLE — 1=off, 2=2×, 4=4× linear interpolation |
 | `$23` + n | CMD_SET_FRAME_SIZE — 1=mono, 2=stereo |
 | `$30` | CMD_STREAM_PUSH — re-enters PARSER_STREAM_RECV |
@@ -127,22 +127,29 @@ Converts any audio to the correct WAV format for WavPlayer.
 
 ### Quick-start — choose by hardware
 
-| You have | Use mode | Command |
-|----------|----------|---------|
-| No add-on (SID only) | `sid` | `--mode sid` |
-| Original DigiMax | `sid` | `--mode sid` (4-bit optimised) |
-| DigiMax MK3, 11 kHz mono | `11k` | `--mode 11k` |
-| DigiMax MK3, 22 kHz mono | `22k` | `--mode 22k` |
-| DigiMax MK3, stereo | `stereo` | `--mode stereo` |
+| You have | WavPlayer mode | `--mode` |
+|----------|---------------|---------|
+| No add-on (SID only) | 0 | `--mode sid` |
+| Original DigiMax | 1–2 | `--mode sid` (4-bit optimised) |
+| DigiMax MK3, 11 kHz mono | 3 | `--mode 11k` |
+| DigiMax MK3, 22 kHz mono | 4 | `--mode 22k` |
+| DigiMax MK3, stereo 11K | 5 or 6 | `--mode stereo` |
+| DigiMax MK3, hi-res mono (PCB v2) | 5 | `--mode hiresm` |
+
+> `--mode stereo` produces the correct file for both Mode 5 (no oversampling) and
+> Mode 6 (4× oversampling) — the file format is identical; the firmware handles interpolation.
 
 ```bash
 # SID-only or original DigiMax (no MK3) — 4-bit optimised, pop-free:
 python Tools/wavtodigimax.py input.mp3 out.wav --mode sid
 
 # DigiMax MK3 modes:
-python Tools/wavtodigimax.py input.mp3 out.wav --mode 11k     # PLAYTYPE_MK3
-python Tools/wavtodigimax.py input.mp3 out.wav --mode 22k     # PLAYTYPE_MK3_22K
-python Tools/wavtodigimax.py input.mp3 out.wav --mode stereo  # PLAYTYPE_MK3_STEREO
+python Tools/wavtodigimax.py input.mp3 out.wav --mode 11k     # PLAYTYPE_MK3 (mono 11K)
+python Tools/wavtodigimax.py input.mp3 out.wav --mode 22k     # PLAYTYPE_MK3_22K (mono 22K)
+python Tools/wavtodigimax.py input.mp3 out.wav --mode stereo  # PLAYTYPE_MK3_STEREO / _STEREO_OS
+
+# Hi-res mono (PCB v2 only — splits 16-bit signal to CH0/CH1):
+python Tools/wavtodigimax.py input.mp3 out.wav --mode hiresm  # WavPlayer mode 5
 
 # Manual (advanced):
 python Tools/wavtodigimax.py input.mp3 out.wav --rate 11025 --channels 1
@@ -203,7 +210,7 @@ Macros: `#OPENFILE` (Tier 2), `#SETBANK`, `#SAVEREGS`/`#RESTOREREGS` (Tier 1).
 | `$8E` | `ZP_WAV_ACTBUF` | 0=BUF_A active, 1=BUF_B active |
 | `$8F` | `ZP_WAV_FILL` | 0=idle, 1=fill inactive buffer |
 | `$90` | `ZP_WAV_EOFLAG` | 0=more data, $FF=last block |
-| `$91` | `ZP_WAV_TIMERLO` | CIA1 Timer A lo (89=11025 Hz, 44=22050 Hz/stereo) |
+| `$91` | `ZP_WAV_TIMERLO` | CIA1 Timer A lo (89=Modes 3+6 at 11025 Hz, 44=Modes 4+5 at 22050 Hz) |
 
 ---
 
