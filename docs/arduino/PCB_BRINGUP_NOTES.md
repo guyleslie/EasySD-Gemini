@@ -152,4 +152,73 @@ DisableCartridge()       DisableCartridge()
 
 **Flash impact:** 23690B (77%, +0B net — no size change).
 
-**Note on EEPROM (AT27C512R-45PU):** The EEPROM chip provides CBM80 autostart and the initial NMI handler. Without it, the C64 boots to BASIC normally (after the bus conflict fix), but EasySD cannot auto-start. The EEPROM is a required component for the full cartridge functionality.
+**EEPROM role (AT27C512R-45PU):** The EEPROM is a permanent, required component — not optional.
+It provides three things the system cannot function without:
+1. **CBM80 string at $8004–$8008** — triggers C64 cartridge autostart instead of BASIC boot
+2. **Cold-start code at $8009** — initialises hardware, sets software NMI vector `$0318` = `$8066`
+3. **NMI data handler at $8066** — receives each byte from Arduino (`LDA $80AB`) and stores it to C64 RAM; this is how `TransferMenu()` fills RAM with the menu program
+
+Without the EEPROM installed: C64 boots to BASIC (no freeze after fix), but MENU button does nothing useful — CBM80 check fails, `$0318` stays at KERNAL default (`$FE66` = RTI), all NMI transfers are silently discarded.
+
+---
+
+## Issue 5: CBM80 check fails even with EEPROM — TransferMenu() data bus timing
+
+*Discovered 2026-04-05 during root-cause analysis*
+
+**Root cause: ATmega output overrides EEPROM during CBM80 window**
+
+The original `TransferMenu()` called `EnableCartridge()` before `ResetC64()`.
+`EnableCartridge()` sets D4–D7 / A0–A3 as OUTPUT (value = 0x00 from last `SetPage(0)`).
+
+The C64 CBM80 check at `$8004–$8008` happens ~2–5 ms into the 300 ms delay after reset.
+At that moment ROML is active, and both the EEPROM and Arduino drive the same bus lines:
+
+```
+EEPROM output (AT27C512R): IOH_max ≈ 4 mA  (CMOS source)
+ATmega328P output:          IOL_max = 40 mA (strong sink)
+```
+
+ATmega always wins: bus reads 0x00 on every bit. CBM80 check sees `$00,$00,$00,$00,$00`
+instead of `$C3,$C2,$CD,$38,$30` → no autostart → menu never loads.
+
+**Fix applied (`CartApi.cpp`, `CartInterface.cpp/.h`):**
+
+Split `TransferMenu()` into two phases:
+
+| Phase | Call | Data bus | EXROM |
+|---|---|---|---|
+| 1 — CBM80 window | `EnableExromOnly()` + `ResetC64()` + `delay(300)` | INPUT (tristate) | LOW |
+| 2 — NMI transfers | `EnableDataBus()` + `SendHeader()` + transfer loop | OUTPUT | LOW |
+
+New `CartInterface` methods:
+- `EnableExromOnly()` — EXROM LOW only, DDR unchanged (data stays tristate)
+- `EnableDataBus()` — sets DDRD[4:7] and DDRC[0:3] OUTPUT
+
+`EnableCartridge()` is unchanged and still used by streaming paths (HandleStream, etc.)
+where the C64 is already running and CBM80 is not a concern.
+
+**Flash impact:** 23700B (77%, +10B).
+
+---
+
+## Current firmware state (2026-04-05)
+
+Firmware `b8dc98e` uploaded to COM4. Two bus timing fixes applied:
+
+| Fix | Commit | Effect |
+|---|---|---|
+| Data bus tristate at idle | `8964487` | C64 no longer freezes on power-on with PCB inserted |
+| Data bus tristate during CBM80 window | `b8dc98e` | EEPROM can present CBM80 + NMI handler correctly |
+
+**Test matrix:**
+
+| Test | EEPROM installed? | Expected result |
+|---|---|---|
+| C64 power-on with PCB | No | BASIC `READY.` — no freeze ✅ |
+| MENU button | No | C64 resets to BASIC, no menu (CBM80 not found) |
+| C64 power-on with PCB | Yes | CBM80 autostart, EasySD cold-start code runs |
+| MENU button | Yes | Menu loads via NMI transfer ✅ |
+
+**Next step:** Program `EasySD\build\IRQLoaderRom.bin` → AT27C512R-45PU (MiniPro / Xgpro),
+install chip on PCB, retest.
