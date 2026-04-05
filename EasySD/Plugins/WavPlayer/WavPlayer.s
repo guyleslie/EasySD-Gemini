@@ -23,6 +23,7 @@ PLAYTYPE_BOTH       = 2           ; SID + DigiMax, IO2 streaming
 PLAYTYPE_MK3        = 3           ; MK3 NMI 11025 Hz mono, CIA=89
 PLAYTYPE_MK3_22K    = 4           ; MK3 NMI 22050 Hz mono, CIA=44
 PLAYTYPE_MK3_STEREO = 5           ; MK3 NMI 11025 Hz stereo, CIA=44
+PLAYTYPE_MK3_STEREO_OS = 6        ; MK3 NMI 11025 Hz stereo, 4× oversample, CIA=89
 
 ; MK3 audio double-buffer layout ($4000–$6FFF)
 AUDIO_BUF_A         = $4000       ; 6144 bytes: $4000–$57FF
@@ -1182,7 +1183,7 @@ SAVED_D023:	.byte 0
 
 ; Menu state (data)
 MENU_CURSOR     .byte 0    ; current selection index (0-based)
-MENU_MAX        .byte 0    ; number of items: 3 without MK3, 6 with MK3
+MENU_MAX        .byte 0    ; number of items: 3 without MK3, 7 with MK3
 
 ; Screen positions (row*40+$0400)
 MENU_ROW_SID     = $0400 +  2*40 + 2
@@ -1191,9 +1192,10 @@ MENU_ROW_BOTH    = $0400 +  6*40 + 2
 MENU_ROW_MK3_11K = $0400 +  8*40 + 2
 MENU_ROW_MK3_22K = $0400 + 10*40 + 2
 MENU_ROW_MK3_ST  = $0400 + 12*40 + 2
+MENU_ROW_MK3_STOS = $0400 + 14*40 + 2
 
 ; Translates cursor index → PLAYTYPE constant
-MODE_PLAYTYPE_TABLE: .byte 0, 1, 2, 3, 4, 5
+MODE_PLAYTYPE_TABLE: .byte 0, 1, 2, 3, 4, 5, 6
 
 STR_TITLE:       .text "SELECT PLAYBACK MODE"
                  .byte 0
@@ -1209,6 +1211,8 @@ STR_MK3_22K:     .text "DIGIMAX MK3 22K"
                  .byte 0
 STR_MK3_STEREO:  .text "MK3 STEREO 11K"
                  .byte 0
+STR_MK3_STOS:    .text "MK3 STEREO 4X"
+                 .byte 0
 
 ShowModeSelector:
 	; Black screen, clear
@@ -1218,11 +1222,11 @@ ShowModeSelector:
 	LDA #$93
 	JSR CHROUT
 
-	; Set item count based on MK3_ACTIVE (3 base + 3 MK3 modes)
+	; Set item count based on MK3_ACTIVE (3 base + 4 MK3 modes)
 	LDA #3
 	LDX MK3_ACTIVE
 	BEQ MSSEL_NO_MK3
-	LDA #6
+	LDA #7
 MSSEL_NO_MK3:
 	STA MENU_MAX
 
@@ -1335,7 +1339,7 @@ MSR_MK3_CHECK:
 	; MK3 items (index 3-5) — only if MENU_MAX = 6
 	LDA MENU_MAX
 	CMP #6
-	BNE MSR_DONE
+	BCC MSR_DONE
 	; MK3 11K item (index 3)
 	LDA #<STR_MK3_11K
 	STA $FB
@@ -1385,8 +1389,29 @@ MSR_MK3_ST:
 	CMP #5
 	BNE MSR_MK3_ST_NORMAL
 	JSR PrintStringInvAt
-	JMP MSR_DONE
+	JMP MSR_MK3_STOS
 MSR_MK3_ST_NORMAL:
+	JSR PrintStringAt
+
+MSR_MK3_STOS:
+	; MK3 Stereo 4× item (index 6) — only if MENU_MAX = 7
+	LDA MENU_MAX
+	CMP #7
+	BNE MSR_DONE
+	LDA #<STR_MK3_STOS
+	STA $FB
+	LDA #>STR_MK3_STOS
+	STA $FC
+	LDA #<MENU_ROW_MK3_STOS
+	STA $FD
+	LDA #>MENU_ROW_MK3_STOS
+	STA $FE
+	LDA MENU_CURSOR
+	CMP #6
+	BNE MSR_MK3_STOS_NORMAL
+	JSR PrintStringInvAt
+	JMP MSR_DONE
+MSR_MK3_STOS_NORMAL:
 	JSR PrintStringAt
 MSR_DONE:
 	RTS
@@ -1726,9 +1751,12 @@ MK3_SendCmd:
 ; CIA1 timer N+1 rule: timer=89 → 985248/90=10947 Hz; timer=44 → 985248/45=21894 Hz.
 ; MK3 OCR1A N+1 rule: 16000000/(OCR1A+1). Calibrated to match C64 CIA1 rate.
 ;
-; Mode 3 (PLAYTYPE_MK3):        OCR1A=1461 → 10944 Hz ≈ C64 10947 Hz (+2.6 B/s).
-; Mode 4 (PLAYTYPE_MK3_22K):    OCR1A=730  → 21888 Hz ≈ C64 21894 Hz (+6.0 B/s).
-; Mode 5 (PLAYTYPE_MK3_STEREO): OCR1A=1461 + frame_size=2 → 21889 B/s ≈ 21894 B/s.
+; Mode 3 (PLAYTYPE_MK3):           OCR1A=1461 → 10944 Hz ≈ C64 10947 Hz (+2.6 B/s).
+; Mode 4 (PLAYTYPE_MK3_22K):       OCR1A=730  → 21888 Hz ≈ C64 21894 Hz (+6.0 B/s).
+; Mode 5 (PLAYTYPE_MK3_STEREO):    OCR1A=1461 + frame_size=2 → 21889 B/s ≈ 21894 B/s.
+; Mode 6 (PLAYTYPE_MK3_STEREO_OS): OCR1A=1461 + oversample=4 + frame_size=2
+;   → firmware divides by 4 → OCR1A=365 → ISR at 43716 Hz → 10929 frames/sec
+;   → 10929 × 2 bytes = 21858 B/s ≈ C64 21894 B/s (+36 B/s, FIFO stable).
 ; ============================================================
 MK3_ConfigureMode:
 	LDA PLAYTYPE
@@ -1741,7 +1769,10 @@ MK3_ConfigureMode:
 
 	LDA PLAYTYPE
 	CMP #PLAYTYPE_MK3_22K
-	BNE MCM_Stereo
+	BEQ MCM_22K
+	CMP #PLAYTYPE_MK3_STEREO_OS
+	BEQ MCM_StereoOS
+	; fall through to MCM_Stereo (mode 5)
 
 MCM_22K:
 	; OCR1A=730 → 16000000/731=21888 Hz ≈ C64 CIA 21894 Hz (drift +6 B/s, FIFO stable).
@@ -1768,6 +1799,27 @@ MCM_Stereo:
 	JSR MK3_SendCmd     ; CMD_SET_FRAME_SIZE
 	LDA #$02
 	JSR MK3_SendCmd     ; frame_size=2 (L+R pair per tick)
+	JMP MCM_Restart
+
+MCM_StereoOS:
+	; Mode 6 (11025 Hz stereo, 4× oversampling):
+	;   OCR1A=1461 stored → timer_apply_period divides by 4 → OCR1A=365
+	;   MK3 TIMER1 fires at 43716 Hz → 10929 stereo frames/sec
+	;   C64 CIA1 at reload=89 → 10947 Hz × 2 bytes = 21894 B/s (drift +36 B/s).
+	LDA #$20
+	JSR MK3_SendCmd     ; CMD_SET_RATE_L
+	LDA #$B5
+	JSR MK3_SendCmd     ; OCR1A low byte  (1461 = $05B5; firmware divides by 4 → 365)
+	LDA #$05
+	JSR MK3_SendCmd     ; OCR1A high byte
+	LDA #$24
+	JSR MK3_SendCmd     ; CMD_SET_OVERSAMPLE
+	LDA #$04
+	JSR MK3_SendCmd     ; factor = 4
+	LDA #$23
+	JSR MK3_SendCmd     ; CMD_SET_FRAME_SIZE
+	LDA #$02
+	JSR MK3_SendCmd     ; frame_size = 2 (stereo)
 
 MCM_Restart:
 	LDA #$30

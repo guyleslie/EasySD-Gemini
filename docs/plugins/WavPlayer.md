@@ -12,8 +12,8 @@ Supports SID-only, DigiMax compat, and DigiMax MK3 NMI-buffered output modes.
 | Extension | `.WAV` |
 | Format | PCM (uncompressed) |
 | Bit depth | 8-bit unsigned |
-| Sample rate | 11025 Hz (compat/MK3 11K/MK3 stereo) or 22050 Hz (MK3 22K) |
-| Channels | 1 (mono) or 2 (stereo for MK3 Stereo mode) |
+| Sample rate | 11025 Hz (compat/MK3 11K/MK3 stereo/MK3 stereo 4×) or 22050 Hz (MK3 22K) |
+| Channels | 1 (mono) or 2 (stereo for MK3 Stereo modes) |
 
 Use `Tools/wavtodigimax.py` to convert any audio file to the correct format.
 
@@ -31,8 +31,9 @@ Selected at runtime via the mode selector menu shown before playback.
 | 3 | `DIGIMAX MK3 11K` | 3 | MK3 NMI 11025 Hz mono | MK3 only |
 | 4 | `DIGIMAX MK3 22K` | 4 | MK3 NMI 22050 Hz mono | MK3 only |
 | 5 | `MK3 STEREO 11K` | 5 | MK3 NMI 11025 Hz stereo | MK3 only |
+| 6 | `MK3 STEREO 4X` | 6 | MK3 NMI 11025 Hz stereo, 4× oversample | MK3 only |
 
-Modes 3–5 appear only when a DigiMax MK3 is detected at startup.
+Modes 3–6 appear only when a DigiMax MK3 is detected at startup.
 
 ---
 
@@ -43,7 +44,7 @@ Modes 3–5 appear only when a DigiMax MK3 is detected at startup.
 Uses IO2 streaming (`PROT_Stream`). A 128-byte double buffer and CIA1 IRQ
 feed samples at ~11 kHz. Susceptible to CIA jitter.
 
-### MK3 NMI-buffered modes (PLAYTYPE 3–5)
+### MK3 NMI-buffered modes (PLAYTYPE 3–6)
 
 Uses NMI double-buffer streaming:
 
@@ -62,14 +63,16 @@ CIA1 timer values (N+1 rule: period = timer+1 clocks):
 | PLAYTYPE_MK3 (11K mono) | 89 | 985248 / **90** = **10947 Hz** |
 | PLAYTYPE_MK3_22K | 44 | 985248 / **45** = **21894 Hz** |
 | PLAYTYPE_MK3_STEREO | 44 | 21894 ticks/s × frame_size=2 → **10947 stereo pairs/s** |
+| PLAYTYPE_MK3_STEREO_OS | 89 | 985248 / **90** = **10947 Hz** (same as 11K mono) |
 
 MK3 OCR1A calibrated to match C64 rate (N+1: period = OCR1A+1 counts):
 
-| Mode | OCR1A sent | MK3 rate | Net drift |
-|------|-----------|----------|-----------|
-| PLAYTYPE_MK3 | 1461 | 16000000/1462 = **10944 Hz** | +2.6 B/s → FIFO fills slowly ✓ |
-| PLAYTYPE_MK3_22K | 730 | 16000000/731  = **21888 Hz** | +6.0 B/s → FIFO fills slowly ✓ |
-| PLAYTYPE_MK3_STEREO | 1461 | 10944 Hz × 2 = **21889 B/s** | +5.2 B/s → FIFO fills slowly ✓ |
+| Mode | OCR1A sent | Oversample | Actual OCR1A | MK3 rate | Net drift |
+|------|-----------|-----------|-------------|----------|-----------|
+| PLAYTYPE_MK3 | 1461 | 4× | 365 | 16000000/366 = **43716 Hz** ISR → **10929 Hz** audio | +18 B/s ✓ |
+| PLAYTYPE_MK3_22K | 730 | 1× | 730 | 16000000/731 = **21888 Hz** | +6.0 B/s ✓ |
+| PLAYTYPE_MK3_STEREO | 1461 | 1× | 1461 | 10944 Hz × 2 = **21889 B/s** | +5.2 B/s ✓ |
+| PLAYTYPE_MK3_STEREO_OS | 1461 | 4× | 365 | 10929 Hz × 2 = **21858 B/s** | +36 B/s ✓ |
 
 ---
 
@@ -86,7 +89,7 @@ Timeout: `13 cycles × 256 × 18 ≈ 60 ms` per phase (loop-counter, no jiffy cl
 
 ## MK3 Runtime Reconfiguration (SP2 extended commands)
 
-For modes 4 and 5, `MK3_ConfigureMode` reconfigures the MK3 after detection
+For modes 4–6, `MK3_ConfigureMode` reconfigures the MK3 after detection
 (mode 3 uses detection defaults and skips this step).
 
 **SP2 pin**: CIA2 SDR output (user port pin 7 → ATmega PD4, 10 kΩ pull-down on MK3 PCB).
@@ -104,14 +107,17 @@ Commands sent via `STA $DD01` (CIA2 PA → MK3 INT0), 10 NOPs between writes:
 | `$42` | CMD_FLUSH_FIFO — exits PARSER_STREAM_RECV → PARSER_IDLE |
 | `$20` + lo | CMD_SET_RATE_L — OCR1A low byte |
 | `$21` + hi | CMD_SET_RATE_H — OCR1A high byte |
+| `$24` + n | CMD_SET_OVERSAMPLE — 1=off, 2=2×, 4=4× linear interpolation |
 | `$23` + n | CMD_SET_FRAME_SIZE — 1=mono, 2=stereo |
 | `$30` | CMD_STREAM_PUSH — re-enters PARSER_STREAM_RECV |
 
-Reconfiguration sequence for modes 4/5:
-```
-SP2 HIGH → CMD_FLUSH_FIFO → [CMD_SET_RATE if 22K] → [CMD_SET_FRAME_SIZE if stereo]
-→ CMD_STREAM_PUSH → SP2 LOW
-```
+Reconfiguration sequences per mode:
+
+| Mode | Sequence |
+|------|---------|
+| 4 (22K mono) | FLUSH → SET_RATE(730) → STREAM_PUSH |
+| 5 (11K stereo) | FLUSH → SET_RATE(1461) → SET_FRAME_SIZE(2) → STREAM_PUSH |
+| 6 (11K stereo 4×) | FLUSH → SET_RATE(1461) → SET_OVERSAMPLE(4) → SET_FRAME_SIZE(2) → STREAM_PUSH |
 
 ---
 
@@ -205,7 +211,7 @@ Macros: `#OPENFILE` (Tier 2), `#SETBANK`, `#SAVEREGS`/`#RESTOREREGS` (Tier 1).
 
 - Only uncompressed 8-bit unsigned PCM WAV files are supported.
 - DigiMax compat modes (0–2) require a DigiMax cartridge alongside EasySD.
-- MK3 modes (3–5) require a DigiMax MK3 (auto-detected).
+- MK3 modes (3–6) require a DigiMax MK3 (auto-detected).
 - Compat mode timing depends on CIA1 stability; MK3 modes use calibrated ATmega TIMER1.
 - `TransmitByteFastMK3` (35 µs inter-byte delay) is untested on all hardware revisions.
   If NMI transfers fail, revert `CartApi.cpp` `HandleReadNextChunk` to `TransmitByteFastStd`
