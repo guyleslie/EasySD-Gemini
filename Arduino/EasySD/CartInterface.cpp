@@ -164,8 +164,13 @@ uint16_t CartInterface::Read() {
 
 void CartInterface::IOSetup() {
   pinMode(IO2, INPUT);
-  pinMode(EXROM, OUTPUT);
-  digitalWrite(EXROM, HIGH);
+  // Set EXROM HIGH before enabling output — avoids a ~1-2µs LOW glitch that
+  // occurs when pinMode(OUTPUT) drives PD2 low before digitalWrite(HIGH).
+  // The C64 PLA samples EXROM on PHI2 (1µs period) and would catch that glitch,
+  // asserting /ROML and letting the CPU read from the (empty) EEPROM socket →
+  // floating data bus → garbage opcode → immediate system freeze.
+  PORTD |= _BV(PD2);   // latch HIGH first
+  DDRD  |= _BV(PD2);   // then enable output — pin starts HIGH, no glitch
   // SEL is on A6 (analog-only): no pinMode/pullup needed, external 10k pullup used
   #ifdef OPENCOLLECTORSTYLE
     ResetHigh();
