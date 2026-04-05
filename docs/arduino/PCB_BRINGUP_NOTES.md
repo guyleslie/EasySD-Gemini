@@ -112,3 +112,44 @@ python Tools/test_arduino_comm.py COM4 --verbose
 ```
 
 **Expected:** 8/8 PASS (or at minimum SD_INIT, OPEN_RD_CL, SEEK, OPEN_NOEX, MEM_STAB, ROOT_LIST, DIR_NAV — WR_DEL historically marginal even on breadboard)
+
+---
+
+## Issue 4: C64 freezes immediately on power-on with PCB v3 (real hardware)
+
+*Discovered 2026-04-05 — first real C64 test with PCB v3*
+
+**Symptom:** C64 powers on with PCB inserted: BASIC startup text partially visible, display slightly shifted, no cursor, system frozen.
+
+**Root cause: data bus bus conflict**
+
+`CartInterface::Init()` called `SetAddressPinsOutput()`, which set D4-D7 (PORTD bits 4-7) and A0-A3 (PORTC bits 0-3) permanently as OUTPUT, driving `0x00` on all 8 C64 data bus lines from the moment Arduino boots (~300ms after power-on).
+
+During this time, EXROM=HIGH (cartridge disabled). The C64 is in normal mode and reads KERNAL/BASIC ROM opcodes. The Arduino's 0x00 output conflicts with the ROM drivers — neither wins cleanly, resulting in indeterminate bus voltages. The 6510 CPU reads near-`$00` data (BRK instruction), enters IRQ/BRK handling, then executes from a garbage vector → freeze.
+
+**Why VICE passed:** VICE emulates the protocol correctly but does not model bus contention. The test suite never exercised real bus timing.
+
+**Fix applied (`CartInterface.cpp`):**
+1. Removed `SetAddressPinsOutput()` from `Init()` — data bus pins start as INPUT (tristate)
+2. `EnableCartridge()` now sets DDRD[4:7] and DDRC[0:3] to OUTPUT *before* pulling EXROM LOW
+3. `DisableCartridge()` now sets them back to INPUT *after* raising EXROM HIGH
+
+```
+Before:           After:
+Init()            Init()
+  SetAddressPins→OUTPUT  (removed)
+  IOSetup→EXROM=HIGH     IOSetup→EXROM=HIGH, data=INPUT
+                         [C64 runs normally, no bus conflict]
+
+EnableCartridge()        EnableCartridge()
+  EXROM=LOW              DDRD|=0xF0, DDRC|=0x0F  ← OUTPUT first
+                         EXROM=LOW
+
+DisableCartridge()       DisableCartridge()
+  EXROM=HIGH             EXROM=HIGH
+                         DDRD&=~0xF0, DDRC&=~0x0F ← tristate
+```
+
+**Flash impact:** 23690B (77%, +0B net — no size change).
+
+**Note on EEPROM (AT27C512R-45PU):** The EEPROM chip provides CBM80 autostart and the initial NMI handler. Without it, the C64 boots to BASIC normally (after the bus conflict fix), but EasySD cannot auto-start. The EEPROM is a required component for the full cartridge functionality.

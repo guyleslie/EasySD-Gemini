@@ -220,8 +220,11 @@ void CartInterface::SoftEndListening() {
 
 void CartInterface::Init() {
   IOSetup();
-  SetAddressPinsOutput();  
-  StartListening(); 
+  // Data bus pins start as INPUT (tristate) — EnableCartridge() switches to OUTPUT.
+  // SetAddressPinsOutput() must NOT be called here: Arduino boots ~300ms after C64
+  // powers on. Driving D4-D7/A0-A3 OUTPUT (0x00) while EXROM=HIGH causes bus
+  // contention with C64 RAM/ROM → CPU reads BRK ($00) → system freeze.
+  StartListening();
 }
 
 
@@ -282,13 +285,17 @@ void CartInterface::EnableCartridge() {
   #ifdef EASYSD_DEBUG_SERIAL
   Serial.println(F("AVR Enabling Cartridge"));
   #endif
-  PORTD &= ~_BV (PD2);  // EXROM = D2
+  DDRD |= 0xF0;          // D4-D7: OUTPUT (drive data bus)
+  DDRC |= 0x0F;          // A0-A3: OUTPUT (drive data bus)
+  PORTD &= ~_BV (PD2);  // EXROM LOW — cartridge visible to C64
 }
 
 
 
 void CartInterface::DisableCartridge() {
-  PORTD |= _BV (PD2);   // EXROM = D2
+  PORTD |= _BV (PD2);   // EXROM HIGH — cartridge hidden from C64
+  DDRD &= ~0xF0;         // D4-D7: INPUT (tristate — stop driving data bus)
+  DDRC &= ~0x0F;         // A0-A3: INPUT (tristate — stop driving data bus)
 }
 
 void CartInterface::ResetLow() {
