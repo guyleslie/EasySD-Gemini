@@ -833,7 +833,13 @@ void CartApi::HandleInvokeWithName() {
     return;
   }
 
-  // Default behavior: acknowledge and then start transfer (will reset C64).
+  // Verify file exists before committing to C64 — once SUCCESSFUL is sent,
+  // C64 expects a reset; if the file is missing we cannot send an error after.
+  if (!sd.exists(fileName)) {
+    HandleResponse(FILE_NOT_FOUND, 0);
+    return;
+  }
+
   HandleResponse(SUCCESSFUL, 0);
   LoadAndLaunchFile(fileName);
 }
@@ -1457,6 +1463,7 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     }   
     
     delayMicroseconds(30);
+    workingFile.close();               // close before chdir — prevents SdFat state corruption
     cartInterface.DisableCartridge();  // EXROM HIGH + data bus tristate — clean state after transfer
     Init();
 
