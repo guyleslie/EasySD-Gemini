@@ -799,6 +799,30 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
         cwd=ctx.repo_root
     )
 
+    if not burn_bootloader:
+        # --no-bootloader: set hfuse BOOTRST=1 so CPU starts from $0000 (application)
+        # not from the boot section ($7E00). Without this fuse change, the chip would
+        # jump to $7E00 on reset even without a bootloader there → hang.
+        # Restoring Optiboot later: run arduino-upload-isp (without --no-bootloader).
+        print("\n" + "="*70)
+        print("SETTING FUSE: BOOTRST=1 (application start at $0000, no Optiboot delay)")
+        print("="*70)
+        run_cmd(
+            [
+                str(avrdude_exe),
+                f"-C{avrdude_conf}",
+                "-v",
+                "-p", "atmega328p",
+                "-c", "usbtiny",
+                f"-B{sck_period}",
+                "-D",
+                "-Uhfuse:w:0xDB:m",  # hfuse 0xDA→0xDB: flip BOOTRST bit (0→1 = start from $0000)
+            ],
+            cwd=ctx.repo_root
+        )
+        print("  NOTE: USB serial upload is now disabled.")
+        print("  To restore: python build.py arduino-upload-isp (will re-burn Optiboot)")
+
     if burn_bootloader:
         bootloader_hex = find_bootloader_hex(ctx)
         print("\n" + "="*70)
@@ -918,14 +942,16 @@ Examples:
             "arduino-monitor", "arduino-list-ports", "arduino-clean",
             # Protocol echo test (Arduino-only, debug serial + protocol test flags)
             "protocol-test",
+            # SD card deploy
+            "sd-deploy",
             # Combined
             "all"
         ],
         help="Build target"
     )
 
-    # Port argument for arduino-upload and arduino-monitor
-    p.add_argument("port", nargs='?', default=None, help="COM port for Arduino upload/monitor (e.g. COM4)")
+    # Port/drive argument (COM port for Arduino, drive letter for sd-deploy)
+    p.add_argument("port", nargs='?', default=None, help="COM port for Arduino upload/monitor (e.g. COM4), or drive letter for sd-deploy (e.g. D:)")
 
     # Options
     p.add_argument("--debug", action="store_true", help="Enable DEBUG mode (C64 mock data + Arduino SERIAL ON)")
@@ -991,6 +1017,39 @@ def main(argv: Sequence[str]) -> int:
 
     if args.target == "arduino-clean":
         arduino_clean(ctx)
+        return 0
+
+    if args.target == "sd-deploy":
+        drive = args.port or "D:"
+        sd_root = Path(drive) / ""
+        plugins_dir = Path(drive) / "PLUGINS"
+        if not plugins_dir.exists():
+            print(f"ERROR: {plugins_dir} not found — is the SD card mounted as {drive}?")
+            return 1
+        copied = 0
+
+        # easysd.prg → SD root (required: TransferMenu() loads menu from SD)
+        menu_src = ctx.build_dir / "easysd.prg"
+        if menu_src.exists():
+            dst = Path(drive) / "EASYSD.PRG"
+            shutil.copyfile(menu_src, dst)
+            print(f"[SD-DEPLOY] {menu_src.name} -> {dst}")
+            copied += 1
+        else:
+            print(f"WARNING: {menu_src} not found — run 'python build.py release' first")
+
+        # build/plugins/*.prg → D:/PLUGINS/*.PRG
+        src_dir = ctx.plugins_out_dir
+        if not any(src_dir.glob("*.prg")):
+            print(f"ERROR: No plugin PRG files in {src_dir} — run 'python build.py plugins' first")
+            return 1
+        print(f"[SD-DEPLOY] {src_dir} -> {plugins_dir}")
+        for src in sorted(src_dir.glob("*.prg")):
+            dst = plugins_dir / src.name.upper()
+            shutil.copyfile(src, dst)
+            print(f"  {src.name} -> {dst.name}")
+            copied += 1
+        print(f"[SD-DEPLOY] {copied} file(s) copied. OK")
         return 0
 
     if args.target == "protocol-test":
