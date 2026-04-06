@@ -177,6 +177,7 @@ UP_MOVE
 	DEX
 	JSR SETCURRENTROWHEAD
 	JSR SETARROW
+	JSR SCROLL_DELAY
 	JMP INPUT_GET
 
 DOWN
@@ -204,6 +205,7 @@ DOWN_MOVE
 	INX				; new row
 	JSR SETCURRENTROWHEAD
 	JSR SETARROW
+	JSR SCROLL_DELAY
 	JMP INPUT_GET
 
 ; Below routine fills the COMMANDBYTE to the relevant action taken by the user.
@@ -1967,6 +1969,19 @@ PLUGIN_LOAD_ADDR_HI
 	.BYTE 0
 PLUGIN_HEADER
 	.FILL 256	; Buffer for reading plugin header (first 256 bytes including load address)
+
+; Scroll rate limiter: ~100ms busy-wait (PAL ~985kHz: 80 × 250 × 5 = 100000 cycles).
+; Called after UP/DOWN single-row scroll to limit continuous-scroll to ~10 rows/sec.
+SCROLL_DELAY
+	LDX #80
+_sd_outer
+	LDY #250
+_sd_inner
+	DEY
+	BNE _sd_inner
+	DEX
+	BNE _sd_outer
+	RTS
 
 ; Custom charset data (2KB, CharPad export).
 ; LOAD_CUSTOM_CHARSET copies this to $3800-$3FFF (VIC bank 0, slot 7) at startup.

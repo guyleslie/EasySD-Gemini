@@ -114,7 +114,11 @@ void printHelp() {
 #endif // EASYSD_DEBUG_SERIAL
 
 void setup() {
-  cartInterface.Init();
+  cartInterface.Init();   // IOSetup: EXROM=HIGH; StartListening
+  // C64 may have started CBM80 (EXROM floated LOW during Optiboot ~300ms window).
+  // Pulse /RESET with EXROM=HIGH so C64 restarts cleanly to BASIC regardless.
+  delay(50);
+  cartInterface.ResetC64();
   ledInit();
 
   LOG_BEGIN(57600);
