@@ -1,368 +1,255 @@
 # EasySD Gemini - Developer Assistant Guide (GEMINI.md)
 
-This document is designed for AI assistants (Gemini, Claude, etc.) to understand the development of the EasySD project. It contains key technical parameters, conventions, and architectural rules.
+This document is for AI assistants working on the EasySD project. It covers rules, patterns, and
+constraints that are not obvious from the code. Always check the code itself — this file describes
+*why* things are done a certain way, not just what they are.
 
----
-
-## Project Overview
-EasySD is an SD card interface for the Commodore 64, consisting of an Arduino-based "file server" and a C64-side menu/plugin architecture.
-
-- **C64 Side**: 6502 Assembly (64tass assembler).
-- **Arduino Side**: C++ (Arduino Nano/Pro Mini, ATmega328P).
-- **SD Library**: SdFat 2.x (migrated from 1.x in v2.0.4, full P1 API compliance in v2.0.5).
-- **Communication**: Custom PWM-like software serial (C64 -> Arduino) and NMI-driven byte transfer (Arduino -> C64).
-- **Current Version**: v3.1.3 (P2TK Phase 3 tail-write protection, KernalBridge I/O vectors corrected - 2026-03-09)
+- **Current Version**: Post-v3.1.3 (cold boot auto-load, PCB v3 validated, 2026-04-06)
+- **Real hardware status**: PRG loading ✅, directory nav ✅, menu ✅ — WAV/KOA/MUS/PET/CVD plugins ❌ (not working on real C64, need debugging)
 
 ---
 
 ## C64 Development Rules (64tass)
 
-### 1. Linear Include Chain
-64tass does not support include guards. To avoid "duplicate definition" errors, a strict hierarchy must be followed. Always include the highest-level wrapper required for your code.
+### 1. Linear Include Chain (no include guards in 64tass)
+Always include the **highest-level wrapper** required by your code. Lower levels are transitively included.
 
-Hierarchy:
-CartLibStream.s -> CartLibHi.s -> CartLib.s -> CartLibCommon.s -> System.inc / IRQHack.inc
-
-Example for a plugin:
-```assembly
-.include "../../Loader/CartLibStream.s" ; This imports everything: ZP map, System, and Hi-level APIs
+```
+CartLibStream.s → CartLibHi.s → CartLib.s → CartLibCommon.s → System.inc / EasySD.inc
 ```
 
-### 2. Zero Page Usage (Single Source of Truth)
-Use only the labels defined in the CartZpMap.inc file, prefixed with ZP_.
+Most plugins only need `CartLibStream.s`. Do NOT include multiple levels — it causes duplicate definition errors.
 
-| Addresses | Function | Key Labels |
-|:---|:---|:---|
-| $64-$77 | Low-level communication | ZP_IRQ_DATA_LOW/HIGH, ZP_IRQ_STATUS |
-| $80-$87 | LoadFileBySize (Strictly reserved!) | ZP_LF_SIZE0..3, ZP_LF_PAYLOAD_LO/HI |
-| $8B-$8E | *(reserved, currently unused)* | — |
-| $90-$95 | StreamLargeFile (Large files) | ZP_STREAM_TARGET_ADDR_LO/HI, ZP_STREAM_BYTES_REMAIN_0..3 |
-| $FB-$FE | Free range (User range) | For plugin-specific temporary variables. |
+### 2. Macro Tiers — Critical Distinction
 
-### 3. Plugin Conventions
-- Entry: Save VIC and CPU state using the SAVESTATE pattern.
-- Exit: Always return using the JSR IRQ_ExitToMenu call.
-- Error Handling: Use the ERROR_GATE macro after file operations.
-- Location: Plugins reside in the /PLUGINS/ directory on the SD card.
+**Tier 1 — `SystemMacros.s`** (auto-included via CartLib.s line 16):
+- `#SETBANK`, `#WAITFOR`, `#WAITVALUE`, `#SAVEREGS`/`#RESTOREREGS`, `#READCART`, `#READCART_MODULATED`
+- Forward-referenceable: plugins can use them before CartLibStream.s is included (multi-pass assembly)
+- 64tass macros ARE forward-referenceable in practice (verified)
+
+**Tier 2 — `APIMacros.s`** (must be explicitly `#include`d at top of any file that uses them):
+- `#OPENFILE`, `#GETFILEINFO`, `#EXTRACTFILESIZE`, `#CLOSEFILE`, `#SETADDR`
+- Kept separate from SystemMacros.s to avoid duplicate macro errors (64tass fatal on duplicates)
+- `SETADDR` is in APIMacros.s ONLY — not in SystemMacros.s
+
+### 3. Naming Convention — PROT_ prefix
+All CartLib function names use `PROT_` prefix (renamed from `IRQ_` in Sprint 16):
+- `PROT_ExitToMenu`, `PROT_StartTalking`, `PROT_EndTalking`
+- `PROT_OpenFile`, `PROT_CloseFile`, `PROT_GetInfoForFile`
+- `PROT_DisableDisplay`, `PROT_EnableDisplay`
+- ZP variables (`ZP_IRQ_*`) and `ROM_IRQ_HANDLER` intentionally kept with `IRQ_` prefix — they are NOT CartLib functions
+
+### 4. Zero Page Usage — Single Source of Truth: `CartZpMap.inc`
+All ZP labels use `ZP_` prefix. Never invent ZP addresses — always use the labels.
+
+| Addresses | Reserved for | Notes |
+|-----------|-------------|-------|
+| `$64-$77` | Low-level communication | ZP_IRQ_DATA_LOW/HIGH, ZP_IRQ_STATUS |
+| `$80-$87` | LoadFileBySize — **strictly reserved** | ZP_LF_SIZE0..3, ZP_LF_PAYLOAD_LO/HI — NEVER reuse |
+| `$8B-$8E` | Handler scratch (copy ptr lo/hi, end addr temps) | Safe to use in plugins if not in handler context |
+| `$90-$95` | StreamLargeFile | ZP_STREAM_TARGET_ADDR_LO/HI, ZP_STREAM_BYTES_REMAIN_0..3 |
+| `$91-$93` | WavPlayer MK3 ZP_WAV_TIMERLO/BUF_READY/SILENCE | Overlaps STREAM_REMAIN0/1 — safe (MK3 ≠ StreamLargeFile) |
+| `$FB/$FC` | NAMELOW/NAMEHIGH — nav indirect pointer | **NEVER use as temp** (SL_COLOR bug precedent) |
+| `$FD/$FE` | COLLOW/COLHIGH — color RAM indirect pointer | **NEVER use as temp** |
+
+Plugin-specific temporaries: use `$FB-$FE` range carefully. These are documented as "plugin range" but $FB/$FC/$FD are dangerous.
+
+### 5. Plugin Conventions
+- Entry: save VIC + CPU state (`SAVESTATE` pattern)
+- Exit: `JSR PROT_ExitToMenu`
+- Error handling: `ERROR_GATE` macro after file operations
+- File loading: `LoadFileBySize` (via CartLibHi.s)
+- Audio streaming: `JSR PROT_Stream` call (SafeStream dead abstraction was removed; `IRQ_Stream` only in `_archive/`)
+- Location on SD card: `/PLUGINS/<EXT>PLUGIN.PRG` (e.g. `/PLUGINS/WAVPLUGIN.PRG`)
+- Extension dispatch: `Filename.s` extracts extension → builds plugin path deterministically
+
+### 6. Screen Code vs PETSCII vs ASCII — Critical Distinction
+- **Screen RAM** needs screen codes: A-Z = `$01-$1A`, inverted = OR `$80`
+- **PETSCII uppercase** A-Z = `$41-$5A` (completely different range — gives graphics chars in screen RAM)
+- `.TEXT "ABC"` with `.enc "none"` outputs ASCII ($41,$42,$43) — wrong for screen RAM
+- Fix: wrap screen data with `.enc "screen"` / `.enc "none"`
+- Lowercase ASCII `$61-$7A` → screen codes `$01-$1A` via `SBC #$60` (NOT `SBC #$20`)
+- PETMATE exports `!byte` values as screen codes (not PETSCII)
+
+### 7. Binary Equivalence Refactor Rules
+- Before any refactor: `cp file.prg /tmp/baseline.prg`, after: `cmp /tmp/baseline.prg file.prg && echo IDENTICAL`
+- `#GETFILEINFO` CANNOT replace partial sequences where another instruction (e.g. `JSR PROT_DisableDisplay`) splits the pointer-setup from `LDY+JSR` — use `#SETADDR` + manual `LDY/JSR` instead
 
 ---
 
-## Key APIs
+## Key C64 APIs
 
 ### LoadFileBySize (CartLibHi.s)
-The standard way to load file content (max 64KB).
-1. Call IRQ_GetInfoForFile to retrieve the file size.
-2. Copy the size to ZP_LF_SIZE0..3.
-3. Set the target address in ZP_LF_PAYLOAD_LO/HI.
-4. JSR LoadFileBySize.
+Standard way to load file content (max 64KB):
+1. `#GETFILEINFO buffer_addr` — retrieves FAT directory entry (32 bytes); file size at offset 28..31
+2. `#EXTRACTFILESIZE source_buf, dest_zp` — copies 4 bytes to ZP_LF_SIZE0..3
+3. Set target address: `LDA #<dest` / `STA ZP_LF_PAYLOAD_LO` / `LDA #>dest` / `STA ZP_LF_PAYLOAD_HI`
+4. `JSR LoadFileBySize`
 
-### SafeStream (CartLibStream.s)
-For time-critical continuous data streaming (e.g., audio).
-- Pass profile in accumulator: LDA #STREAM_NORMAL, JSR SafeStream.
+### P2TK — Phase 2 Transfer Kernel (KernalBridge.s)
+For PRGs that load into `$C000+` (trigger: `ENDADDRESS > $C002`):
+- Phase 1: LoadFileBySize to `$C000`
+- Phase 2: BVC stub at `$033B`, NMI→`$80AF`, `$01=$34` (all RAM)
+- Phase 3 (if Phase2_pages=64): P3_HANDLER at `$036A` intercepts `$FFFA-$FFFF` → TAIL_BUF (`$03BB`)
+- Data tables at `$C003`/`$C02A` (KernalBridge gap, always-readable RAM)
+- No `CLOSEFILE` — intentional (file must stay open during P2TK)
+- **Known issue**: MAIN + functions span `$C700-$D113`, with `$D000-$D113` in I/O space. Code execution from `$D000+` unreliable when `$01=$37`. Needs fix (shrink code below `$CFFF`).
 
 ---
 
-## Arduino Firmware (C++)
+## Arduino Firmware
 
-### Core Architecture
-- **Main entry point**: Arduino/EasySD/EasySD.ino
-- **Command processing**: CartApi.cpp (new commands must be registered here)
-- **SD Management**: DirFunction.cpp (directory iteration and navigation)
-- **Hardware**: Arduino Nano/Pro Mini connects to C64 bus and toggles NMI line for data transfer
+### Architecture
+- **Entry point**: `Arduino/EasySD/EasySD.ino` — setup/loop, SD init (3 attempts), EEPROM last-dir restore
+- **Command routing**: `CartApi.cpp` — all COMMAND_* handlers; new commands registered here
+- **Directory navigation**: `DirFunction.cpp` — `currentPath[64]`, relative-path navigation
+- **C64 communication**: `CartInterface.cpp` — NMI transfer, IO2 ISR, software serial receive
+- **Pin definitions**: `CartInterface.h` — IO2=D3(INT1), EXROM=D2(PD2), NMI=D8, RESET=D9, SEL=A6, STATUS_LED=A7
 
-### SdFat 2.x Migration (v2.0.4 → v2.0.5 Complete)
-**Critical Changes from SdFat 1.x:**
-- ✅ `SdFile` → `File` type (completed in v2.0.5, DirFunction.cpp:186, 228)
-- ✅ `openNext()` API: 2 parameters → 1 parameter (completed in v2.0.5, DirFunction.cpp:212, 241)
-- Removed: `vwd()`, `SdFatUtil.h`
-- Added: `FreeStack()` replaces `FreeRam()`
-- **Navigation**: MUST use relative paths from root, not absolute paths
-  - ❌ `sd.chdir("/UTILS")` fails
-  - ✅ `sd.chdir()` then `sd.chdir("UTILS")` works
-
-**P1 API Compliance Status (v2.0.5):**
-- ✅ Modern `File` type in use (no deprecated `SdFile`)
-- ✅ Simplified `openNext()` API (O_READ implicit default)
-- ⏳ P2: `openCwd()` integration (planned for v2.1.0)
-
-### Memory Safety (Critical - Sprint 1 Fixes)
-**Never use these in Arduino code:**
-1. **strtok()** - Static buffer corruption in multi-threaded parsing
-   - Use manual token parsing instead (see DirFunction.cpp:130-175)
-2. **Unbounded strcpy()** - Always validate buffer sizes first
-3. **Arduino `String` class** - Costs ~1700 bytes of flash. Use `char[]` instead.
-4. **Stack-heavy functions** - Limit local arrays to 32-64 bytes max
-
-**Memory Constraints (ATmega328P):**
-- Flash: 30720 bytes max (old bootloader). Debug build: ~30658 (99.8%)
-- SRAM: 2KB (1633 used, ~415 bytes free after boot)
-- Stack: Monitor with `FreeStack()` - aim for 300+ bytes minimum
-
-### SD Card Error Handling & Recovery
-**SdFat error codes encountered:**
-- `0x0D` = `SD_CARD_ERROR_WRITE_DATA` — Card rejected write data (SPI noise)
-- `0x19` = `SD_CARD_ERROR_READ_TOKEN` — Bad read data token (SPI signal issue)
-- `0x21` = `SD_CARD_ERROR_WRITE_TIMEOUT` — Flash programming timeout
-
-**Critical rule:** Write errors corrupt SdFat internal state. All subsequent operations (including reads and directory listings) will fail until recovery.
-
-**Recovery pattern (see `recoverSD()` in EasySD.ino):**
-```cpp
-dirFunc.CloseDirHandle();   // Close open dir handle first
-delay(50);                  // Let card settle
-sd.begin(chipSelect, SPI_HALF_SPEED);  // Reinitialize
-dirFunc.ForceReset();       // Resync directory state
+### Command Numbers (CartApi.h)
+```
+COMMAND_OPEN_FILE=2, COMMAND_CLOSE_FILE=3, COMMAND_READ_FILE=78
+COMMAND_GET_INFO_FOR_FILE=8, COMMAND_GET_PATH=9
+COMMAND_READ_DIR=10, COMMAND_CHANGE_DIR=11, COMMAND_GOTO_PATH=14
+COMMAND_STREAM=25, COMMAND_NI_STREAM=26, COMMAND_READ_NEXT_CHUNK=27
+COMMAND_END_TALKING=30, COMMAND_EXIT_TO_MENU=31, COMMAND_HWTEST=32
 ```
 
-**SPI speed:** Use `SPI_HALF_SPEED` (8 MHz) — tested stable on breadboard (8/8 tests pass, including WR_DEL). `SPI_QUARTER_SPEED` is no longer needed.
+### Memory Constraints (ATmega328P — CRITICAL)
+- **Flash**: 32256B max (Optiboot). Release: ~23708B (77%, ~7KB free). Debug: ~30684B (99%, 36B margin)
+- **SRAM**: 2KB total, ~413B free at boot. Keep 300B+ minimum free.
+- Monitor with `FreeStack()`. RAM threshold: `>400`=OK, `>300`=LOW, `≤300`=CRIT!
 
-**Hardware:** Place a 10-100µF electrolytic capacitor across SD module VCC/GND to absorb write current spikes (100-200mA). Without it, voltage drops cause write timeouts on breadboard.
+**Never use:**
+- `strtok()` — static buffer corruption
+- Arduino `String` class — costs ~1700B flash
+- Unbounded `strcpy()` — always validate buffer sizes
+- Local arrays >64B — stack overflow risk
 
-### SdFat Write & Delete API (Critical Patterns)
-**Correct write sequence:**
+### SdFat 2.x Patterns
 ```cpp
-File f = sd.open("FILE.DAT", O_WRONLY | O_CREAT);  // O_TRUNC to overwrite
-size_t wr = f.write(buf, len);        // Returns 0 on failure (NOT -1)
-if (wr == 0 || f.getWriteError()) {   // Always check BOTH
-    f.clearWriteError();              // Reset error flag for next op
-    // handle error
-}
-f.sync();   // Flush cache to SD — data is lost without this!
-f.close();  // Also calls sync() internally
+// Directory navigation — MUST use relative paths from root
+sd.chdir();           // return to root first
+sd.chdir("DIRNAME");  // then relative step
+// NEVER: sd.chdir("/DIRNAME") — fails on nested paths
+
+// File open/read
+File f = sd.open("FILE.DAT", O_READ);
+// File type (not deprecated SdFile), 1-param openNext()
+while (f.openNext(&dir, O_READ)) { ... }
+
+// Write pattern
+File f = sd.open("FILE.DAT", O_WRONLY | O_CREAT);
+size_t wr = f.write(buf, len);         // returns 0 on failure (NOT -1, it's size_t)
+if (wr == 0 || f.getWriteError()) { f.clearWriteError(); /* handle */ }
+f.sync();   // CRITICAL: flush to SD — data lost without this
+f.close();
+
+// SD recovery (after any SD error)
+dirFunc.CloseDirHandle();
+delay(50);
+sd.begin(chipSelect, SPI_HALF_SPEED);
+dirFunc.ForceReset();
 ```
 
-**Key rules:**
-- `write()` returns `size_t` (unsigned) — **never** compare against `-1`
-- `sync()` after write is critical: without it, data stays in 512-byte cache
-- SdFat auto-flushes every 512 bytes, but directory entry only updates on `sync()`/`close()`
-- `sync()` costs ~14ms typical, up to 50-100ms on cheap cards
+**SdFat version note**: `openCwd()` and `vwd()` are NOT in SdFat 2.3.0 — check build log for version.
+**SPI speed**: `SPI_HALF_SPEED` (8 MHz) — stable on breadboard (8/8 tests) and PCB v3. `SPI_QUARTER_SPEED` not needed.
 
-**Correct delete pattern:**
-```cpp
-sd.remove("FILE.DAT");      // Delete by name (file must NOT be open)
-sd.rmdir("DIRNAME");         // Delete empty directory
-```
-
-**See also:** `docs/arduino/SD_WRITE_DELETE_API.md` for full reference with similar project comparison.
+### SD Error Codes
+- `0x0D` = WRITE_DATA (card rejected write data — SPI noise)
+- `0x19` = READ_TOKEN (bad read data token — SPI signal issue)
+- `0x21` = WRITE_TIMEOUT (flash programming timeout)
 
 ### CartApi Conventions
-**Null-termination rule:** Every handler using `GetArgumentsDynamic()` that reads a filename MUST null-terminate it:
-```cpp
-if (fileNameLength == 0) { HandleResponse(INVALID_ARGUMENT, 0); return; }
-if (fileNameLength < MAX_ARGUMENTS_LENGTH) {
-    fileName[fileNameLength] = 0;
-} else {
-    fileName[MAX_ARGUMENTS_LENGTH-1] = 0;
-}
-```
-Applied in: `HandleOpenFile`, `HandleDeleteFile`, `HandleDeleteDirectory`, `HandleCreateDirectory`, `HandleChangeDirectory`.
+- `GetArgumentsDynamic()` callers MUST null-terminate the filename buffer:
+  ```cpp
+  if (fileNameLength < MAX_ARGUMENTS_LENGTH) fileName[fileNameLength] = 0;
+  else fileName[MAX_ARGUMENTS_LENGTH-1] = 0;
+  ```
+- Debug log format: `[LEVEL][CATEGORY] message` — e.g. `[INFO][SD] SD OK`, `[ERR][DIR] chdir failed`
+- Categories: `SYS`, `SD`, `DIR`, `FILE`, `PROTO`, `PRG`, `ERR`, `STR`, `EE`, `API`
+- `LOG_ENABLE_PRG` and `LOG_ENABLE_PROTO` are OFF by default (flash savings ~1.3KB)
 
-**Debug log format:** All serial debug messages use `[TAG] Action` format:
-| Tag | Scope | Examples |
-|:----|:------|:--------|
-| `[FILE]` | File operations | Rd, Open, Close, Write, Del, Seek, LSeek, Info |
-| `[DIR]` | Directory ops | Read, Cd, Del, Mk |
-| `[STR]` | Streaming | Start, NI-Dbl |
-| `[EE]` | EEPROM | Rd, Seek, Wr |
-| `[API]` | Control | Invoke, End, Port |
-| `[SD]` | SD recovery | Recovered |
-| `[ERR]` | Critical errors | SD recover FAIL |
-| `[T]` | Self-test suite | START, END, test names |
+### Hardware Notes (PCB v3)
+- **Pin swap vs breadboard**: IO2=D3 (INT1), EXROM=D2 (PD2). Previously IO2=D2/INT0. PIND bitmask: IO2→0x08
+- **SEL button**: A6 (analog-only — no `digitalRead`). Read via `analogRead(A6) >= 512`. Short press (≤500ms) → TransferMenu(); long press (>500ms) → ResetNoCartridge()
+- **STATUS_LED**: A7 (NC on PCB — LED is hardware-driven from cartridge 5V rail, always on when powered)
+- **Data bus**: D4-D7 + A0-A3 (PORTD[4:7]/PORTC[0:3]) permanently drive C64 data bus. IO1 is NOT connected.
+- **EXROM glitch prevention**: Set `PORTD |= _BV(PD2)` HIGH *before* `DDRD |= _BV(PD2)` output. Otherwise ~1-2µs LOW glitch causes C64 freeze via ROML assertion.
+- **CBM80 detection window**: Data bus pins must be INPUT (tristate) during CBM80 check so EEPROM drives bus undisturbed.
+- **Transfer speeds**: NMI ~40 KB/s; IO2 streaming ~13.5 KB/s; CvdPlayer: NMI at STARTRASTER=241 via READCART_MODULATED
+- **A5=IRQ, A4=PHI2**: reserved for future use, not yet read in firmware
 
-### DirFunction.cpp Best Practices
-**Correct Navigation Pattern (v2.0.4):**
-```cpp
-// Always navigate from root with relative paths
-sd.chdir();  // Return to root
-sd.chdir("UTILS");  // Relative navigation
-sd.chdir("UTILS2"); // Next level
-```
+### EEPROM (Last Directory Persistence)
+- Layout: bytes 0-1 = magic (`0xE5`, `0xD0`); bytes 2-65 = null-terminated path
+- API: `eeprom_update_block()` / `eeprom_read_block()` (avr-libc) — prefer over byte-by-byte loops
 
-**File Handle Management:**
-- Always close `m_dirFile` in `ToRoot()` before reopening
-- Check `isOpen()` before closing to prevent errors
-- Use `sd.open(currentPath)` for directory handles
+---
 
-### Build System
-**Primary tool**: `Tools/build.py` (unified build system v2.2.0)
+## WavPlayer MK3 Summary
+See `memory/wavplayer_detail.md` for full CIA timing and rate calibration details.
+
+- **Modes**: PLAYTYPE 0-6. Modes 3-6 are DigiMax MK3 NMI-buffered (auto-detected)
+  - PLAYTYPE_MK3=3 (11025 Hz mono), PLAYTYPE_MK3_22K=4 (22050 Hz mono), PLAYTYPE_MK3_STEREO=5 (11025 Hz stereo), PLAYTYPE_MK3_STEREO_OS=6 (11025 Hz stereo 4× oversample)
+- **CIA rate rule**: CIA 6526 timer N+1 period → 985248/(N+1) Hz. Timer=89 → 10947 Hz; timer=44 → 21894 Hz
+- **MK3 calibration**: OCR1A must be slightly slower than C64 CIA rate to prevent FIFO drain
+  - Mode3: OCR1A=1461 (10944 Hz). Mode4: OCR1A=730 (21888 Hz)
+- **TransmitByteFastMK3**: 35µs inter-byte delay → 22133 Hz fill rate (needs hardware verification)
+- **ZP overlap**: $91-$93 (WAV_TIMERLO/BUF_READY/SILENCE) overlaps STREAM_API_REMAIN0/1 — safe (MK3 and StreamLargeFile never concurrent)
+
+---
+
+## MultiLoad V2 Summary
+See `memory/multiload_detail.md` for full bootplugin.prg template offsets and RL_ symbol addresses.
+
+- **SD structure**: `/MULTILOAD/GAMENAME/EASYLOAD.PRG`
+- **EASYLOAD.PRG**: must have `$00 $C0` (2-byte $C000 load address header) prepended
+- **Config block offsets in EASYLOAD.PRG** (file bytes): 5=ML_CONFIG_VERSION, 6=ML_FIRST_PART_LEN, 7-22=ML_FIRST_PART_NAME
+- **create_multiload.py V3**: `--from-disk FILE [FILE ...]`, `--from-autoswap autoswap.lst`, game name from disk filename stem (not parent folder)
+
+---
+
+## Build & Test Quick Reference
+
 ```bash
-# Arduino compile (release / debug)
-python Tools/build.py arduino-compile
-python Tools/build.py arduino-compile --debug
-
-# Compile + Upload
-python Tools/build.py arduino-upload COM4
-python Tools/build.py arduino-upload COM4 --debug
-
-# Serial monitor
-python Tools/build.py arduino-monitor COM4
-```
-
-### Testing Tools
-
-**Arduino (hardware, serial):**
-```bash
-# Prepare SD card with test files
-python Tools/prepare_test_sd.py D:
-
-# Prepare SD card (auto-format corrupted card)
-python Tools/prepare_test_sd.py D: --format
-
-# Run automated self-test suite via serial
+python Tools/build.py release                    # full build
+python Tools/build.py debug-vice                 # C64 only, VICE mock
+python Tools/build.py debug-arduino             # C64 + Arduino debug
+python Tools/build.py plugins                   # plugins only
+python Tools/build.py arduino-upload COM4       # upload release firmware
+python Tools/build.py arduino-upload-isp        # ISP upload + burn Optiboot
+python Tools/build.py protocol-test COM4        # protocol echo test build
 python Tools/test_arduino_comm.py COM4 --verbose
-
-# Interactive serial mode
-python Tools/test_arduino_comm.py COM4 --interactive
+python Tools/test_vice_menu.py --build --verbose
+python Tools/prepare_test_sd.py D:
 ```
 
-**C64 Menu (VICE emulator, binary monitor):**
-```bash
-# Run all 9 automated menu tests (requires VICE 3.9+)
-python Tools/test_vice_menu.py
-
-# Build debug-vice first, then test
-python Tools/test_vice_menu.py --build
-
-# Verbose (monitor protocol traffic)
-python Tools/test_vice_menu.py --verbose
-
-# Keep VICE open after tests
-python Tools/test_vice_menu.py --keep-vice
-```
-
-Tests: INIT, NAV_DOWN, NAV_UP, NAV_WRAP, ENTER_DIR, GO_BACK, SCREEN_VERIFY.
-See `docs/testing/VICE_MENU_TEST.md` for full documentation.
-
-**C64 Build Commands:**
-```bash
-# Full project build (C64 + Arduino headers)
-python Tools/build.py release
-
-# Debug build (C64 only, mock data + VICE labels .vs)
-python Tools/build.py debug-vice
-
-# Debug build (C64 + Arduino, recommended)
-python Tools/build.py debug-arduino
-```
-
-**Features:**
-- Uses `arduino-cli` for reliable compilation
-- Auto-detects Arduino Nano ports
-- Integrated serial monitor (57600 baud)
-- Debug output for troubleshooting
-- One-time library installation
+**Serial self-test**: send `T` at 57600 baud. Commands: `h/d/r/l/p/m/T`
 
 ---
 
 ## Important File Paths
 
-### C64 Side
-- **ZP Map**: EasySD/Loader/CartZpMap.inc
-- **Hardware Constants**: EasySD/Loader/Common/IRQHack.inc
-- **Standard C64 Addresses**: EasySD/Loader/Common/System.inc
-- **Main Menu Logic**: EasySD/Menu/EasySD/EasySDMenu.s
-- **C64 Build System**: Tools/build.py
-
-### Arduino Side
-- **Main Sketch**: Arduino/EasySD/EasySD.ino
-- **Directory Navigation**: Arduino/EasySD/DirFunction.cpp / .h
-- **SD Command API**: Arduino/EasySD/CartApi.cpp
-- **String Buffer**: Arduino/EasySD/StringPrint.cpp (32-byte buffer, index < 31)
-- **Arduino Build System**: Tools/arduino_build_upload.py
-
-### Testing
-- **Arduino Serial Tests**: Tools/test_arduino_comm.py
-- **VICE Menu Tests**: Tools/test_vice_menu.py (binary monitor protocol)
-- **SD Card Prep**: Tools/prepare_test_sd.py
-- **VICE Test Docs**: docs/testing/VICE_MENU_TEST.md
-
-### Documentation
-- **Changelog**: CHANGELOG.md (current, all versions)
-- **Sprint history**: Archive/ (legacy sprint docs, SdFat migration — historical reference only)
+| File | Purpose |
+|------|---------|
+| `EasySD/Loader/CartZpMap.inc` | ZP allocation (single source of truth) |
+| `EasySD/Loader/SystemMacros.s` | Tier 1 macros (auto-included via CartLib.s) |
+| `EasySD/Loader/APIMacros.s` | Tier 2 macros (explicit include required) |
+| `EasySD/Loader/Common/EasySD.inc` | EasySD-specific constants |
+| `EasySD/Loader/Common/System.inc` | Standard C64 addresses and KERNAL vectors |
+| `EasySD/Menu/EasySD/EasySDMenu.s` | Main menu (entry $0801) |
+| `EasySD/Loader/Bridges/KernalBridge/KernalBridge.s` | P2TK PRG loader |
+| `Arduino/EasySD/EasySD.ino` | Arduino entry point |
+| `Arduino/EasySD/CartApi.cpp` | Command routing |
+| `Arduino/EasySD/DirFunction.cpp` | Directory navigation |
+| `Arduino/EasySD/CartInterface.h` | Pin definitions |
+| `Arduino/EasySD/EasySDLog.h` | Logging macros + category flags |
+| `Tools/build.py` | Unified build system |
+| `docs/architecture/CARTRIDGE_PROTOCOL.md` | Protocol specification (accurate) |
+| `docs/architecture/TIMING.md` | Transfer timing reference |
+| `docs/plugins/` | Per-plugin documentation (updated Sprint 16) |
+| `docs/arduino/PCB_BRINGUP_NOTES.md` | PCB v3 hardware bringup |
 
 ---
 
-## Sprint 1 Summary (v2.0.4 - Production Ready)
-
-### Goals Achieved ✅
-- **Stable directory navigation** across multiple levels (Root → UTILS → UTILS2)
-- **Memory leak elimination** (stable 341-425 bytes free RAM)
-- **Buffer overflow fixes** (StringPrint 94-byte overflow, strtok corruption)
-- **SdFat 2.x full compatibility**
-
-### Critical Bugs Fixed
-1. **strtok() Concurrent Corruption** - Replaced with thread-safe token parser
-2. **StringPrint Buffer Overflow** - Fixed boundary check (127 → 31)
-3. **Relative Navigation** - Root-based navigation for SdFat 2.x compatibility
-4. **Stack Optimization** - 75% reduction (216 → 56 bytes in ChangeDirectory)
-
-### Test Results (v2.0.4 Baseline)
-```
-Memory Trajectory (10+ cycles tested):
-Boot:          425 bytes
-Root Prepare:  341 bytes (-84)
-UTILS enter:   333 bytes (-8)
-UTILS2 enter:  332 bytes (-1)
-Root reset:    341 bytes (+9) ← Returns to baseline
-```
-**Result**: No memory leaks, stable operation confirmed.
-
----
-
-## Sprint 2 Summary (v2.0.5 - API Modernization Complete)
-
-### Goals Achieved ✅
-- **SdFat 2.x Full P1 API Compliance** - Modern `File` type, simplified `openNext()` API
-- **Zero functional regression** - Baseline + Regression testing strategy (8/8 tests PASS)
-- **Memory improvement** - Unexpected +4-12 bytes improvement across all metrics
-- **Production-ready** - 4 lines changed, complete deprecated API removal
-
-### Changes Implemented
-1. **P1-1: SdFile → File Migration** (DirFunction.cpp:186, 228)
-2. **P1-2: openNext() API Update** (DirFunction.cpp:212, 241)
-
-### Test Results (v2.0.5 Regression)
-```
-Memory Trajectory (10+ cycles tested):
-Boot:          437 bytes (+12 vs v2.0.4)
-Root Prepare:  345 bytes (+4 vs v2.0.4)
-UTILS enter:   337 bytes (+4 vs v2.0.4)
-UTILS2 enter:  336 bytes (+4 vs v2.0.4)
-Root reset:    345 bytes ← Returns to baseline
-```
-**Result**: Memory improved, zero regression, all tests PASS.
-
-### Remaining Tasks (Sprint 3+)
-- ⏳ P2: `openCwd()` integration (planned for v2.1.0)
-- ⏳ P3: Global `strcpy()` → `strncpy()` review
-- ⏳ P3: "open fail" anomaly investigation
-
----
-
-## Development Workflow
-
-### When modifying Arduino code:
-1. Read existing code first with Read tool
-2. Check memory constraints (SRAM: 2KB limit, ~437 bytes free after boot)
-3. Avoid `strtok()`, use manual parsing (see DirFunction.cpp for pattern)
-4. Use modern SdFat 2.x API (`File` type, 1-param `openNext()`)
-5. Build: `python Tools/build.py debug-arduino` (recommended for full system)
-6. Upload: `python Tools/build.py arduino-upload COM4`
-7. Monitor serial output (57600 baud) for memory leaks with `FreeStack()`
-
-### When modifying C64 code:
-1. Follow linear include chain (CartLibStream.s is highest level)
-2. Use only `ZP_` prefixed labels from CartZpMap.inc
-3. Build with `python Tools/build.py debug` for testing
-4. Build with `python Tools/build.py release` for production
-
-### Documentation updates:
-- Always update `CHANGELOG.md` for version changes
-- Create sprint completion docs for major milestones (see SPRINT1_COMPLETION.md, SPRINT2_COMPLETION.md)
-- Update `GEMINI.md` when adding new architectural rules
-- Use baseline + regression testing strategy for API changes (see SPRINT2_TESTING_GUIDE.md)
-
----
-
-**Last Updated**: 2026-03-09 (v3.1.3 - P2TK Phase 3, KernalBridge renamed from PrgPlugin, APIMacros adoption)
-**Status**: Production-ready. VICE: 9/9 tests pass. Arduino: 8/8 (breadboard, SPI_HALF_SPEED). KernalBridge supports full $0000–$FFFF load range via P2TK Phase 3.
+**Last Updated**: 2026-04-06 — PCB v3 validated, cold boot auto-load, plugin debugging next

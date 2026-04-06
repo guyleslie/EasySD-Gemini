@@ -105,20 +105,21 @@ Plugin-specific temporaries: use `$FB-$FE` range carefully given the above const
 
 Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card. Plugins must:
 - Save VIC/CPU state on entry (`SAVESTATE` pattern)
-- Exit via `JSR IRQ_ExitToMenu`
+- Exit via `JSR PROT_ExitToMenu`
 - Use `ERROR_GATE` macro after file operations
-- Use `LoadFileBySize` for loading, `SafeStream` for audio streaming
+- Use `LoadFileBySize` for loading; audio streaming via `JSR PROT_Stream` (SafeStream removed)
 
-**Current plugins and APIMacros adoption status:**
+**Current plugins — all APIMacros adopted (Sprint 16, binary-verified):**
 
-| Plugin | APIMacros |
-|--------|-----------|
-| KernalBridge (PRG loader, P2TK) | ✅ adopted |
-| WavPlayer | ✅ adopted |
-| KoalaDisplayer | ❌ pending |
-| MusPlayer | ❌ pending |
-| PetsciiDisplayer | ❌ pending |
-| CvdPlayer (CVD video player) | ❌ pending |
+| Plugin | Extension | Real HW status |
+|--------|-----------|----------------|
+| KernalBridge (PRG loader, P2TK) | `.PRG` | ✅ working |
+| WavPlayer | `.WAV` | ❌ needs debug |
+| KoalaDisplayer | `.KOA` | ❌ needs debug |
+| MusPlayer | `.MUS` | ❌ needs debug |
+| PetsciiDisplayer | `.PET` | ❌ needs debug |
+| CvdPlayer (CVD video player) | `.CVD` | ❌ needs debug |
+| HWTest (signal diagnostic) | `.HWT` | ✅ working |
 
 **KernalBridge** handles PRGs that load into `$C000+` via a three-phase transfer kernel (P2TK). Trigger: `ENDADDRESS > $C002`. Data tables stored at `$C003`/`$C02A` (KernalBridge gap, always-readable RAM).
 
@@ -136,7 +137,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail on nested paths.
 - **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.
 - **EEPROM persistence:** `SaveLastDir()` / `RestoreLastDir()` use `eeprom_update_block()` / `eeprom_read_block()` (avr-libc). Prefer these over byte-by-byte loops — smaller flash footprint. EEPROM layout: bytes 0-1 magic (`0xE5`, `0xD0`), bytes 2-65 null-terminated path.
-- **Flash budget:** Release 22.7KB/30.7KB (73%, **~8KB free**) — this is the production target, plenty of room for new features. Debug build 30.7KB (99%, ~36B margin) — debug-only constraint, not a feature limit. Adding new `LOGD`/`LOGI` calls in debug mode can push it over 30720B.
+- **Flash budget:** Release 23.7KB/30.7KB (77%, **~7KB free**) — this is the production target (includes COMMAND_HWTEST + auto-load). Debug build 30.7KB (99%, ~36B margin) — debug-only constraint, not a feature limit. Adding new `LOGD`/`LOGI` calls in debug mode can push it over 30720B.
 
 ## Key File Locations
 
