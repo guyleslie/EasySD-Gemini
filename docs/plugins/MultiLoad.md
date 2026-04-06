@@ -187,14 +187,29 @@ The `EASYLOAD.PRG` binary starts with a fixed-layout config block immediately af
 
 **File offset mapping** (for manual inspection or alternative patching tools):
 
-`bootplugin.prg` is a raw binary (`64tass -b`, no load address header). File offset = RAM address − `$C000`.
+`bootplugin.prg` **template** is a raw binary (`64tass -b`, no load address header). File offset = RAM address − `$C000`.
 
 ```
-File byte 0     : $C000 — JMP opcode
+Template (bootplugin.prg) — raw binary, no header:
+File byte 0     : $C000 — JMP opcode ($4C)
 File byte 1-2   : $C001-$C002 — JMP target (lo/hi)
-File byte 3     : $C003 — ML_CONFIG_VERSION
-File byte 4     : $C004 — ML_FIRST_PART_LEN
-File bytes 5-20 : $C005-$C014 — ML_FIRST_PART_NAME (16 bytes)
+File byte 3     : $C003 — ML_CONFIG_VERSION   ← OFFSET_VERSION=3 in create_multiload.py
+File byte 4     : $C004 — ML_FIRST_PART_LEN   ← OFFSET_LEN=4
+File bytes 5-20 : $C005-$C014 — ML_FIRST_PART_NAME (16 bytes)  ← OFFSET_NAME=5
+```
+
+`EASYLOAD.PRG` **generated output** has a 2-byte PRG load address header prepended by
+`create_multiload.py`. This header is required so KernalBridge reads the correct load
+address (`$C000`) and triggers P2TK.
+
+```
+Generated output (EASYLOAD.PRG on SD card) — with header:
+File byte 0-1   : $00 $C0 — PRG load address header (= $C000, prepended by create_multiload.py)
+File byte 2     : $C000 — JMP opcode ($4C)
+File byte 3-4   : $C001-$C002 — JMP target (lo/hi)
+File byte 5     : $C003 — ML_CONFIG_VERSION
+File byte 6     : $C004 — ML_FIRST_PART_LEN
+File bytes 7-22 : $C005-$C014 — ML_FIRST_PART_NAME (16 bytes)
 ```
 
 ### 4.2 RL_STUB — Kernal LOAD Trampoline (`$033C`, 52 bytes)
@@ -502,7 +517,7 @@ block, packages as ZIP.
 | Game loads to `$E800–$EBxx` | Overwrites handler + mini-CartLib. Extremely rare (Kernal ROM area). |
 | Direct `JSR $E16F` (bypass `$0330`) | Cannot be intercepted without a dedicated expansion port cartridge. Not used by typical games. |
 | `LOAD` with device ≠ 8 | Passed through to original Kernal LOAD vector; works normally. |
-| ZIP folder naming collision | `create_multiload.py` derives the game folder name from the **parent folder** of the first D64 file (priority 1), then disk label (priority 2), then filename stem (priority 3). If multiple D64 files are stored in a generic folder (e.g. `NEW/`), the resulting ZIPs all use `MULTILOAD/NEW/` — extracting them overwrites each other. **Workaround:** store each game's disk images in a correctly-named subfolder (e.g. `BARBARIAN/game.d64`), or rename the MULTILOAD subfolder manually after extraction. A `--game-name` override option does not yet exist. |
+| ZIP folder naming | `create_multiload.py` derives the game folder name from: (1) **filename stem** of the first D64 file (e.g. `BARBARIAN.D64` → `BARBARIAN`), then (2) internal disk label, then (3) parent folder as last resort. The old parent-folder-first behaviour caused `NEW/game.d64` → `MULTILOAD/NEW/`. Fixed 2026-04-06. |
 
 ---
 

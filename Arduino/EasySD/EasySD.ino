@@ -114,11 +114,11 @@ void printHelp() {
 #endif // EASYSD_DEBUG_SERIAL
 
 void setup() {
-  cartInterface.Init();   // IOSetup: EXROM=HIGH; StartListening
-  // C64 may have started CBM80 (EXROM floated LOW during Optiboot ~300ms window).
-  // Pulse /RESET with EXROM=HIGH so C64 restarts cleanly to BASIC regardless.
-  delay(50);
-  cartInterface.ResetC64();
+  cartInterface.Init();   // IOSetup: EXROM=HIGH at ~65ms; StartListening
+  // EXROM=HIGH keeps the cartridge hidden while the SD card initialises.
+  // C64 boots to BASIC during this window (no CBM80 visible).
+  // TransferMenu() at the end of setup() then resets the C64 with EXROM=LOW
+  // so the EEPROM's CBM80 stub installs the NMI handler and the menu loads.
   ledInit();
 
   LOG_BEGIN(57600);
@@ -128,6 +128,11 @@ void setup() {
   digitalWrite(chipSelect, HIGH);
   SPI.begin();
 
+  // Without Optiboot, firmware starts ~1ms after power-on. SD cards need up to
+  // 300ms power-up time before accepting SPI commands (SD spec + margin).
+  // Optiboot's 300ms window provided this implicitly; we must supply it explicitly.
+  delay(300);
+
   bool sdSuccess = initSD();
   if (sdSuccess) { ledBootOk(); } else { ledBootFail(); }
 
@@ -136,12 +141,20 @@ void setup() {
 
   // cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
   cartApi.Init();
+
+  // Auto-load the EasySD menu on every cold boot.
+  // EXROM has been HIGH since IOSetup() (t=65ms), so the C64 booted to BASIC
+  // while the SD was initialising.  TransferMenu() now resets the C64 with
+  // EXROM=LOW so the EEPROM's CBM80 stub installs the NMI handler, then sends
+  // the menu program via NMI.  From this point the C64 runs the EasySD menu
+  // instead of BASIC.
+  cartApi.TransferMenu();
 }
 
 
 void loop() {
   cartApi.HandleApi();
-  
+
   if (!selRead() && state == stateNone) {
     state = statePressed;
     pressTime = millis()/100;
