@@ -76,8 +76,8 @@ CART_ROM_RESTORE .macro
 	JSR PROT_DisableDisplay
 	JSR LOAD_CUSTOM_CHARSET		; copy custom charset to $3800, then update $D018
 	JSR DISPLAYSCREENGRAPHICS
-	LDA #$40
-	STA $028A		; Disable all key repeat (RPTFLG)
+	LDA #$80
+	STA $028A		; RPTFLG: repeat only cursor/function keys (enables held UP/DOWN scrolling)
 .if DEBUG = 0 
 	JSR PROT_StartTalking
 .else
@@ -141,10 +141,14 @@ SKIPMUSIC
 	JSR SCNKEY		; Call kernal's key scan routine
  	JSR GETIN		; Get the pressed key by the kernal routine
   	BEQ INPUT_GET		; If zero then no key is pressed so repeat
-  	CMP #$2E		; IF it's a > character 
+  	CMP #$2E		; IF it's a > character
   	BEQ NEXTPAGE		; Then continue to request next page from micro
   	CMP #$2C		; IF it's a < character
   	BEQ PREVPAGE 		; Then continue to request previous page from micro
+	CMP #$1D		; IF it's cursor RIGHT
+	BEQ NEXTPAGE		; Page forward
+	CMP #$9D		; IF it's cursor LEFT
+	BEQ PREVPAGE		; Page backward
   	CMP #$91		; IF it's cursor UP
   	BEQ UP			; Then continue iterate up in the menu
   	CMP #$11		; IF it's cursor DOWN
