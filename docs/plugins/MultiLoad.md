@@ -1,8 +1,8 @@
 # EasySD MultiLoad Plugin — Multi-Load Game Launcher
 
 **Document Type:** Reference / User Guide
-**Version:** 3.0
-**Created:** 2026-03-15 (Sprint 14 V1), **Updated:** 2026-04-04 (V3 — multi-disk, ZIP output, --from-disk)
+**Version:** 3.1
+**Created:** 2026-03-15, **Updated:** 2026-04-06 (config version 3: first-part name stored with .PRG; RL_UNINSTALL added)
 **Status:** Current
 
 ---
@@ -173,7 +173,7 @@ Not compatible.
 
 ## 5. Components
 
-### 4.1 Config Block (`$C003–$C014`)
+### 5.1 Config Block (`$C003–$C014`)
 
 The `EASYLOAD.PRG` binary starts with a fixed-layout config block immediately after the
 3-byte entry jump. This block is patched by `create_multiload.py` per game.
@@ -181,9 +181,9 @@ The `EASYLOAD.PRG` binary starts with a fixed-layout config block immediately af
 | Address | Symbol               | Value  | Meaning                              |
 |---------|----------------------|--------|--------------------------------------|
 | `$C000` | —                    | `JMP MAIN` | Plugin entry point (3 bytes)    |
-| `$C003` | `ML_CONFIG_VERSION`  | `2`    | V2 sentinel; checked at runtime      |
-| `$C004` | `ML_FIRST_PART_LEN`  | N      | Length of first-part name (1–16)     |
-| `$C005–$C014` | `ML_FIRST_PART_NAME` | string | 16 bytes, null-padded        |
+| `$C003` | `ML_CONFIG_VERSION`  | `3`    | Version sentinel; must be 3          |
+| `$C004` | `ML_FIRST_PART_LEN`  | N      | Length of first-part filename incl. `.PRG` (1–16) |
+| `$C005–$C014` | `ML_FIRST_PART_NAME` | string | Full filename with `.PRG`, null-padded (e.g. `LOADER.PRG`) |
 
 **File offset mapping** (for manual inspection or alternative patching tools):
 
@@ -212,7 +212,7 @@ File byte 6     : $C004 — ML_FIRST_PART_LEN
 File bytes 7-22 : $C005-$C014 — ML_FIRST_PART_NAME (16 bytes)
 ```
 
-### 4.2 RL_STUB — Kernal LOAD Trampoline (`$033C`, 52 bytes)
+### 5.2 RL_STUB — Kernal LOAD Trampoline (`$033C`, 52 bytes)
 
 Patched into the Kernal LOAD vector. When the game calls `JSR $FFD5`, the C64 Kernal dispatches
 to `$033C` instead of the real Kernal LOAD routine.
@@ -241,7 +241,7 @@ ROML (cartridge ROM at `$8000–$9FFF`) remains accessible because LORAM=1 in bo
 `$0318` → TransferHandler. This ensures NMI-driven transfers work correctly inside the hook
 without ever switching back to `$01=$37` (which would hide the handler).
 
-### 4.3 RL_HANDLER — Main Hook Handler (`$E800`, ~400 bytes)
+### 5.3 RL_HANDLER — Main Hook Handler (`$E800`, ~400 bytes)
 
 The resident handler is physically stored in `EASYLOAD.PRG` and copied to `$E800` RAM by
 `RL_INSTALL`. Writes to this region always go to the underlying RAM regardless of the `$01`
@@ -304,7 +304,7 @@ rl_main:
 **Kernal return convention:** carry=0, X=end_lo, Y=end_hi. BASIC and other callers update
 their own page-end pointers (`$2D/$2E`) from X/Y.
 
-### 4.4 RL_MINI_CARTLIB (embedded, follows RL_HANDLER code)
+### 5.4 RL_MINI_CARTLIB (embedded, follows RL_HANDLER code)
 
 A self-contained copy of all CartLib routines needed by the handler, embedded inside the
 handler image itself. **No `#SETBANK` calls anywhere** — the banking state (`$01=$35`) is
@@ -319,9 +319,10 @@ Routines included: `RL_WasteCertainTime`, `RL_WasteTooMuchTime`, `RL_ReceiveFrag
 CartLib routines in the main plugin code. The mini-CartLib lives at `$E800+` (Kernal ROM area)
 where games never load data, making it immune to overwrite.
 
-### 4.5 RL_INSTALL — One-Time Installer
+### 5.5 RL_INSTALL / RL_UNINSTALL
 
-Called once by `EASYLOAD.PRG` before jumping to the game.
+`RL_INSTALL` is called once by `EASYLOAD.PRG` MAIN before jumping to the game.
+`RL_UNINSTALL` is called on the error exit path before returning to the EasySD menu.
 
 ```
 RL_INSTALL:
@@ -329,13 +330,23 @@ RL_INSTALL:
   2. Copy RL_HANDLER+RL_MINI_CARTLIB → $E800  (RL_HANDLER_IMAGE_SIZE bytes, multi-page)
   3. Write RL_NMI_REDIRECT ($0368) address → RAM $FFFA/$FFFB
   4. Backup $0330/$0331 → RL_ORIG_VEC ($036B)
-  5. Patch $0330 = <RL_STUB ($033C), $0331 = >RL_STUB
+  5. Patch $0330/$0331 → RL_STUB ($033C)
   Registers preserved (A/X/Y pushed/popped).
+
+RL_UNINSTALL:
+  1. Restore $0330/$0331 ← RL_ORIG_VEC ($036B)
+  Registers preserved (A pushed/popped).
+  Note: $FFFA/$FFFB RAM is left as-is; with $01=$37 the CPU reads the NMI
+  vector from Kernal ROM ($FE43), so the RAM values are irrelevant.
 ```
+
+**Why RL_UNINSTALL is required:** Without it, any failed EASYLOAD.PRG launch leaves
+`$0330/$0331` pointing to `RL_STUB`. Every subsequent `JSR $FFD5` (LOAD) goes through the
+stub, which has no valid game context and causes PRG loading to fail until power cycle.
 
 ---
 
-## 6. Memory Layout (V2)
+## 6. Memory Layout
 
 ### 5.1 ResidentLoader Area (during game execution)
 

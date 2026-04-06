@@ -806,17 +806,24 @@ RL_HANDLER_IMAGE_SIZE = RL_HANDLER_IMAGE_END - RL_HANDLER_IMAGE
 
 
 ;================================================================================
-; Section C: RL_INSTALL
-; Runs at $C000+ in normal $01=$37 context (called once by BOOT.PRG MAIN).
+; Section C: RL_INSTALL / RL_UNINSTALL
+; Both run at $C000+ in normal $01=$37 context.
 ;
-; Actions:
+; RL_INSTALL (call once on entry):
 ;   1. Copy RL_STUB_IMAGE  → $033C (writes always reach RAM, $01-independent).
 ;   2. Copy RL_HANDLER_IMAGE → $E800 (same — writes go to RAM regardless of $01).
 ;   3. Write RL_NMI_REDIRECT address ($0368) to $FFFA/$FFFB (RAM NMI vector).
 ;   4. Backup original $0330/$0331 → RL_ORIG_VEC ($036B).
 ;   5. Patch $0330/$0331 → RL_STUB ($033C).
 ;
-; Registers: all preserved.
+; RL_UNINSTALL (call on error exit, before returning to menu):
+;   Restores $0330/$0331 from RL_ORIG_VEC ($036B).
+;   Without this, every subsequent LOAD goes through the resident stub
+;   (which has no valid game context) and PRG loading breaks until power cycle.
+;   The NMI vector ($FFFA/$FFFB RAM) is left as-is: with $01=$37 the CPU reads
+;   the NMI vector from Kernal ROM ($FE43), so the RAM values are irrelevant.
+;
+; Registers: all preserved (both routines).
 ; ZP scratch: $8B-$8E (free per CartZpMap.inc $8B-$8E range).
 ;================================================================================
 
@@ -901,5 +908,14 @@ rl_inst_nmi:
 	TAY
 	PLA
 	TAX
+	PLA
+	RTS
+
+RL_UNINSTALL:
+	PHA
+	LDA RL_ORIG_VEC
+	STA $0330
+	LDA RL_ORIG_VEC + 1
+	STA $0331
 	PLA
 	RTS

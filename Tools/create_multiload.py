@@ -55,7 +55,7 @@ OUTPUT_DIR   = "EasySD/build/multiload"
 OFFSET_VERSION = 3    # ML_CONFIG_VERSION  at $C003 → file offset 3
 OFFSET_LEN     = 4    # ML_FIRST_PART_LEN  at $C004 → file offset 4
 OFFSET_NAME    = 5    # ML_FIRST_PART_NAME at $C005 → file offset 5-20
-CONFIG_VERSION = 2
+CONFIG_VERSION = 3
 MAX_NAME_LEN   = 16
 
 # D64 sectors per track (index = track number, 1-based; index 0 unused)
@@ -583,25 +583,31 @@ def patch_template(template_data: bytearray, first_part_name: str) -> bytearray:
 
     Args:
         template_data: Mutable copy of the template PRG binary.
-        first_part_name: Uppercase ASCII name, max 16 chars, no extension.
+        first_part_name: Uppercase ASCII name without extension (e.g. "LAST NINJA 2").
+            ".PRG" is appended automatically. Total length must not exceed MAX_NAME_LEN.
 
     Returns:
         The patched bytearray.
     """
-    name_bytes = first_part_name.encode("ascii")
+    full_name = first_part_name + ".PRG"
+    if len(full_name) > MAX_NAME_LEN:
+        print(f"Error: first-part name '{first_part_name}' + '.PRG' = {len(full_name)} chars, "
+              f"exceeds {MAX_NAME_LEN}-byte config field.")
+        sys.exit(1)
+    name_bytes = full_name.encode("ascii")
     template_data[OFFSET_LEN] = len(name_bytes)
     for i in range(MAX_NAME_LEN):
         template_data[OFFSET_NAME + i] = name_bytes[i] if i < len(name_bytes) else 0
     return template_data
 
 
-def load_template(repo_root: str) -> bytearray:
+def load_template(repo_root: str, override_path: str = None) -> bytearray:
     """Load the bootplugin.prg template and validate it.
 
     The template is a raw binary (64tass -b, no 2-byte load address header).
     Plugin is assembled at $C000; file offset = RAM address - $C000.
     """
-    template_path = os.path.join(repo_root, TEMPLATE_REL)
+    template_path = override_path if override_path else os.path.join(repo_root, TEMPLATE_REL)
     if not os.path.exists(template_path):
         print(f"Error: template not found: {template_path}")
         print("Build it first with: python Tools/build.py multiload")
@@ -749,7 +755,7 @@ def main_from_disk(args) -> None:
     # Load template
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root  = os.path.dirname(script_dir)
-    template_data = load_template(repo_root)
+    template_data = load_template(repo_root, getattr(args, 'template', None))
 
     # Merge disks
     all_files, disk_labels, warnings = merge_disks(disk_paths)
@@ -846,6 +852,9 @@ Supported formats: D64, D71, D81, T64
     ap.add_argument(
         "--list-only", action="store_true",
         help="List disk contents and exit without creating ZIP")
+    ap.add_argument(
+        "--template", metavar="PRG_FILE",
+        help="Override template PRG (default: EasySD/build/plugins/bootplugin.prg)")
 
     return ap.parse_args()
 
