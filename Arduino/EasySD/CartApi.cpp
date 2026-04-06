@@ -1760,14 +1760,9 @@ void CartApi::TransferGame(char * selectedFileName) {
       }
     }   
     
-    //For game mode
-//    cartInterface.SetPage(0x80);    
-//    delayMicroseconds(30);
-//    cartInterface.DisableCartridge();
-
-    //For special program mode
     delayMicroseconds(30);
-    Init();    
+    cartInterface.DisableCartridge();  // EXROM HIGH + data bus tristate — clean state after transfer
+    Init();
 
     cartInterface.StartListening();
     //interrupts();
