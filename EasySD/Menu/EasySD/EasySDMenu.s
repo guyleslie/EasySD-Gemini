@@ -589,10 +589,12 @@ PRGPLUGINEXISTS
 
 	JMP *
 
-PROGRAM	
-	LDA #$02 
+PROGRAM
+.if DEBUG = 1
+	LDA #$02
 	STA BORDER
-	JSR GETCURRENTROW	
+.endif
+	JSR GETCURRENTROW
 	;Setting name of the file
 	JSR SETFILENAME	
 .if DEBUG = 0
@@ -837,7 +839,9 @@ ISPREVIOUSDIRECTORY
 	
 NEWCONTENT
 ; Update the screen with the new content got from micro
+.if DEBUG = 1
 	INC BORDER
+.endif
 
 	JSR PROT_EnableDisplay
 	JSR GETCURRENTROW
@@ -954,13 +958,11 @@ SETARROW 	; Input : X (current row), Changed : A, Y, NAMELOW, NAMEHIGH
 	; Switch back to screen RAM
 	LDA NAMELOW
 	STA COLHIGH
-	; Reverse + color only non-space chars (cols 4-35)
+	; Reverse + color all chars (cols 4-35), incl. spaces ($20→$A0 solid block)
 	LDY #$02
 _SETARR_LOOP
 	LDA (COLLOW),Y		; Read screen code
-	CMP #$20		; Space?
-	BEQ _SETARR_NEXT	; Skip spaces
-	ORA #$80		; Reverse
+	ORA #$80		; Reverse (space $20→$A0, others: set bit 7)
 	STA (COLLOW),Y		; Write to screen RAM
 	LDA NAMEHIGH		; Switch to color RAM
 	STA COLHIGH
@@ -968,7 +970,6 @@ _SETARR_LOOP
 	STA (COLLOW),Y
 	LDA NAMELOW		; Switch back to screen RAM
 	STA COLHIGH
-_SETARR_NEXT
 	INY
 	CPY #$22		; 34 = end of filename area
 	BNE _SETARR_LOOP
@@ -1097,12 +1098,18 @@ FILENAMEPRINT_A
 	LDA #$20            ; Replace null with space
 	JMP WRITECHAR_A
 NOTEND_A
-	CMP #$61            ; >= 'a'?
-	BCC WRITECHAR_A     ; No → numbers/symbols/uppercase, use as-is
-	CMP #$7B            ; <= 'z'?
-	BCS WRITECHAR_A     ; No → use as-is
+	CMP #$5B            ; >= '['?
+	BCC WRITECHAR_A     ; No → $20-$5A: space, punctuation, digits, A-Z, as-is
+	CMP #$60            ; < '`' ? ($5B-$5F: [, \, ], ^, _)
+	BCC _paf_bracket    ; yes → subtract $40 to get SC $1B-$1F
+	CMP #$7B            ; >= '{' ?
+	BCS WRITECHAR_A     ; yes (backtick $60 or above 'z') → as-is
 	SEC
 	SBC #$60            ; Lowercase $61-$7A → C64 screen codes $01-$1A (A-Z)
+	JMP WRITECHAR_A
+_paf_bracket
+	SEC
+	SBC #$40            ; $5B→$1B ([), $5C→$1C (£), $5D→$1D (]), $5E→$1E (↑), $5F→$1F (↓)
 WRITECHAR_A
 	STA (COLLOW), Y     ; Write to screen memory
 	INY
