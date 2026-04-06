@@ -103,7 +103,12 @@ def petscii_to_fat(raw: bytes, padding: int) -> str:
             result.append('.')
         elif b in _FAT_ILLEGAL:         # truly illegal FAT characters → underscore
             result.append('_')
-        else:                           # graphics chars, unmapped PETSCII → underscore
+        elif 0x21 <= b <= 0x7E:         # other printable ASCII, FAT-safe → preserve as-is
+            # RL_STUB sends raw PETSCII bytes to Arduino; SD card filename must match exactly.
+            # Standard ASCII punctuation ($21-$2F, $3A-$40) is identical in PETSCII and ASCII.
+            # E.g. '+' ($2B), '-' ($2D), '!' ($21) must NOT be converted to '_'.
+            result.append(chr(b))
+        else:                           # high PETSCII graphics chars → underscore
             result.append('_')
     return ''.join(result)
 

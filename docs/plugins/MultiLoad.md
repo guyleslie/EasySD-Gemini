@@ -518,6 +518,7 @@ block, packages as ZIP.
 | Direct `JSR $E16F` (bypass `$0330`) | Cannot be intercepted without a dedicated expansion port cartridge. Not used by typical games. |
 | `LOAD` with device ≠ 8 | Passed through to original Kernal LOAD vector; works normally. |
 | ZIP folder naming | `create_multiload.py` derives the game folder name from: (1) **filename stem** of the first D64 file (e.g. `BARBARIAN.D64` → `BARBARIAN`), then (2) internal disk label, then (3) parent folder as last resort. The old parent-folder-first behaviour caused `NEW/game.d64` → `MULTILOAD/NEW/`. Fixed 2026-04-06. |
+| PETSCII filename conversion | `RL_STUB` passes raw PETSCII bytes to the Arduino — no conversion. The FAT filename on the SD card must be byte-identical to what the game sends in its `LOAD` call. Rule implemented in `petscii_to_fat()` in `create_multiload.py`: printable ASCII `$21–$7E` that is not FAT-illegal is preserved verbatim (e.g. `+` stays `+`). FAT-illegal chars (`*?/:<>\|"`) and high PETSCII graphics (`$80+`) become `_`. PETSCII uppercase `$C1–$DA` → ASCII `A–Z`. Fixed 2026-04-06 (`+` was incorrectly mapped to `_`). |
 
 ---
 
