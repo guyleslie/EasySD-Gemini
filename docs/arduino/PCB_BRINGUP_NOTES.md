@@ -324,5 +324,8 @@ address bits + C64 data bus simultaneously). The design is intentional and corre
 |---|---|---|---|
 | C64 freezes on power-on | `SetAddressPinsOutput()` in `Init()` drove D4-D7/A0-A3 OUTPUT=0 from boot, conflicting with C64 bus | Removed from `Init()` — data bus stays tristate until `EnableCartridge()` | `8964487` |
 | CBM80 check fails with EEPROM | `EnableCartridge()` called before `ResetC64()` — ATmega drove D0-D7 during CBM80 window, overriding EEPROM | Split into `EnableExromOnly()` + `delay(300)` + `EnableDataBus()` | `b8dc98e` |
+| Directory navigation freezes on ENTER | `ENTERDIR` in `EasySDMenu.s` called `PROT_ChangeDirectory` without prior `PROT_SetNameZ` — Arduino received length=0, returned error, C64 froze in `CHANGEDIRFAIL` | Added `LDX NAMELOW / LDY NAMEHIGH / JSR PROT_SetNameZ` before the call; also improved `CHANGEDIRFAIL` error recovery and `GOBACK` error handling | `3a46be7` |
 
-Both fixes are in firmware. No PCB hardware changes required.
+All fixes are in firmware/software. No PCB hardware changes required.
+
+**Note:** The directory navigation bug was invisible in VICE mock tests and Arduino serial tests — both bypass the C64→Arduino name-sending path. Only real C64 hardware exposed it.
