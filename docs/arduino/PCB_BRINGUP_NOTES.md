@@ -222,3 +222,107 @@ Firmware `b8dc98e` uploaded to COM4. Two bus timing fixes applied:
 
 **Next step:** Program `EasySD\build\IRQLoaderRom.bin` → AT27C512R-45PU (MiniPro / Xgpro),
 install chip on PCB, retest.
+
+---
+
+## Investigation: MENU button (A6 analog-only) — 2026-04-06
+
+**Circuit (led button.png schematic):**
+```
++5V → R2 (10kΩ) → MENU/RESET node → SW1 (tact switch) → GND
+```
+- Not pressed: A6 = +5V (pulled high via R2)
+- Pressed: A6 = GND (switch closes)
+
+**Firmware (`CartInterface.h`):**
+```cpp
+inline bool selRead() { return analogRead(SEL) >= 512; }
+```
+
+ATmega328P, 5V Vcc, ADC range 0–1023:
+- Not pressed (A6 = +5V): `analogRead` ≈ 1023 → returns **TRUE**
+- Pressed (A6 = GND): `analogRead` ≈ 0 → returns **FALSE**
+
+**`EasySD.ino` loop() state machine:**
+```
+!selRead() + stateNone   → statePressed    (button down)
+ selRead() + statePressed → stateReleased  (button up)
+   elapsed > 5  (>500ms) → ResetNoCartridge()
+   elapsed ≤ 5  (≤500ms) → TransferMenu()
+```
+
+**Verdict: implementation is correct.** Full analysis:
+
+| Question | Result |
+|---|---|
+| Schematic matches firmware? | Yes — pull-up to +5V, switch to GND, selRead() logic correct |
+| SPI conflict with A6? | None — SPI on D10-D13, A6/ADC6 is independent |
+| Pull-up needed in firmware? | No — external 10kΩ handles it; INPUT_PULLUP would not work on analog-only A6 anyway |
+| ADC threshold correct? | Yes — 512 = 2.5V; button drives to 0V or 5V, never ambiguous |
+| Hardware debounce? | Missing (no cap across SW1) — state machine handles this adequately |
+| Button missed during HandleApi()? | Yes, by design — cooperative loop, no issue in practice |
+
+No changes needed in firmware or hardware for the MENU button.
+
+---
+
+## Investigation: EEPROM A8-A11 wiring — root-cause analysis — 2026-04-06
+
+**Question:** EEPROM A8-A11 are connected to Arduino A0-A3 (ROM_A8-A11 net), not directly to
+C64 expansion port A8-A11. Is this a hardware design flaw?
+
+**Answer: No. This is correct by design — identical to the original IRQHack64.**
+
+### Actual EEPROM wiring (clarified 2026-04-06)
+
+```
+EEPROM A0-A7   ← C64 A0-A7  (byte offset within page)
+EEPROM A8-A11  ← Arduino A0-A3  (PORTC[0:3])
+EEPROM A12-A15 ← Arduino D4-D7  (PORTD[4:7])
+EEPROM D0-D7   ← C64 D0-D7  (data bus)
+EEPROM OE#/CE# ← C64 ROML
+```
+
+C64 A8-A15 are NOT connected to the EEPROM at all. Arduino controls all 8 upper address bits.
+
+### SetPage(byte) — dual-purpose operation
+
+`SetPage(N)` writes to PORTD[4:7] = `N & 0xF0` and PORTC[0:3] = `N & 0x0F`. This simultaneously:
+1. **Drives C64 data bus** with byte N (D4-D7 upper nibble + D0-D3 lower nibble)
+2. **Selects EEPROM page N** (A12-A15 upper nibble + A8-A11 lower nibble = N)
+
+This is why `IRQLoaderRom.bin` has 256 pages where page N has all placeholder bytes = N:
+whichever page the Arduino selects, the EEPROM would output that same value N from every
+placeholder position — but the Arduino always wins (40mA sink vs EEPROM 4mA source) during
+NMI transfers, so the EEPROM page content is irrelevant then.
+
+### Why it works
+
+**Phase 1 — CBM80 check window (EnableExromOnly, data bus tristate):**
+- Arduino A0-A3 and D4-D7 are INPUT (tristate); PORTD[4:7]=0 and PORTC[0:3]=0 (default)
+- EEPROM A8-A15 float near 0V (last driven value was 0, held by parasitic capacitance)
+- EEPROM selects page 0 → presents CBM80 bytes at $8004-$8008 ✅
+- Arduino does not drive D0-D7 → EEPROM output reaches C64 data bus undisturbed ✅
+
+**Phase 2 — NMI data transfers (EnableDataBus, Arduino drives bus):**
+- `SetPage(dataValue)` sets EEPROM to page `dataValue` and drives C64 bus with `dataValue`
+- Arduino (40mA) overrides EEPROM output (4mA) — C64 reads Arduino's data ✅
+- EEPROM page content is irrelevant during NMI transfers
+
+**Phase 3 — EXROM HIGH (DisableCartridge):**
+- ROML inactive → EEPROM OE# deasserted → EEPROM output disabled ✅
+
+### Original IRQHack64 comparison
+
+The original IRQHack64 uses the same dual-purpose wiring (Arduino controls all EEPROM upper
+address bits + C64 data bus simultaneously). The design is intentional and correct.
+
+
+### Summary: all C64 freeze issues were firmware-only
+
+| Issue | Root cause | Fix | Commit |
+|---|---|---|---|
+| C64 freezes on power-on | `SetAddressPinsOutput()` in `Init()` drove D4-D7/A0-A3 OUTPUT=0 from boot, conflicting with C64 bus | Removed from `Init()` — data bus stays tristate until `EnableCartridge()` | `8964487` |
+| CBM80 check fails with EEPROM | `EnableCartridge()` called before `ResetC64()` — ATmega drove D0-D7 during CBM80 window, overriding EEPROM | Split into `EnableExromOnly()` + `delay(300)` + `EnableDataBus()` | `b8dc98e` |
+
+Both fixes are in firmware. No PCB hardware changes required.
