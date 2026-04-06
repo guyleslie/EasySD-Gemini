@@ -367,8 +367,13 @@ _eld_done
 
 ENTERDIR
 .if DEBUG = 0
+	; Set filename: NAMELOW/NAMEHIGH point to selected dir's record (set by ISDIRECTORY)
+	; Record format: bytes 0-30 = null-terminated ASCII dirname, byte 31 = type
+	LDX NAMELOW
+	LDY NAMEHIGH
+	JSR PROT_SetNameZ		; sets KERNAL_FILENAME_LOW/LENGTH from null-terminated name
 	JSR PROT_ChangeDirectory
-	BCS CHANGEDIRFAIL	
+	BCS CHANGEDIRFAIL
 .else
 	JSR MOCK_EnterDir
 .endif
@@ -403,10 +408,12 @@ _dirNC_ok
 	
 	
 CHANGEDIRFAIL
-	LDA #$07
-	STA BORDER
-	JMP *
-	; Do an error text
+	LDA #$02			; red
+	LDX #<MSG_CD_ERROR
+	LDY #>MSG_CD_ERROR
+	JSR STATUS_LINE
+	JSR PROT_EnableDisplay
+	JMP INPUT_GET
 NODIRECTORY	
 	;JMP INVOKEPETG
 	JSR GETCURRENTROW				; We have current row in X
@@ -807,6 +814,7 @@ GOBACK
 	JSR PROT_SetNameZ
 .if DEBUG = 0
 	JSR PROT_ChangeDirectory
+	BCS CHANGEDIRFAIL
 .endif
 	DELAYFRAMES 2
 	RTS
@@ -1930,6 +1938,10 @@ MSG_TAP_FAIL
 
 MSG_SD_READ_ERR
 	.TEXT "   SD READ ERROR"
+	.BYTE 0
+
+MSG_CD_ERROR
+	.TEXT "   CD FAILED"
 	.BYTE 0
 
 MSG_VICE_DEBUG
