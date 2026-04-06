@@ -308,17 +308,17 @@ void CartApi::HandleGetInfoForFile() {
   } else if (workingFile.isOpen()) {
     DirFat_t dir;  // SdFat 2.x: dir_t renamed to DirFat_t
     if (workingFile.dirEntry(&dir)) {
-      HandleResponse(SUCCESSFUL, 0);
-      delay(1);
+      HandleResponse(SUCCESSFUL, 1);
+      noInterrupts();
       uint8_t * infoBuffer = (uint8_t *) &dir;
-      for (int i = 0;i<256;i++) {
-        if (i<32) {
-          cartInterface.TransmitByteFast(*(infoBuffer+i));
-        } else {
-          cartInterface.TransmitByteFast(0);
-        }
+      for (uint8_t i = 0; i < 32; i++) {
+        cartInterface.TransmitByteFast(*(infoBuffer + i));
       }
-      
+      for (uint16_t i = 32; i < 256; i++) {
+        cartInterface.TransmitByteFast(0);
+      }
+      interrupts();
+      delayMicroseconds(20);
     } else {
       HandleResponse(FILE_INFO_FAILED, 0);
     }
