@@ -23,12 +23,17 @@ Output (V3): EasySD/build/multiload/GAMENAME.ZIP
 Template PRG must be pre-built:
     python Tools/build.py multiload
 
-PRG file layout (V2 reference):
-    Bytes 0-14  : BASIC SYS 2062 stub (easysd.obj, 15 bytes), load address $0801
-    Byte  15    : start of plugin binary (assembled at $C000, JMP $C015)
-    Byte  18    : ML_CONFIG_VERSION = 2  (= $C003 in C64 RAM)
-    Byte  19    : ML_FIRST_PART_LEN      (= $C004)
-    Bytes 20-35 : ML_FIRST_PART_NAME 16 bytes null-padded (= $C005-$C014)
+EASYLOAD.PRG file layout (generated output):
+    Bytes 0-1   : PRG load address header ($00 $C0 = $C000) — prepended by this script
+    Byte  2     : $4C (JMP)                                  (= $C000 in C64 RAM)
+    Byte  3     : low byte of MAIN address                   (= $C001)
+    Byte  4     : $C0                                        (= $C002)
+    Byte  5     : ML_CONFIG_VERSION = 2  (= $C003 in C64 RAM)
+    Byte  6     : ML_FIRST_PART_LEN      (= $C004)
+    Bytes 7-22  : ML_FIRST_PART_NAME 16 bytes null-padded    (= $C005-$C014)
+
+bootplugin.prg template file layout (raw binary, no header):
+    OFFSET_VERSION = 3  → $C003, OFFSET_LEN = 4 → $C004, OFFSET_NAME = 5 → $C005
 """
 
 import argparse
@@ -72,6 +77,11 @@ def petscii_to_fat(raw: bytes, padding: int) -> str:
     Returns:
         Uppercase ASCII string with illegal FAT characters replaced by '_'.
         May be empty if the input is all padding or all untranslatable bytes.
+
+    NOTE: The conversion is intentionally 1-to-1 (no trailing-char stripping).
+    The game's internal LOAD calls use the same PETSCII bytes as the D64 directory
+    entry, so the FAT filename on the SD card must match exactly what the game
+    sends — including any cracker-added suffixes or non-standard padding bytes.
     """
     name = raw.rstrip(bytes([padding])).rstrip(b'\x00')
     result = []
@@ -536,14 +546,16 @@ def derive_game_name(disk_paths: list, disk_labels: list) -> str:
     """Derive a FAT-safe uppercase game folder name.
 
     Priority:
-    1. Parent folder of the first disk image (most human-readable).
+    1. Stem of the first disk image filename (most reliable — files are typically
+       named after the game: BARBARIAN.D64 → BARBARIAN).
     2. Internal disk label of the first image.
-    3. Stem of the first disk image filename.
+    3. Parent folder of the first disk image (last resort — parent may be a
+       generic folder such as "NEW" or "GAMES").
     """
-    # 1. Parent folder name
-    parent = os.path.basename(os.path.dirname(os.path.abspath(disk_paths[0])))
-    name = fat_safe_name(parent.replace(" ", "_"), max_len=16)
-    if name and name not in {"UNNAMED", "_" * len(name)}:
+    # 1. Filename stem
+    stem = os.path.splitext(os.path.basename(disk_paths[0]))[0]
+    name = fat_safe_name(stem, max_len=16)
+    if name and name != "UNNAMED":
         return name
 
     # 2. Disk label
@@ -552,9 +564,9 @@ def derive_game_name(disk_paths: list, disk_labels: list) -> str:
         if name and name != "UNNAMED":
             return name
 
-    # 3. Filename stem
-    stem = os.path.splitext(os.path.basename(disk_paths[0]))[0]
-    return fat_safe_name(stem, max_len=16)
+    # 3. Parent folder name (last resort)
+    parent = os.path.basename(os.path.dirname(os.path.abspath(disk_paths[0])))
+    return fat_safe_name(parent.replace(" ", "_"), max_len=16) or "UNNAMED"
 
 
 # ---------------------------------------------------------------------------
@@ -675,11 +687,16 @@ def build_zip(all_files: list, first_part_name, template_data: bytearray,
         print(f"[MULTILOAD] Re-run with --first-part NAME to override.")
 
     patched = patch_template(bytearray(template_data), first_part_name)
+    # Prepend 2-byte PRG load address header ($00 $C0 = $C000).
+    # bootplugin.prg is a raw binary (no header); KernalBridge reads the first
+    # 2 bytes as load address.  Without the header it reads $4C $15 = $154C
+    # instead of $C000, P2TK never triggers, and the plugin crashes.
+    prg_with_header = bytes([0x00, 0xC0]) + bytes(patched)
     folder  = f"MULTILOAD/{game_name}/"
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(folder + "EASYLOAD.PRG", bytes(patched))
+        zf.writestr(folder + "EASYLOAD.PRG", prg_with_header)
         for f in all_files:
             zf.writestr(folder + f["name"] + ".PRG", f["data"])
 
@@ -764,12 +781,14 @@ def main_legacy(first_part: str) -> None:
     template_data = load_template(repo_root)
 
     patched = patch_template(bytearray(template_data), first_part)
+    # Prepend 2-byte PRG load address header ($00 $C0 = $C000).
+    prg_with_header = bytes([0x00, 0xC0]) + bytes(patched)
 
     output_dir  = os.path.join(repo_root, OUTPUT_DIR)
     output_path = os.path.join(output_dir, "EASYLOAD.PRG")
     os.makedirs(output_dir, exist_ok=True)
     with open(output_path, "wb") as f:
-        f.write(bytes(patched))
+        f.write(prg_with_header)
 
     print(f"[MULTILOAD] Patched: FIRST_PART = '{first_part}' ({len(first_part)} bytes)")
     print(f"[MULTILOAD] Output:  {output_path}")
