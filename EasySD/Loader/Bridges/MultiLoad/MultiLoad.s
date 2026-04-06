@@ -151,6 +151,10 @@ ml_skip_path:
 	JMP MAIN_ERROR
 
 ml_opened:
+	.if ML_DEBUG_BORDERS
+	LDA #8
+	STA $D020                       ; ORANGE: PROT_OpenFile success
+	.endif
 	; Get file info (size)
 	#GETFILEINFO ML_FILEINFO_BUF
 	BCS MAIN_ERROR

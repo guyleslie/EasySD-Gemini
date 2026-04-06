@@ -100,7 +100,6 @@ void CartApi::HandleReadFile() {
   unsigned int dataLength = Arguments[0];
   unsigned int totalLength = dataLength*256;
   unsigned int actualLength = 0;  
-  int streamState;
   cartInterface.ResetIndex();
   noInterrupts();
   cartInterface.SoftEndListening();  
@@ -371,7 +370,7 @@ void CartApi::HandleGotoPath() {
   }
 }
 
-inline void CartApi::HandleReadDirectory() {
+void CartApi::HandleReadDirectory() {
   GetArgumentsStatic(3);
   uint8_t numberOfEntries = Arguments[0]; //Max number of directory entries to retrieve
   uint8_t dataLength = Arguments[1]; //Max number of pages of data to retrieve (each page is 256 byte)
@@ -836,11 +835,7 @@ void CartApi::HandleInvokeWithName() {
 
   // Default behavior: acknowledge and then start transfer (will reset C64).
   HandleResponse(SUCCESSFUL, 0);
-  TransferGame(fileName);  
-}
-
-void CartApi::HandleInvokeWithIndex() {  
-/* Not implemented */  
+  LoadAndLaunchFile(fileName);
 }
 
 void CartApi::HandleValueResponse(uint8_t value) {
@@ -903,13 +898,6 @@ void CartApi::HandleSetPort() {
   HandleResponse(SUCCESSFUL, 0);   
 }
 
-void CartApi::HandleSetIO() {
-}
-
-
-void CartApi::HandleSetSource() {
-  
-}
 
 volatile static uint8_t currentByte = 0;
 volatile static uint8_t usedBuffer = 0;
@@ -995,50 +983,6 @@ out:
   }      
 }
 
-//void CartApi::HandleNonInterruptedStream() {
-//  uint8_t streamingBuffer[NON_INTERRUPTED_BUFFER_SIZE];
-//  streamBuffer1 = streamingBuffer;
-//
-//  streamBufferIndex = 0;
-//  #ifdef EASYSD_DEBUG_SERIAL  
-//  Serial.println(F("Got HandleNIStream"));
-//  #endif    
-//  GetArgumentsStatic(1);    
-//  uint8_t countOf8Bytes = Arguments[0];  
-//  //uint8_t delayBetweenBytes = Arguments[1];    
-//
-//  if (countOf8Bytes>NON_INTERRUPTED_BUFFER_SIZE/8) {
-//    HandleResponse(INVALID_ARGUMENT, 0);
-//  } else if (workingFile == NULL) {
-//      HandleResponse(NOT_INITIALIZED, 0);
-//  } else if (workingFile.isOpen()) {
-//      HandleResponse(SUCCESSFUL, 0);   
-//
-//      //Disable receiving interrupt but keep the state of the communication channel on.
-//      cartInterface.SoftEndListening(); 
-//
-//      //Preload the buffer
-//      workingFile.read(streamingBuffer, NON_INTERRUPTED_BUFFER_SIZE);      
-//      TIMSK2 = 0; // Disable timer 2 interrupts
-//      attachInterrupt(digitalPinToInterrupt(IO2), CartApi::SingleBufferedStreaming, FALLING);               
-//
-//      while(1) {
-//        if (streamBufferIndex == NON_INTERRUPTED_BUFFER_SIZE) {
-//          if (streamBufferIndex == NON_INTERRUPTED_BUFFER_SIZE) {
-//            if (streamBufferIndex == NON_INTERRUPTED_BUFFER_SIZE) {
-//              Serial.println(F("Next"));
-//              workingFile.read(streamingBuffer, NON_INTERRUPTED_BUFFER_SIZE);      
-//              streamBufferIndex = 0;              
-//            }
-//          }
-//        }
-//      } 
-//
-//      TIMSK2 = 0x02; // Enable timer 2 interrupts (for milliseconds and so on)      
-//  } else {
-//    HandleResponse(FILE_IS_NOT_OPENED, 0);
-//  }      
-//}
 
 void CartApi::HandleReadNextChunk() {
   uint8_t fileBuffer[BUFFER_SIZE];   // BUFFER_SIZE = 16
@@ -1126,7 +1070,6 @@ void CartApi::HandleNonInterruptedStream() {
       noInterrupts();
       uint8_t portDVal = (PORTD & 0x0F);
       uint8_t portCVal = (PORTC & 0xF0);
-      unsigned long niStartTime;
       uint8_t * activeBuffer;
 
       while(1) {
@@ -1174,16 +1117,6 @@ ni_out:
 
 
 
-/*
-void CartApi::HandleExitToMenu() {
-  HandleResponse(SUCCESSFUL, 0);     
-  #ifdef EASYSD_DEBUG_SERIAL  
-  Serial.println(F("Exiting to menu"));
-  #endif     
-  cartInterface.EndListening();
-  TransferMenu();
-}
-*/
 
 int16_t CartApi::AwaitByte(int16_t maxTryCount) {
   int16_t value = -1;
@@ -1265,8 +1198,7 @@ void CartApi::HandleApi() {
           case COMMAND_READ_EEPROM : HandleReadEeprom(); break;
           case COMMAND_SEEK_EEPROM : HandleSeekEeprom(); break;
           case COMMAND_WRITE_EEPROM : HandleWriteEeprom(); break;
-          case COMMAND_END_TALKING : HandleEndTalking(); break;      
-          case COMMAND_SET_SOURCE : HandleSetSource();break;
+          case COMMAND_END_TALKING : HandleEndTalking(); break;
           case COMMAND_INVOKE_WITH_NAME : HandleInvokeWithName();break;
           case COMMAND_STREAM : HandleStream();break;          
           case COMMAND_NI_STREAM : HandleNonInterruptedStream(); break;
@@ -1284,10 +1216,6 @@ void CartApi::HandleApi() {
 
 
 
-void TransferInfo(long transferLength, long padBytes, byte transferPages)
-{
-    (void)transferLength; (void)padBytes; (void)transferPages;
-}
 
 void CartApi::SendLoaderStub() {
   #ifdef __AVR__
@@ -1316,14 +1244,6 @@ bool StartsWith(char *str,const char *pre)
            lenstr = strlen(str);
     return lenstr < lenpre ? false : strncmp(pre, str, lenpre) == 0;
 }
-
-/*
-byte CurrentPageIndex = 0;
-byte Count = 0;
-byte CurrentIndex = 0;
-unsigned int CurrentItemsCount = 0; //TODO : Throw it away
-unsigned int PageCount = 0; //TODO : Throw it away
-*/
 
 
 void CartApi::SendHeader(unsigned char startLow, unsigned char startHigh, unsigned char transferPages, long dataLength, unsigned char type, unsigned char transferMode) {
@@ -1419,56 +1339,6 @@ void CartApi::TransferMenu() {
     }     
   }
 
-/*
-  unsigned char pagePadValue = (dirFunc.GetCount() % dirFunc.NMax) >0 ? 1 : 0;
-  uint8_t currentItemsCount = dirFunc.GetCount()>dirFunc.NMax ? dirFunc.NMax : dirFunc.GetCount(); //TODO: Extemely rubbish... bad design...
-  int padValue = (currentItemsCount % dirFunc.NMax) == 0 ? 0 : dirFunc.NMax - (currentItemsCount % dirFunc.NMax);
-  PageCount = (byte)(dirFunc.GetCount()/dirFunc.NMax + pagePadValue);    
-  CurrentIndex = 0;
-  CurrentPageIndex = 0;
- 
-  
-
-  cartInterface.TransmitByteFast(CurrentItemsCount); 
-  
-  cartInterface.TransmitByteFast(PageCount); 
-  
-  cartInterface.TransmitByteFast(CurrentPageIndex); 
-
-  cartInterface.TransmitByteFast(cartInterface.TransferMode);   
-
-  for (int i = 0;i<12;i++)     cartInterface.TransmitByteFast(0); //Fill reserved area
-  unsigned int n = 0;
-  dirFunc.Rewind();
-  //Send initial state of directories.
-  while (n<dirFunc.NMax && dirFunc.Iterate()) {   
-    if (!dirFunc.IsHidden) {
-      #ifdef EASYSD_DEBUG_SERIAL       
-      Serial.println(dirFunc.CurrentFileName.value);    
-      #endif
-      for (int i=0;(i<dirFunc.CurrentFileName.index) && (i<32);i++) {
-        cartInterface.TransmitByteFast(cbm_ascii2petscii_c(tolower(dirFunc.CurrentFileName.value[i]))); 
-      }      
-      
-      for (int i=dirFunc.CurrentFileName.index;i<32;i++) {
-        cartInterface.TransmitByteFast(0x00);
-      }
-  
-      n++;
-    }
-  }    
-
-  #ifdef EASYSD_DEBUG_SERIAL 
-  Serial.print(F("ITM CNT:")); Serial.println(n);
-  #endif
-
-  for (int i = n;i<dirFunc.NMax;i++) {
-    for (int j = 0;j<32;j++) {
-      cartInterface.TransmitByteFast(0x00); 
-    } 
-  } 
-
-*/  
   if (padBytes>0) {
     for (int i=0;i<padBytes;i++) {    
       cartInterface.TransmitByteFast(0x00); 
@@ -1492,180 +1362,8 @@ void CartApi::TransferMenu() {
   if (readFromFile && workingFile) workingFile.close();
 }
 
-/*
 
-void CartApi::TransferDirectory(int startIndex) {  
-  cartInterface.EndListening();  
-  cartInterface.StartListening();      
-  cartInterface.EnableCartridge();
-
-  long fileNamesDataLength = 16 + 20 * 32; // 16 byte header + 
-  long transferLength = fileNamesDataLength;
-  long padBytes = (transferLength%256==0) ? 0 : 256 - transferLength%256;  
-  byte transferPages = (byte)(transferLength/256 + (padBytes>0 ? 1 : 0));  
-
-  unsigned char pagePadValue = (dirFunc.GetCount() % dirFunc.NMax) >0 ? 1 : 0;
-  CurrentItemsCount = dirFunc.GetCount()-startIndex>dirFunc.NMax ? dirFunc.NMax : dirFunc.GetCount()-startIndex;
-  int padValue = (CurrentItemsCount % dirFunc.NMax) == 0 ? 0 : dirFunc.NMax - (CurrentItemsCount % dirFunc.NMax);
-  PageCount = (byte)(dirFunc.GetCount()/dirFunc.NMax + pagePadValue);      
-
-  cartInterface.ResetIndex();
-  #ifdef EASYSD_DEBUG_SERIAL   
-  Serial.println(F("XFER DIR")); 
-  Serial.print(F("CNT:"));Serial.println(dirFunc.GetCount());
-  Serial.print(F("PP ITEM CNT:"));Serial.println(CurrentItemsCount);
-  Serial.print(F("PG CNT:"));Serial.println(PageCount);
-  Serial.print(F("CP:"));Serial.println(CurrentPageIndex);  
-  #endif
-
-  noInterrupts();
-  cartInterface.TransmitByteFast(CurrentItemsCount); 
-  
-  cartInterface.TransmitByteFast(PageCount); 
-  
-  cartInterface.TransmitByteFast(CurrentPageIndex); 
-
-  cartInterface.TransmitByteFast(cartInterface.TransferMode);   
-
-  for (int i = 0;i<12;i++)     cartInterface.TransmitByteFast(0); //Fill reserved area
-  
-  unsigned int n = 0;
-  int itemIndex = 0;
-  dirFunc.Rewind();
-  //Send initial state of directories.
-  while (n<255 && itemIndex<dirFunc.NMax && dirFunc.Iterate() && !dirFunc.IsFinished) {  
-    if (!dirFunc.IsHidden) {  
-      if (n>=CurrentIndex) {
-        // Print the file number and name. 
-        #ifdef EASYSD_DEBUG_SERIAL         
-        Serial.println(dirFunc.CurrentFileName.value);
-        #endif
-        
-        for (int i=0;(i<dirFunc.CurrentFileName.index) && (i<32);i++) {
-          cartInterface.TransmitByteFast(cbm_ascii2petscii_c(tolower(dirFunc.CurrentFileName.value[i]))); 
-          //TransmitByteFastNew(0x42);
-        }
-        
-        for (int i=dirFunc.CurrentFileName.index;i<32;i++) {
-          cartInterface.TransmitByteFast(0x00);
-        }
-        
-        itemIndex++;
-      }
-      n++;
-    } 
-  }   
-
-  #ifdef EASYSD_DEBUG_SERIAL   
-  Serial.print(F("FL CNT:")); Serial.println(n);
-  #endif
-  for (int i = itemIndex;i<dirFunc.NMax;i++) {
-    for (int j = 0;j<32;j++) {
-      cartInterface.TransmitByteFast(0x00); 
-    } 
-  }  
-  
-  if (padBytes>0) {
-    for (int i=0;i<padBytes;i++) {    
-      cartInterface.TransmitByteFast(0xEA); 
-    }
-  }
-  interrupts();
-  #ifdef EASYSD_DEBUG_SERIAL   
-  TransferInfo(transferLength, padBytes, transferPages);
-  #endif
-  
-  delayMicroseconds(20);
-  cartInterface.DisableCartridge();
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("Done"));    
-  #endif
-}
-
-void CartApi::TransferDirectoryNext() {
-  if (CurrentIndex<dirFunc.GetCount()-dirFunc.NMax) {
-    CurrentIndex = CurrentIndex + dirFunc.NMax;
-    CurrentPageIndex++;
-  }
-  
-  TransferDirectory(CurrentIndex);
-}
-
-void CartApi::TransferDirectoryPrevious() {
-  if (CurrentIndex>=dirFunc.NMax) {
-    CurrentIndex = CurrentIndex - dirFunc.NMax;
-    CurrentPageIndex--;
-  }
-  
-  TransferDirectory(CurrentIndex);  
-}
-
-void CartApi::TransferDirectoryCurrent() {
-  TransferDirectory(CurrentIndex);  
-}
-
-void CartApi::InvokeSelected(int selected, unsigned int args) {
-  #ifdef EASYSD_DEBUG_SERIAL   
-  Serial.print(F("SEL:"));Serial.println(selected);
-  #endif
-  unsigned int n = 0;
-  unsigned int i = 0;
-  dirFunc.Rewind();
-  while (n<255 && dirFunc.Iterate()) { 
-    i = i + 1; 
-    if (!dirFunc.IsFinished && !dirFunc.IsHidden) {  
-      #ifdef EASYSD_DEBUG_SERIAL       
-      //Serial.print(F("n : "));Serial.println(n);      
-      //Serial.print(F("Current page index : "));Serial.println(currentIndex);
-      #endif
-      if (n>=CurrentIndex) {        
-        if (n-CurrentIndex == selected) {
-          #ifdef EASYSD_DEBUG_SERIAL 
-          Serial.print(F("SEL FL:")); Serial.println(dirFunc.CurrentFileName.value);
-          #endif
-          if (dirFunc.IsDirectory) {
-            #ifdef EASYSD_DEBUG_SERIAL 
-            Serial.println(F("DIR!"));
-            #endif
-            if (!strcmp(dirFunc.CurrentFileName.value, "..")) {
-              #ifdef EASYSD_DEBUG_SERIAL
-              Serial.println(F("TO ROOT"));
-              #endif
-              dirFunc.GoBack();
-            } else {
-              dirFunc.ChangeDirectory(dirFunc.CurrentFileName.value);
-            }
-            dirFunc.Prepare();
-            SaveLastDir();
-            CurrentPageIndex = 0;            
-            CurrentIndex = 0;
-            TransferDirectory(CurrentIndex);
-            break;             
-          } else {            
-            dirFunc.SetSelected(selected);
-            TransferGame(dirFunc.CurrentFileName);                                
-//            if (IsMatchLast(dirFunc.CurrentFileName.value, ".wav") || IsMatchLast(dirFunc.CurrentFileName.value, ".WAV")) {
-//              TransferSound(dirFunc.CurrentFileName.value);
-//            } else if (args==0) {
-//              TransferGame(dirFunc.CurrentFileName);                    
-//            } else {
-//              LoadData(args);
-//            }
-          }
-        }       
-      }
-      n++; 
-    } 
-  }   
-}
-*/
-
-void CartApi::TransferGame(StringPrint selectedFile) {
-  TransferGame(selectedFile.value);
-}
-
-void CartApi::TransferGame(char * selectedFileName) {
-  int streamState;  
+void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   const size_t BUF_SIZE = 16;
   uint8_t buf[BUF_SIZE];  
   cartInterface.EndListening();
@@ -1679,7 +1377,7 @@ void CartApi::TransferGame(char * selectedFileName) {
     if (tapRes == SUCCESSFUL) {
       LOGI(PRG, "TAP->PRG OK");
       // Load the converted PRG immediately
-      TransferGame(outPrg);
+      LoadAndLaunchFile(outPrg);
     } else {
       LOGE(PRG, "TAP FAIL");
       // Go back to menu so the C64 isn't left waiting for a transfer.
@@ -1736,8 +1434,6 @@ void CartApi::TransferGame(char * selectedFileName) {
       high = 0x80;
     }
     
-    //noInterrupts();
-    
     SendHeader(low, high, transferPages, transferLength, (crtFile ? TYPE_CARTRIDGE : (booter ? TYPE_BOOTER : TYPE_STANDARD_PRG)), cartInterface.TransferMode); 
 
     #ifdef  USERAMLAUNCHER
@@ -1768,7 +1464,6 @@ void CartApi::TransferGame(char * selectedFileName) {
     //interrupts();
 
     LOGI(SYS, "Done");
-    TransferInfo(transferLength, padBytes, transferPages);
 
     } else {
       LOGE(SYS, "FILENOTFOUND!");
@@ -1847,8 +1542,6 @@ void CartApi::ReceiveFile() {
   }
   delayMicroseconds(20);
   cartInterface.DisableCartridge();
-  TransferInfo(transferLength, padBytes, transferPages);
-
   cartInterface.StartListening();
 }
 #endif // EASYSD_DEBUG_SERIAL
@@ -1937,25 +1630,3 @@ void CartApi::ResetNoCartridge() {
 }
 
 
-/*
-void CartApi::SendTestProgramToSecondaryLoader() {
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("Loading secondary loader"));
-  #endif  
-
-  cartInterface.InitCustomTransfer();
-  delay(500);
-  
-  unsigned long timeRunning = micros();
-  for (int i = 0;i<test_data_len;i++) {
-    cartInterface.TransmitCustomByteAsync(*(testProgram + i));
-  }
-
-  for (int i = test_data_len;i<256;i++) {
-      cartInterface.TransmitByteAsync(0x20); 
-  }
-  unsigned long elapsed = micros() - timeRunning;
-  cartInterface.EndCustomTransfer();    
-  Serial.print("Done - it took "); Serial.print(elapsed); Serial.println(" microseconds");
-}
-*/

@@ -140,12 +140,9 @@ class CartApi {
    void SaveLastDir();
    void RestoreLastDir();
    void HandleValueResponse(uint8_t value);
-   void HandleSetPort();   
-   void HandleSetIO();   
+   void HandleSetPort();
    void HandleEndTalking();
-   void HandleSetSource();
    void HandleInvokeWithName();
-   void HandleInvokeWithIndex();
    void HandleStream();   
    //void HandleExitToMenu();
    static void DoStreaming1();
@@ -166,15 +163,8 @@ class CartApi {
   void ResetNoCartridge();  
   void UpdateFile();
   void ReceiveFile();
-  void TransferGame(char * selectedFileName);
-  void TransferGame(StringPrint selectedFile);
+  void LoadAndLaunchFile(const char* path);
   void InvokeSelected(int selected, unsigned int args);
-  /*
-  void TransferDirectory(int startIndex);
-  void TransferDirectoryNext();
-  void TransferDirectoryPrevious();
-  void TransferDirectoryCurrent();
-  */
 };
 
 #endif
