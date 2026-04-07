@@ -2,64 +2,49 @@
 #define _DIR_FUNCTION_H
 
 #include <SdFat.h>
-// #include <SdFatUtil.h>  // Removed: Not available in SdFat 2.x
-
-
 #include "StringPrint.h"
-#include "CharStack.h"
 
-class DirFunction  {
+class DirFunction {
 
- protected:
-   //SdFile   file;
-   File m_dirFile;  // SdFat 2.x: Directory file handle for iteration
-
- protected:
-    // Sprint 5 P2.2: Unified directory state synchronization helper
+  protected:
+    File m_dirFile;
     bool ResyncDirFromCwd();
 
- public:
-   static const unsigned int NMax = 20;
-   char currentPath[64];
-   uint8_t pathDepth;
+  public:
+    char currentPath[64];
+    uint8_t pathDepth;
 
-   unsigned int count;
-   unsigned int currentIndex;
-   unsigned int selected;
+    unsigned int count;
+    unsigned int currentIndex;
+    unsigned int selected;
 
-
-
-    void SetSd(SdFat* sdFat);
     void ReInit(void);
     void ToRoot();
-    bool GoBack();  // MODIFIED: now returns bool (Sprint 1)
+    bool GoBack();
     void Rewind();
     void Prepare();
-    bool ChangeDirectory(char * directory);  // MODIFIED: now returns bool (Sprint 1)
-    void SetSelected(unsigned int );
+    bool ChangeDirectory(char* directory);
+    void SetSelected(unsigned int);
     unsigned int GetSelected(void);
-    //void InitSerialize();
-    //unsigned char Serialize();
-    //unsigned char  Deserialize(unsigned char p);
     unsigned int GetCount();
-    //void ChangeToSavedDirectory();
     int Iterate();
 
-    // NEW METHODS FOR SPRINT 1: Enhanced basename navigation
     bool ChangeDirectoryBasename(const char* basename);
-    bool NavigateToPath(const char* absPath); // Navigate from root to absolute path (Multi-Load V2)
+    bool NavigateToPath(const char* absPath);
     const char* GetCurrentPath() const;
     void ForceReset();
     void CloseDirHandle();
-    // Scan CWD for a file whose full LFN starts with `prefix` (first `len` chars,
-    // case-insensitive). On match, writes the full name into outName[outSize] and
-    // returns true. Does not affect currentIndex/count/InSubDir state.
+
+    // Scan CWD for a non-hidden file whose full LFN starts with the first `len`
+    // chars of `prefix` (case-insensitive). On match writes the full name into
+    // outName[outSize] and returns true. Does not affect Iterate() state.
     bool FindByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize);
+
     StringPrint CurrentFileName;
-    int  IsDirectory;
+    int IsDirectory;
     int IsFinished;
     int IsHidden;
     int InSubDir;
-	
 };
-#endif _DIR_FUNCTION_H
+
+#endif  // _DIR_FUNCTION_H

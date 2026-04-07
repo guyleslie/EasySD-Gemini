@@ -1,6 +1,4 @@
 #include <SdFat.h>
-// #include <SdFatUtil.h>  // Removed: Not available in SdFat 2.x
-#include <FreeStack.h>  // SdFat 2.x: For memory debugging
 #include "EasySD.h"
 #include "Arduino.h"
 #include "DirFunction.h"
@@ -8,36 +6,25 @@
 
 extern SdFat  sd;
 
-// ========================================================================
-// Sprint 5 P2.2: Unified directory state synchronization helper
-// This is THE canonical way to synchronize m_dirFile with the firmware's
-// current working directory after any sd.chdir() operation.
-// ========================================================================
+// Canonical way to synchronize m_dirFile with the CWD after any sd.chdir().
+// openCwd() is the SdFat 2.x method that ties the file object to the volume's
+// current working directory — do not open by currentPath string (UI only).
 bool DirFunction::ResyncDirFromCwd() {
-  // Step 1: Close any open directory handle
   if (m_dirFile.isOpen()) {
     m_dirFile.close();
   }
-
-  // Step 2: Open current working directory (openCwd is the SdFat 2.x canonical method)
-  // Reference: SdFat 2.x API - openCwd() synchronizes with firmware state
   if (!m_dirFile.openCwd()) {
     LOGE(DIR, "openCwd FAIL after chdir to ");
     LOG_PRINTLN(currentPath);
     return false;
   }
-
-  // Step 3: Rewind to ensure clean iteration state
   m_dirFile.rewind();
-
-  // Sprint 5 P2.1: Explicit state validation in DEBUG mode
   if (!m_dirFile.isOpen()) {
     LOGE(DIR, "ASSERT FAIL - dirFile not open after openCwd");
   }
   if (!m_dirFile.isDir()) {
     LOGE(DIR, "ASSERT FAIL - dirFile is not a directory");
   }
-
   return true;
 }
 
@@ -56,15 +43,10 @@ void DirFunction::ToRoot() {
   memset(currentPath, 0, sizeof(currentPath));
   strcpy(currentPath, "/");
 
-  // Sprint 5 P1.1: Change directory to root
-  // SdFat chdir() without parameters returns to root (official example)
   if (!sd.chdir()) {
     LOGE(DIR, "chdir root FAIL");
     return;
   }
-
-  // Sprint 5 P1.1: MANDATORY - Resync directory handle after chdir
-  // This ensures m_dirFile is synchronized with firmware's CWD
   if (!ResyncDirFromCwd()) {
     LOGE(DIR, "ResyncDirFromCwd FAIL at root");
     return;
@@ -99,7 +81,6 @@ bool DirFunction::GoBack() {
   for (int i = len - 1; i >= 0; i--) {
     if (currentPath[i] == '/') {
       if (i == 0) {
-        // FIXED: Going back to root - use ToRoot() for consistency
         ToRoot();
         return true;
       } else {
@@ -114,17 +95,13 @@ bool DirFunction::GoBack() {
 
   LOGI(DIR, "GoBack to: "); LOG_PRINTLN(currentPath);
 
-  // Sprint 5 P1.1: Change directory
   if (!sd.chdir(currentPath)) {
     LOGE(DIR, "GoBack chdir FAIL");
-    // Rollback
     strcpy(currentPath, savedPath);
     pathDepth = savedDepth;
     InSubDir = (pathDepth > 0) ? 1 : 0;
     return false;
   }
-
-  // Sprint 5 P1.1: MANDATORY - Resync directory handle after chdir
   if (!ResyncDirFromCwd()) {
     LOGE(DIR, "GoBack ResyncDirFromCwd FAIL");
     // Rollback
@@ -158,23 +135,18 @@ bool DirFunction::ChangeDirectory(char * directory) {
   }
   strcat(currentPath, directory);
 
-  // Sprint 5 P1.1: Use RELATIVE path with sd.chdir() - SdFat 2.x best practice
-  // No need to go back to root, just navigate relative to current directory
-  // Reference: SdFat 2.3.0 examples/DirectoryFunctions/DirectoryFunctions.ino line 121
+  // Use basename-relative chdir — SdFat 2.x absolute LFN paths are unreliable.
+  // CWD is already positioned correctly by prior navigation calls.
   if (!sd.chdir(directory)) {
     LOGE(DIR, "chdir FAILED: ");
     LOG_PRINTLN(directory);
-    // Rollback - restore state
     strcpy(currentPath, savedPath);
     pathDepth = savedDepth;
     InSubDir = (pathDepth > 0) ? 1 : 0;
     return false;
   }
-
-  // Sprint 5 P1.1: MANDATORY - Resync directory handle after chdir
   if (!ResyncDirFromCwd()) {
     LOGE(DIR, "ChangeDirectory ResyncDirFromCwd FAIL");
-    // Rollback - restore state
     strcpy(currentPath, savedPath);
     pathDepth = savedDepth;
     InSubDir = (pathDepth > 0) ? 1 : 0;
@@ -194,9 +166,7 @@ void DirFunction::Prepare() {
   count = 0;
   currentIndex = 0;
 
-  // Sprint 5 P1.1: CRITICAL FIX - Use openCwd() instead of open(currentPath)
-  // currentPath is for UI/debug ONLY. The firmware's CWD is the single source of truth.
-  // This ensures we're always synchronized with the actual directory state.
+  // currentPath is for UI/debug only; CWD is the single source of truth.
   if (!ResyncDirFromCwd()) {
     LOGE(DIR, "Prepare ResyncDirFromCwd FAIL at ");
     LOG_PRINTLN(currentPath);
@@ -273,9 +243,6 @@ unsigned int DirFunction::GetSelected(void) {
   return selected;
 }
 
-// ========================================================================
-// NEW METHODS FOR SPRINT 1: Enhanced basename navigation with validation
-// ========================================================================
 
 bool DirFunction::ChangeDirectoryBasename(const char* basename) {
   if (!basename || basename[0] == '\0') {
