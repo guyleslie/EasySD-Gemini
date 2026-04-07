@@ -89,8 +89,8 @@ CART_ROM_RESTORE .macro
 	STA ZP_IRQ_API_DATA_LO
 	LDA #>DIRLOAD
 	STA ZP_IRQ_API_DATA_HI
-	LDA #$03		;Max 256*3 bytes of data
-	STA ZP_IRQ_API_DATA_LENGTH	
+	LDA #$06		;Max 256*6 bytes of data (21 entries * 64 bytes + 2 header)
+	STA ZP_IRQ_API_DATA_LENGTH
 	LDA #<(DIRREAD-1)
 	STA ZP_IRQ_API_CALLBACK_LO
 	LDA #>(DIRREAD-1)
@@ -374,7 +374,7 @@ _eld_done
 ENTERDIR
 .if DEBUG = 0
 	; Set filename: NAMELOW/NAMEHIGH point to selected dir's record (set by ISDIRECTORY)
-	; Record format: bytes 0-30 = null-terminated ASCII dirname, byte 31 = type
+	; Record format: bytes 0-62 = null-terminated ASCII dirname, byte 63 = type
 	LDX NAMELOW
 	LDY NAMEHIGH
 	JSR PROT_SetNameZ		; sets KERNAL_FILENAME_LOW/LENGTH from null-terminated name
@@ -392,9 +392,9 @@ DOREADDIRECTORY
 	STA ZP_IRQ_API_DATA_LO
 	LDA #>DIRLOAD
 	STA ZP_IRQ_API_DATA_HI
-	LDA #$03		;Max 256*3 bytes of data
-	STA ZP_IRQ_API_DATA_LENGTH	
-	
+	LDA #$06		;Max 256*6 bytes of data (21 entries * 64 bytes + 2 header)
+	STA ZP_IRQ_API_DATA_LENGTH
+
 	LDY #$00
 	LDX #21			;Max 21 directory items
 	LDA CURPAGEINDEX
@@ -932,8 +932,8 @@ ISDIRECTORY
 	STA NAMELOW
 	LDA NAMESHI, X
 	STA NAMEHIGH
-	LDY #31
-	LDA (NAMELOW), Y	
+	LDY #63			; byte 63 = type flag (0x04=dir, 0x00=file)
+	LDA (NAMELOW), Y
 	CMP #$04
 	RTS
 			
@@ -1267,7 +1267,7 @@ SETCOL
 	BEQ FINISH	
 	LDA NAMELOW
 	CLC
-	ADC #$20
+	ADC #$40		; advance by 64 (MAXFILENAMELENGTH)
 	STA NAMELOW
 	BCC NEXTFILE
 	INC NAMEHIGH
@@ -1780,7 +1780,7 @@ COLS
 ;	.WORD $0594, $05BC, $05E4, $060C, $0634, $065C, $0684, $06AC, $06D4, $06FC
 ;	.WORD $0724, $074C, $0774, $079C, $07C4
 	
-MAXFILENAMELENGTH = 32	
+MAXFILENAMELENGTH = 64
 MAXDIRITEMS = 21
 -       = GAMELIST + range(0, MAXDIRITEMS * MAXFILENAMELENGTH, MAXFILENAMELENGTH)
 NAMESLO   .byte <(-)

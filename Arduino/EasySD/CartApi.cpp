@@ -416,25 +416,23 @@ void CartApi::HandleReadDirectory() {
     //Send initial state of directories.
     while (curItemIndex<numberOfEntries && dirFunc.Iterate() && !dirFunc.IsFinished) {  
       if (!dirFunc.IsHidden) {  
-        if (actualTransferredBytes + 32 <maxBytesToTransfer) {
-          // Print the file number and name.
-          for (int i=0;(i<dirFunc.CurrentFileName.index) && (i<31);i++) {
-//          for (int i=0;(i<dirFunc.CurrentFileName.index) && (i<20);i++) {
-            //cartInterface.TransmitByteFast(cbm_ascii2petscii_c(tolower(dirFunc.CurrentFileName.value[i]))); 
-            cartInterface.TransmitByteFast(tolower(dirFunc.CurrentFileName.value[i])); 
+        if (actualTransferredBytes + 64 <maxBytesToTransfer) {
+          // Print the file number and name (max 63 chars, byte 63 = type flag).
+          for (int i=0;(i<dirFunc.CurrentFileName.index) && (i<63);i++) {
+            cartInterface.TransmitByteFast(tolower(dirFunc.CurrentFileName.value[i]));
           }
-          
-          for (int i=dirFunc.CurrentFileName.index;i<31;i++) {
+
+          for (int i=dirFunc.CurrentFileName.index;i<63;i++) {
             cartInterface.TransmitByteFast(0x00);
           }
 
           if (dirFunc.IsDirectory) {
-            cartInterface.TransmitByteFast(0x04);            
+            cartInterface.TransmitByteFast(0x04);
           } else {
-            cartInterface.TransmitByteFast(0x00);                        
+            cartInterface.TransmitByteFast(0x00);
           }
-                  
-          actualTransferredBytes = actualTransferredBytes +32;        
+
+          actualTransferredBytes = actualTransferredBytes +64;        
           
           curItemIndex++;
         } else {

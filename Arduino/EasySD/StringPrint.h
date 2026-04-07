@@ -14,9 +14,8 @@ class StringPrint : public Print {
  	//int index;
   uint8_t index;
         //char value[128];
-        //char value[64];
+        char value[64];
         //char value[32];
-        char value[32];
 #if ARDUINO >= 100
   virtual size_t write(uint8_t);
 #else
