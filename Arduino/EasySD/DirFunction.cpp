@@ -66,51 +66,30 @@ bool DirFunction::GoBack() {
     return true;
   }
 
-  // Save current state for rollback
-  char savedPath[64];
-  strcpy(savedPath, currentPath);
-  uint8_t savedDepth = pathDepth;
-
-  // Remove trailing slash
-  if (currentPath[len-1] == '/') {
-    currentPath[len-1] = '\0';
-    len--;
-  }
-
-  // Find last '/' and truncate
-  for (int i = len - 1; i >= 0; i--) {
-    if (currentPath[i] == '/') {
+  // Compute parent path by stripping the last path component
+  char parentPath[64];
+  strcpy(parentPath, currentPath);
+  int plen = strlen(parentPath);
+  if (parentPath[plen-1] == '/') { parentPath[--plen] = '\0'; }
+  for (int i = plen - 1; i >= 0; i--) {
+    if (parentPath[i] == '/') {
       if (i == 0) {
         ToRoot();
         return true;
-      } else {
-        currentPath[i] = '\0';
       }
+      parentPath[i] = '\0';
       break;
     }
   }
 
-  pathDepth--;
-  if (pathDepth == 0) InSubDir = 0;
+  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(parentPath);
 
-  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(currentPath);
-
-  if (!sd.chdir(currentPath)) {
-    LOGE(DIR, "GoBack chdir FAIL");
-    strcpy(currentPath, savedPath);
-    pathDepth = savedDepth;
-    InSubDir = (pathDepth > 0) ? 1 : 0;
+  // Navigate segment-by-segment from root — consistent with NavigateToPath().
+  // sd.chdir(absolutePath) with LFN names is unreliable in SdFat 2.x.
+  if (!NavigateToPath(parentPath)) {
+    LOGE(DIR, "GoBack FAIL");
     return false;
   }
-  if (!ResyncDirFromCwd()) {
-    LOGE(DIR, "GoBack ResyncDirFromCwd FAIL");
-    // Rollback
-    strcpy(currentPath, savedPath);
-    pathDepth = savedDepth;
-    InSubDir = (pathDepth > 0) ? 1 : 0;
-    return false;
-  }
-
   return true;
 }
 
