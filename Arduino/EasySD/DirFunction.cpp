@@ -348,3 +348,24 @@ void DirFunction::CloseDirHandle() {
     m_dirFile.close();
   }
 }
+
+bool DirFunction::FindByPrefix(const char* prefix, uint8_t len,
+                               char* outName, size_t outSize) {
+  m_dirFile.rewind();
+  File f;
+  while (f.openNext(&m_dirFile)) {
+    if (f.isDir() || f.isHidden()) { f.close(); continue; }
+    size_t n = f.getName(outName, outSize);
+    f.close();
+    if (n < len) continue;
+    bool match = true;
+    for (uint8_t i = 0; i < len; i++) {
+      if (tolower((uint8_t)outName[i]) != tolower((uint8_t)prefix[i])) {
+        match = false;
+        break;
+      }
+    }
+    if (match) return true;
+  }
+  return false;
+}

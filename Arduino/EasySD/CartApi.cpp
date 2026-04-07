@@ -848,36 +848,18 @@ void CartApi::HandleInvokeWithName() {
 
   // Verify file exists before committing to C64 — once SUCCESSFUL is sent,
   // C64 expects a reset; if the file is missing we cannot send an error after.
-  // Note: the C64 protocol sends at most 31 chars of a filename. If sd.exists()
-  // fails, scan the current directory for a file whose name starts with openName
-  // (handles filenames > 31 chars that were truncated by the menu protocol).
+  // The C64 protocol sends at most 31 chars per filename. For files with names
+  // longer than 31 chars the received name is a truncated prefix. When
+  // sd.exists() fails, scan the CWD using SdFat's getName() to find the full
+  // LFN that starts with the received prefix (case-insensitive).
   if (!sd.exists(openName)) {
     static char matchBuf[64];
-    bool found = false;
     uint8_t len = strlen(openName);
-    dirFunc.Rewind();
-    while (dirFunc.Iterate() && !dirFunc.IsFinished) {
-      if (dirFunc.IsDirectory) continue;
-      if (dirFunc.CurrentFileName.index < len) continue;
-      bool match = true;
-      for (uint8_t i = 0; i < len; i++) {
-        if (tolower((uint8_t)dirFunc.CurrentFileName.value[i]) != (uint8_t)openName[i]) {
-          match = false;
-          break;
-        }
-      }
-      if (match) {
-        strncpy(matchBuf, dirFunc.CurrentFileName.value, 63);
-        matchBuf[63] = '\0';
-        openName = matchBuf;
-        found = true;
-        break;
-      }
-    }
-    if (!found) {
+    if (!dirFunc.FindByPrefix(openName, len, matchBuf, sizeof(matchBuf))) {
       HandleResponse(FILE_NOT_FOUND, 0);
       return;
     }
+    openName = matchBuf;
   }
 
   HandleResponse(SUCCESSFUL, 0);

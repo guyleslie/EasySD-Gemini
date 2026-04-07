@@ -51,7 +51,11 @@ class DirFunction  {
     const char* GetCurrentPath() const;
     void ForceReset();
     void CloseDirHandle();
-    StringPrint CurrentFileName;  
+    // Scan CWD for a file whose full LFN starts with `prefix` (first `len` chars,
+    // case-insensitive). On match, writes the full name into outName[outSize] and
+    // returns true. Does not affect currentIndex/count/InSubDir state.
+    bool FindByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize);
+    StringPrint CurrentFileName;
     int  IsDirectory;
     int IsFinished;
     int IsHidden;
