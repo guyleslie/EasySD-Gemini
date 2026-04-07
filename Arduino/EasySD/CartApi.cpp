@@ -416,13 +416,13 @@ void CartApi::HandleReadDirectory() {
     //Send initial state of directories.
     while (curItemIndex<numberOfEntries && dirFunc.Iterate() && !dirFunc.IsFinished) {  
       if (!dirFunc.IsHidden) {  
-        if (actualTransferredBytes + 64 <maxBytesToTransfer) {
-          // Print the file number and name (max 63 chars, byte 63 = type flag).
-          for (int i=0;(i<dirFunc.CurrentFileName.index) && (i<63);i++) {
+        if (actualTransferredBytes + 32 <maxBytesToTransfer) {
+          // Print the file number and name.
+          for (int i=0;(i<dirFunc.CurrentFileName.index) && (i<31);i++) {
             cartInterface.TransmitByteFast(tolower(dirFunc.CurrentFileName.value[i]));
           }
 
-          for (int i=dirFunc.CurrentFileName.index;i<63;i++) {
+          for (int i=dirFunc.CurrentFileName.index;i<31;i++) {
             cartInterface.TransmitByteFast(0x00);
           }
 
@@ -432,7 +432,7 @@ void CartApi::HandleReadDirectory() {
             cartInterface.TransmitByteFast(0x00);
           }
 
-          actualTransferredBytes = actualTransferredBytes +64;        
+          actualTransferredBytes = actualTransferredBytes +32;        
           
           curItemIndex++;
         } else {
@@ -848,9 +848,36 @@ void CartApi::HandleInvokeWithName() {
 
   // Verify file exists before committing to C64 — once SUCCESSFUL is sent,
   // C64 expects a reset; if the file is missing we cannot send an error after.
+  // Note: the C64 protocol sends at most 31 chars of a filename. If sd.exists()
+  // fails, scan the current directory for a file whose name starts with openName
+  // (handles filenames > 31 chars that were truncated by the menu protocol).
   if (!sd.exists(openName)) {
-    HandleResponse(FILE_NOT_FOUND, 0);
-    return;
+    static char matchBuf[64];
+    bool found = false;
+    uint8_t len = strlen(openName);
+    dirFunc.Rewind();
+    while (dirFunc.Iterate() && !dirFunc.IsFinished) {
+      if (dirFunc.IsDirectory) continue;
+      if (dirFunc.CurrentFileName.index < len) continue;
+      bool match = true;
+      for (uint8_t i = 0; i < len; i++) {
+        if (tolower((uint8_t)dirFunc.CurrentFileName.value[i]) != (uint8_t)openName[i]) {
+          match = false;
+          break;
+        }
+      }
+      if (match) {
+        strncpy(matchBuf, dirFunc.CurrentFileName.value, 63);
+        matchBuf[63] = '\0';
+        openName = matchBuf;
+        found = true;
+        break;
+      }
+    }
+    if (!found) {
+      HandleResponse(FILE_NOT_FOUND, 0);
+      return;
+    }
   }
 
   HandleResponse(SUCCESSFUL, 0);
