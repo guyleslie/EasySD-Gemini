@@ -305,24 +305,26 @@ void CartApi::HandleGetInfoForFile() {
   if (workingFile == NULL) {
       HandleResponse(NOT_INITIALIZED, 0);
   } else if (workingFile.isOpen()) {
-    DirFat_t dir;  // SdFat 2.x: dir_t renamed to DirFat_t
-    if (workingFile.dirEntry(&dir)) {
-      HandleResponse(SUCCESSFUL, 1);
-      noInterrupts();
-      uint8_t * infoBuffer = (uint8_t *) &dir;
-      for (uint8_t i = 0; i < 32; i++) {
-        cartInterface.TransmitByteFast(*(infoBuffer + i));
-      }
-      for (uint16_t i = 32; i < 256; i++) {
-        cartInterface.TransmitByteFast(0);
-      }
-      interrupts();
-      delayMicroseconds(20);
-    } else {
-      HandleResponse(FILE_INFO_FAILED, 0);
+    // Use fileSize() instead of dirEntry() to avoid SD card re-read.
+    // dirEntry() must seek back to the directory sector for the file's entry,
+    // which causes an SPI blocking hang in this context (after NMI transfer).
+    // fileSize() returns the value cached by sd.open() — no SPI access.
+    // All callers only use bytes 28-31 (file size); other bytes are irrelevant.
+    uint32_t sz = workingFile.fileSize();
+    HandleResponse(SUCCESSFUL, 1);
+    noInterrupts();
+    for (uint8_t i = 0; i < 28; i++) {
+      cartInterface.TransmitByteFast(0);
     }
-
-
+    cartInterface.TransmitByteFast((uint8_t)(sz));
+    cartInterface.TransmitByteFast((uint8_t)(sz >> 8));
+    cartInterface.TransmitByteFast((uint8_t)(sz >> 16));
+    cartInterface.TransmitByteFast((uint8_t)(sz >> 24));
+    for (uint16_t i = 32; i < 256; i++) {
+      cartInterface.TransmitByteFast(0);
+    }
+    interrupts();
+    delayMicroseconds(20);
   } else {
     HandleResponse(FILE_IS_NOT_OPENED, 0);
   }
