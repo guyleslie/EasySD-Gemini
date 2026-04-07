@@ -545,7 +545,7 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
     print("[PLUGINS] OK")
 
 
-def build_multiload(ctx: Context, *, debug: int, debug_break: int) -> None:
+def build_multiload(ctx: Context, *, debug: int, debug_break: int, ml_debug_borders: int = 0) -> None:
     """Build only BOOT.PRG (MultiLoad plugin) without rebuilding all plugins."""
     ensure_dirs(ctx)
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
@@ -555,12 +555,14 @@ def build_multiload(ctx: Context, *, debug: int, debug_break: int) -> None:
     listing = ctx.lst_dir / "bootpluginLST.txt"
 
     print(f"[MULTILOAD] Building Loader/Bridges/MultiLoad/MultiLoad.s -> build/plugins/bootplugin.prg")
+    if ml_debug_borders:
+        print("[MULTILOAD] ML_DEBUG_BORDERS=1 — border-color markers enabled for hardware diagnostics")
     run_cmd(
         [
             tass, "-c", "-b", "--long-branch",
             "-D", f"DEBUG={debug}",
             "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
-            "-D", "ML_DEBUG_BORDERS=0",
+            "-D", f"ML_DEBUG_BORDERS={ml_debug_borders}",
             str(src),
             "-o", str(out_prg),
             "--labels", str(labels),
@@ -570,8 +572,12 @@ def build_multiload(ctx: Context, *, debug: int, debug_break: int) -> None:
     )
     print("[MULTILOAD] OK")
     print(f"  Output: {out_prg}")
-    print("  Copy bootplugin.prg to the game directory on the SD card as BOOT.PRG")
-    print("  Then set FIRST_PART_NAME in MultiLoad.s to the game's first load filename.")
+    if ml_debug_borders:
+        print("  Border colors: 1=white(entry) 2=red(savestate) 3=cyan(RL_INSTALL)")
+        print("                 4=purple(StartTalking) 5=green(Send) 6=blue(WaitProc)")
+        print("                 7=yellow(RecvFragment) 8=orange(OpenFile ok) 9=brown(OpenFile fail)")
+        print("  Last visible color before hang = the stage that hangs.")
+    print("  Copy bootplugin.prg to the game directory on the SD card as EASYLOAD.PRG")
 
 
 def build_vice_tests(ctx: Context) -> None:
@@ -958,6 +964,7 @@ Examples:
     # Options
     p.add_argument("--debug", action="store_true", help="Enable DEBUG mode (C64 mock data + Arduino SERIAL ON)")
     p.add_argument("--debug-break-after-load", action="store_true", help="Set DEBUG_BREAK_AFTER_LOAD=1")
+    p.add_argument("--ml-debug-borders", action="store_true", help="MultiLoad: enable border-color stage markers (ML_DEBUG_BORDERS=1) for real-hardware hang diagnosis")
     p.add_argument("--skip-arduino", action="store_true", help="Skip Arduino/EPROM artifacts in C64 builds")
     p.add_argument("--menu-prg-name", default=None, help="Override menu PRG output name")
     p.add_argument("--baudrate", type=int, default=57600, help="Baudrate for serial monitor (default: 57600)")
@@ -1111,7 +1118,8 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if args.target == "multiload":
-        build_multiload(ctx, debug=debug, debug_break=debug_break)
+        ml_debug_borders = 1 if args.ml_debug_borders else 0
+        build_multiload(ctx, debug=debug, debug_break=debug_break, ml_debug_borders=ml_debug_borders)
         return 0
 
     if args.target in ("release", "debug-vice", "debug-arduino"):

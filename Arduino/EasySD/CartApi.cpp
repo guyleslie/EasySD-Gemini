@@ -833,15 +833,28 @@ void CartApi::HandleInvokeWithName() {
     return;
   }
 
+  // NUL-terminate the received filename (GetArgumentsDynamic does not do this).
+  Arguments[2 + fileNameLength] = '\0';
+
+  // For absolute paths (e.g. "/PRG/dizzy 2 1  -cmm.prg"), sd.exists() with an
+  // absolute path containing LFN components can fail in SdFat 2.x.
+  // The CWD is already set to the parent directory by DirFunction during menu
+  // navigation, so we use just the basename with the current directory.
+  const char* openName = fileName;
+  if (fileName[0] == '/') {
+    const char* lastSlash = strrchr(fileName, '/');
+    if (lastSlash) openName = lastSlash + 1;
+  }
+
   // Verify file exists before committing to C64 — once SUCCESSFUL is sent,
   // C64 expects a reset; if the file is missing we cannot send an error after.
-  if (!sd.exists(fileName)) {
+  if (!sd.exists(openName)) {
     HandleResponse(FILE_NOT_FOUND, 0);
     return;
   }
 
   HandleResponse(SUCCESSFUL, 0);
-  LoadAndLaunchFile(fileName);
+  LoadAndLaunchFile(openName);
 }
 
 void CartApi::HandleValueResponse(uint8_t value) {
