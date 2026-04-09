@@ -2,7 +2,6 @@
 #define _DIR_FUNCTION_H
 
 #include <SdFat.h>
-#include "StringPrint.h"
 
 class DirFunction {
 
@@ -40,7 +39,7 @@ class DirFunction {
     // outName[outSize] and returns true. Does not affect Iterate() state.
     bool FindByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize);
 
-    StringPrint CurrentFileName;
+    char currentFileName[64];
     int IsDirectory;
     int IsFinished;
     int IsHidden;

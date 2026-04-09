@@ -257,7 +257,7 @@ void testListDirectory() {
     if (!dirFunc.IsHidden) {
       ic++;
       Serial.print(dirFunc.IsDirectory ? F("[D] ") : F("[ ] "));
-      Serial.println(dirFunc.CurrentFileName.value);
+      Serial.println(dirFunc.currentFileName);
       if (dirFunc.IsDirectory) dc++;
     }
   }

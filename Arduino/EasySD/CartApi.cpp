@@ -418,11 +418,12 @@ void CartApi::HandleReadDirectory() {
       if (!dirFunc.IsHidden) {  
         if (actualTransferredBytes + 32 <maxBytesToTransfer) {
           // Print the file number and name.
-          for (int i=0;(i<dirFunc.CurrentFileName.index) && (i<31);i++) {
-            cartInterface.TransmitByteFast(tolower(dirFunc.CurrentFileName.value[i]));
+          uint8_t flen = (uint8_t)strlen(dirFunc.currentFileName);
+          if (flen > 31) flen = 31;
+          for (uint8_t i = 0; i < flen; i++) {
+            cartInterface.TransmitByteFast(tolower((uint8_t)dirFunc.currentFileName[i]));
           }
-
-          for (int i=dirFunc.CurrentFileName.index;i<31;i++) {
+          for (uint8_t i = flen; i < 31; i++) {
             cartInterface.TransmitByteFast(0x00);
           }
 

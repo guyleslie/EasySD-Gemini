@@ -165,12 +165,12 @@ void DirFunction::Prepare() {
 }
 
 int DirFunction::Iterate() {
-  File   file;
+  File file;
 
-  CurrentFileName.ResetIndex();
+  currentFileName[0] = '\0';
 
   if (InSubDir == 1 && currentIndex == 0) {
-    CurrentFileName.Copy("..");
+    strcpy(currentFileName, "..");
     IsDirectory = 1;
     IsHidden = 0;
     currentIndex++;
@@ -180,13 +180,13 @@ int DirFunction::Iterate() {
   if (currentIndex < count) {
     if (file.openNext(&m_dirFile)) {
       if (!file.isHidden()) {
-        file.printName(&CurrentFileName);
+        file.getName(currentFileName, sizeof(currentFileName));
         currentIndex++;
         IsDirectory = file.isSubDir();
         IsHidden = 0;
         file.close();
         return 1;
-      }  else {
+      } else {
         IsHidden = 1;
         IsDirectory = file.isSubDir();
         file.close();
