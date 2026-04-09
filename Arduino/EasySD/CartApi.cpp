@@ -54,20 +54,7 @@ void CartApi::RestoreLastDir() {
   // Root or invalid: nothing to restore
   if (path[0] != '/' || path[1] == '\0') return;
 
-  // Navigate from root, segment by segment
-  char* p = path + 1;  // skip leading '/'
-  while (*p) {
-    char* slash = strchr(p, '/');
-    if (slash) *slash = '\0';
-    bool ok = dirFunc.ChangeDirectory(p);
-    if (slash) *slash = '/';
-    if (!ok) {
-      dirFunc.ToRoot();
-      return;
-    }
-    if (!slash) break;
-    p = slash + 1;
-  }
+  dirFunc.NavigateToPath(path);
 }
 
 void CartApi::Init() {
@@ -102,28 +89,23 @@ void CartApi::HandleReadFile() {
   unsigned int actualLength = 0;  
   cartInterface.ResetIndex();
   noInterrupts();
-  cartInterface.SoftEndListening();  
+  cartInterface.SoftEndListening();
 
-  if (workingFile == NULL) {
-      HandleResponse(NOT_INITIALIZED, 0);
-  } else if (workingFile.isOpen()) {
-    //HandleResponse(SUCCESSFUL, 100);
+  if (!workingFile.isOpen()) {
+    HandleResponse(FILE_IS_NOT_OPENED, 0);
+  } else {
     HandleResponse(SUCCESSFUL, 1);
     delayMicroseconds(1000);
-    while(workingFile.available() > 0 && actualLength<totalLength) {  
+    while (workingFile.available() > 0 && actualLength < totalLength) {
       int readCount = workingFile.read(fileBuffer, BUFFER_SIZE);
-  
       if (readCount > 0) {
-        for (int i = 0;i<readCount;i++) {     
-            cartInterface.TransmitByteFastStd(fileBuffer[i]);
-        }        
-        actualLength = actualLength + readCount;
+        for (int i = 0; i < readCount; i++) {
+          cartInterface.TransmitByteFastStd(fileBuffer[i]);
+        }
+        actualLength += readCount;
       }
-
       delayMicroseconds(100);
-    } 
-  } else {
-    HandleResponse(FILE_IS_NOT_OPENED, 0);
+    }
   }
   for (unsigned int i = 0;i<(totalLength - actualLength);i++) {
     cartInterface.TransmitByteFast(0);
@@ -136,24 +118,20 @@ void CartApi::HandleReadFile() {
 void CartApi::HandleOpenFile() {
   GetArgumentsDynamic(1);
   uint8_t flags = Arguments[0];
-
   unsigned int fileNameLength = Arguments[1];
 
-  // Support both absolute and relative paths
-  // Absolute paths (starting with '/') open from root
-  // Relative paths use current directory set by sd.chdir() in DirFunction
   if (fileNameLength == 0) { HandleResponse(INVALID_ARGUMENT, 1); return; }
-  char * fileName = (char *) &Arguments[2];
+  char* fileName = (char*)&Arguments[2];
 
   // Ensure NUL-termination within our buffer
   if (fileNameLength < MAX_ARGUMENTS_LENGTH) {
     fileName[fileNameLength] = 0;
   } else {
-    fileName[MAX_ARGUMENTS_LENGTH-1] = 0;
+    fileName[MAX_ARGUMENTS_LENGTH - 1] = 0;
   }
 
-  // SdFat automatically resolves relative paths using current directory
-  // set by sd.chdir() (managed by DirFunction class)
+  // Open relative to CWD (managed by DirFunction).
+  // Absolute LFN paths are unreliable in SdFat 2.x — always use relative names.
   workingFile = sd.open(fileName, flags);
 
   if (workingFile != NULL) {
@@ -166,56 +144,44 @@ void CartApi::HandleOpenFile() {
 }
 void CartApi::HandleCloseFile() {
   GetArgumentsStatic(0);
-  //HandleResponse(SUCCESSFUL, 1000);
 
-  if (workingFile == NULL) {
-      LOGE(FILE, "File not initialized");
-      //HandleResponse(NOT_INITIALIZED, 100);
-      HandleResponse(NOT_INITIALIZED, 1);
-  } else if (workingFile.isOpen()) {
-    LOGI(FILE, "File closed");
-    workingFile.close();
-    //HandleResponse(SUCCESSFUL, 100);
-    HandleResponse(SUCCESSFUL, 1);
-  } else {
-    //HandleResponse(FILE_IS_NOT_OPENED, 100);
+  if (!workingFile.isOpen()) {
     HandleResponse(FILE_IS_NOT_OPENED, 1);
+    return;
   }
-
+  LOGI(FILE, "File closed");
+  workingFile.close();
+  HandleResponse(SUCCESSFUL, 1);
 }
 
 
 
 void CartApi::HandleWriteFile() {
   GetArgumentsStatic(32);
-  if (workingFile == NULL) {
-      HandleResponse(NOT_INITIALIZED, 0);
-  } else if (workingFile.isOpen()) {
-    // write() returns size_t (unsigned): 0 on failure, count on success
-    size_t bytesWritten = workingFile.write(Arguments, WRITE_BUFFER_SIZE);
-    if (bytesWritten == 0 || workingFile.getWriteError()) {
-      workingFile.clearWriteError();
-      HandleResponse(FILE_WRITE_HAS_FAILED, 0);
-    } else if (bytesWritten < WRITE_BUFFER_SIZE) {
-      HandleResponse(WRITE_NOT_COMPLETE, 0);
-    } else if (!workingFile.sync()) {
-      // sync() flushes cache to SD — critical for C64 data integrity
-      HandleResponse(FILE_WRITE_HAS_FAILED, 0);
-    } else {
-      HandleResponse(SUCCESSFUL, 0);
-    }
-  } else {
+  if (!workingFile.isOpen()) {
     HandleResponse(FILE_IS_NOT_OPENED, 0);
+    return;
+  }
+  // write() returns size_t (unsigned): 0 on failure, count on success
+  size_t bytesWritten = workingFile.write(Arguments, WRITE_BUFFER_SIZE);
+  if (bytesWritten == 0 || workingFile.getWriteError()) {
+    workingFile.clearWriteError();
+    HandleResponse(FILE_WRITE_HAS_FAILED, 0);
+  } else if (bytesWritten < WRITE_BUFFER_SIZE) {
+    HandleResponse(WRITE_NOT_COMPLETE, 0);
+  } else if (!workingFile.sync()) {
+    HandleResponse(FILE_WRITE_HAS_FAILED, 0);
+  } else {
+    HandleResponse(SUCCESSFUL, 0);
   }
 }
 
 void CartApi::HandleDeleteFile() {
   GetArgumentsDynamic(1);
-  uint8_t flags = Arguments[0];
+  // Arguments[0] = flags (reserved, sent by protocol but not currently used)
   unsigned int fileNameLength = Arguments[1];
-  char * fileName = (char *) &Arguments[2];
+  char* fileName = (char*)&Arguments[2];
 
-  // Ensure NUL-termination (same pattern as HandleOpenFile)
   if (fileNameLength == 0) { HandleResponse(INVALID_ARGUMENT, 0); return; }
   if (fileNameLength < MAX_ARGUMENTS_LENGTH) {
     fileName[fileNameLength] = 0;
@@ -234,101 +200,67 @@ void CartApi::HandleDeleteFile() {
   }
 }
 
-//TODO: Signed integer support should be added
 void CartApi::HandleSeekFile() {
   GetArgumentsStatic(3);
   unsigned int seekDirection = Arguments[0];
-  uint8_t low = Arguments[1];
+  uint8_t low  = Arguments[1];
   uint8_t high = Arguments[2];
+  unsigned int seekPosition = (high << 8) | low;
 
-  unsigned int seekPosition =  (high<<8) | low;
-  
-  if (workingFile == NULL) {
-      HandleResponse(NOT_INITIALIZED, 0);
-  } else if (workingFile.isOpen()) {
-    bool status = false;
-    if (seekDirection == SEEK_FROM_BEGINNING) {
-      status = workingFile.seekSet(seekPosition);
-    } else if (seekDirection == SEEK_FROM_CURRENT) {
-      status = workingFile.seekCur(seekPosition);
-    } else if (seekDirection == SEEK_FROM_END) {
-      status = workingFile.seekEnd(seekPosition);    
-    }
-
-    if (status) {
-      HandleResponse(SUCCESSFUL, 1); // Other solution???
-    } else {
-      HandleResponse(CANT_SEEK, 1);
-    }
-  } else {
+  if (!workingFile.isOpen()) {
     HandleResponse(FILE_IS_NOT_OPENED, 1);
+    return;
   }
+  bool ok = false;
+  if (seekDirection == SEEK_FROM_BEGINNING)      ok = workingFile.seekSet(seekPosition);
+  else if (seekDirection == SEEK_FROM_CURRENT)   ok = workingFile.seekCur(seekPosition);
+  else if (seekDirection == SEEK_FROM_END)        ok = workingFile.seekEnd(seekPosition);
+  HandleResponse(ok ? SUCCESSFUL : CANT_SEEK, 1);
 }
 
 
 void CartApi::HandleLongSeekFile() {
   GetArgumentsStatic(5);
   unsigned int seekDirection = Arguments[0];
-  uint8_t low = Arguments[1];
-  uint8_t high = Arguments[2];
+  uint8_t low      = Arguments[1];
+  uint8_t high     = Arguments[2];
   uint8_t upperLow = Arguments[3];
   uint8_t upperHigh = Arguments[4];
+  uint32_t seekPosition = ((uint32_t)upperHigh << 24) | ((uint32_t)upperLow << 16)
+                        | ((uint32_t)high << 8) | low;
 
-  unsigned long seekPosition = (upperHigh<<24) | (upperLow<<16) | (high<<8) | low;
-  
-  if (workingFile == NULL) {
-      HandleResponse(NOT_INITIALIZED, 0);
-  } else if (workingFile.isOpen()) {
-    bool status = false;
-    if (seekDirection == SEEK_FROM_BEGINNING) {
-      status = workingFile.seekSet(seekPosition);
-    } else if (seekDirection == SEEK_FROM_CURRENT) {
-      status = workingFile.seekCur(seekPosition);
-    } else if (seekDirection == SEEK_FROM_END) {
-      status = workingFile.seekEnd(seekPosition);    
-    }
-
-    if (status) {
-      HandleResponse(SUCCESSFUL, 0);
-    } else {
-      HandleResponse(CANT_SEEK, 0);
-    }
-  } else {
+  if (!workingFile.isOpen()) {
     HandleResponse(FILE_IS_NOT_OPENED, 0);
+    return;
   }
-
+  bool ok = false;
+  if (seekDirection == SEEK_FROM_BEGINNING)      ok = workingFile.seekSet(seekPosition);
+  else if (seekDirection == SEEK_FROM_CURRENT)   ok = workingFile.seekCur(seekPosition);
+  else if (seekDirection == SEEK_FROM_END)        ok = workingFile.seekEnd(seekPosition);
+  HandleResponse(ok ? SUCCESSFUL : CANT_SEEK, 0);
 }
 
 
 void CartApi::HandleGetInfoForFile() {
   GetArgumentsStatic(0);
-  if (workingFile == NULL) {
-      HandleResponse(NOT_INITIALIZED, 0);
-  } else if (workingFile.isOpen()) {
-    // Use fileSize() instead of dirEntry() to avoid SD card re-read.
-    // dirEntry() must seek back to the directory sector for the file's entry,
-    // which causes an SPI blocking hang in this context (after NMI transfer).
-    // fileSize() returns the value cached by sd.open() — no SPI access.
-    // All callers only use bytes 28-31 (file size); other bytes are irrelevant.
-    uint32_t sz = workingFile.fileSize();
-    HandleResponse(SUCCESSFUL, 1);
-    noInterrupts();
-    for (uint8_t i = 0; i < 28; i++) {
-      cartInterface.TransmitByteFast(0);
-    }
-    cartInterface.TransmitByteFast((uint8_t)(sz));
-    cartInterface.TransmitByteFast((uint8_t)(sz >> 8));
-    cartInterface.TransmitByteFast((uint8_t)(sz >> 16));
-    cartInterface.TransmitByteFast((uint8_t)(sz >> 24));
-    for (uint16_t i = 32; i < 256; i++) {
-      cartInterface.TransmitByteFast(0);
-    }
-    interrupts();
-    delayMicroseconds(20);
-  } else {
+  if (!workingFile.isOpen()) {
     HandleResponse(FILE_IS_NOT_OPENED, 0);
+    return;
   }
-
+  // Use fileSize() — value is cached by sd.open(), no SPI access.
+  // dirEntry() re-reads the directory sector via SPI and hangs in this context
+  // (confirmed: BUG-F). All callers (#GETFILEINFO) only need bytes 28-31 (size).
+  uint32_t sz = workingFile.fileSize();
+  HandleResponse(SUCCESSFUL, 1);
+  noInterrupts();
+  for (uint8_t i = 0; i < 28; i++) cartInterface.TransmitByteFast(0);
+  cartInterface.TransmitByteFast((uint8_t)(sz));
+  cartInterface.TransmitByteFast((uint8_t)(sz >> 8));
+  cartInterface.TransmitByteFast((uint8_t)(sz >> 16));
+  cartInterface.TransmitByteFast((uint8_t)(sz >> 24));
+  for (uint16_t i = 32; i < 256; i++) cartInterface.TransmitByteFast(0);
+  interrupts();
+  delayMicroseconds(20);
 }
 
 void CartApi::HandleGetPath() {
@@ -398,8 +330,7 @@ void CartApi::HandleReadDirectory() {
 
     
     uint8_t currentItemsCount = dirFunc.GetCount()>startingIndex + numberOfEntries ? numberOfEntries : dirFunc.GetCount() - startingIndex;
-    //int padValue = (dirFunc.CurrentItemsCount % numberOfEntries) == 0 ? 0 : numberOfEntries - (dirFunc.CurrentItemsCount % numberOfEntries);
-    uint8_t pagePadValue = (dirFunc.GetCount() % numberOfEntries) >0 ? 1 : 0;    
+    uint8_t pagePadValue = (dirFunc.GetCount() % numberOfEntries) > 0 ? 1 : 0;
     uint8_t pageCount = (byte)(dirFunc.GetCount()/numberOfEntries + pagePadValue);  
   
     cartInterface.ResetIndex();
@@ -473,7 +404,6 @@ void CartApi::HandleChangeDirectory() {
     fileName[MAX_ARGUMENTS_LENGTH - 1] = '\0';
   }
 
-  // Use basename-only navigation (Sprint 1: Enhanced error handling)
   bool success = dirFunc.ChangeDirectoryBasename(fileName);
 
   if (success) {
@@ -488,11 +418,10 @@ void CartApi::HandleChangeDirectory() {
 
 void CartApi::HandleDeleteDirectory() {
   GetArgumentsDynamic(1);
-  uint8_t flags = Arguments[0];
+  // Arguments[0] = flags (reserved, sent by protocol but not currently used)
   unsigned int fileNameLength = Arguments[1];
-  char * fileName = (char *) &Arguments[2];
+  char* fileName = (char*)&Arguments[2];
 
-  // Ensure NUL-termination
   if (fileNameLength == 0) { HandleResponse(INVALID_ARGUMENT, 0); return; }
   if (fileNameLength < MAX_ARGUMENTS_LENGTH) {
     fileName[fileNameLength] = 0;
@@ -513,11 +442,10 @@ void CartApi::HandleDeleteDirectory() {
 
 void CartApi::HandleCreateDirectory() {
   GetArgumentsDynamic(1);
-  uint8_t flags = Arguments[0];
+  // Arguments[0] = flags (reserved, sent by protocol but not currently used)
   unsigned int fileNameLength = Arguments[1];
-  char * fileName = (char *) &Arguments[2];
+  char* fileName = (char*)&Arguments[2];
 
-  // Ensure NUL-termination
   if (fileNameLength == 0) { HandleResponse(INVALID_ARGUMENT, 0); return; }
   if (fileNameLength < MAX_ARGUMENTS_LENGTH) {
     fileName[fileNameLength] = 0;
@@ -854,6 +782,7 @@ void CartApi::HandleInvokeWithName() {
   // sd.exists() fails, scan the CWD using SdFat's getName() to find the full
   // LFN that starts with the received prefix (case-insensitive).
   if (!sd.exists(openName)) {
+    // Static: avoids 64B stack allocation inside a path that may be hot.
     static char matchBuf[64];
     uint8_t len = strlen(openName);
     if (!dirFunc.FindByPrefix(openName, len, matchBuf, sizeof(matchBuf))) {
@@ -971,13 +900,11 @@ void CartApi::HandleStream() {
   uint8_t delayBetweenBytes = Arguments[2];
 
 
-  if (workingFile == NULL) {
-      HandleResponse(NOT_INITIALIZED, 0);
-  } else if (workingFile.isOpen()) {
-      // No need to assign pointers - they're already initialized to static buffers
-      //chunkLength = STREAMING_BUFFER_SIZE / countStreamedBytes;
-      workingFile.read(streamingBuffer1, DOUBLE_BUFFER_SIZE);      
-      HandleResponse(SUCCESSFUL, 0);         
+  if (!workingFile.isOpen()) {
+    HandleResponse(FILE_IS_NOT_OPENED, 0);
+  } else {
+      workingFile.read(streamingBuffer1, DOUBLE_BUFFER_SIZE);
+      HandleResponse(SUCCESSFUL, 0);
       
       // Reset state for new stream
       streamBufferIndex = 0;
@@ -1007,9 +934,7 @@ out:
       TIMSK2 = 0x02; // Enable timer 2 interrupts (for milliseconds and so on)
       cartInterface.DisableCartridge(); // EXROM HIGH: clean state before returning to command mode
       cartInterface.StartListening();
-  } else {
-    HandleResponse(FILE_IS_NOT_OPENED, 0);
-  }      
+  }
 }
 
 
@@ -1081,10 +1006,10 @@ void CartApi::HandleNonInterruptedStream() {
 
   if (countOf8Bytes > DOUBLE_BUFFER_SIZE / 8) {
     HandleResponse(INVALID_ARGUMENT, 0);
-  } else if (workingFile == NULL) {
-      HandleResponse(NOT_INITIALIZED, 0);
-  } else if (workingFile.isOpen()) {
-      HandleResponse(SUCCESSFUL, 0);   
+  } else if (!workingFile.isOpen()) {
+    HandleResponse(FILE_IS_NOT_OPENED, 0);
+  } else {
+      HandleResponse(SUCCESSFUL, 0);
 
       // Disable receiving interrupt but keep the state of the communication channel on.
       cartInterface.SoftEndListening(); 
@@ -1139,9 +1064,7 @@ ni_out:
       interrupts();
       TIMSK2 = 0x02; // Enable timer 2 interrupts
       cartInterface.StartListening();
-  } else {
-    HandleResponse(FILE_IS_NOT_OPENED, 0);
-  }      
+  }
 }
 
 
