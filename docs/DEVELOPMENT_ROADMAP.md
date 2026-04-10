@@ -1,6 +1,6 @@
 # EasySD Development Roadmap
 
-Last updated: 2026-04-10
+Last updated: 2026-04-10 (HWTest fix added)
 
 This document captures the current state of the project, the root causes of known bugs,
 architectural decisions, and the planned sequence of work. Intended as a hand-off document
@@ -17,7 +17,7 @@ between development sessions.
 | PRG loading — all lengths | ✅ | KernalBridge + P2TK for $C000+ programs |
 | LFN filenames with spaces | ✅ | BUG-E fixed |
 | Long filenames >31 chars | ✅ | BUG-G fixed |
-| HWTest plugin | ✅ | Signal diagnostic |
+| HWTest plugin | 🔧 | Protocol fix applied (a43749a, 2026-04-10), test pending |
 | MultiLoad (Last Ninja 2 etc.) | ⚠️ | GETFILEINFO fix applied, hardware test pending |
 | KoalaDisplayer (.KOA) | 🔧 | Protocol fix applied (2026-04-10), test pending |
 | PetsciiDisplayer (.PET) | 🔧 | Protocol fix applied (2026-04-10), test pending |
@@ -64,7 +64,7 @@ failed (carry set), no close is needed.
 
 ---
 
-### Bug Log: KoalaDisplayer and PetsciiDisplayer (FIXED 2026-04-10)
+### Bug Log: KoalaDisplayer, PetsciiDisplayer, HWTest (FIXED 2026-04-10)
 
 **KoalaDisplayer:**
 - Missing `JSR PROT_StartTalking` at `ALTENTRY` — all protocol calls failed silently
@@ -80,7 +80,12 @@ failed (carry set), no close is needed.
 - Missing `JSR PROT_CloseFile` in `ERRORREADING` and `ERROR_BADSIZE`
 - Missing `JSR PROT_EndTalking` in `EXITFAIL`
 
-Commit: `b3454ed`
+Commits: `b3454ed` (KOA + PET), `a43749a` (HWTest)
+
+**HWTest:**
+- `PROT_StartTalking` was correctly called before `COMMAND_HWTEST`
+- Missing `JSR PROT_EndTalking` at the single `_done` exit point (both success and
+  `_comm_fail` paths flow through it). No file operations → no `PROT_CloseFile` needed.
 
 ---
 
@@ -243,6 +248,7 @@ of CartLibHi.s or in a separate `PluginTemplate.s`:
 Phase 1 — Plugin bug fixes (in progress)
   ✅ KoalaDisplayer: StartTalking + EndTalking + CloseFile paths
   ✅ PetsciiDisplayer: StartTalking + BCC label fix + EndTalking + CloseFile paths
+  ✅ HWTest: EndTalking added at _done exit point
   🔲 CvdPlayer: NI stream exit redesign (GAME line detection)
   🔲 WavPlayer: hardware debug with border colors
   🔲 MusPlayer: verify SIDPLAYER.PRG + ComputePlayerSymbols.inc alignment
