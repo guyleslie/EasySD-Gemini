@@ -23,7 +23,11 @@ MAIN
 	PRINTSTATUSANDWAIT INITTEXT, 100	
 	DELAYFRAMES 250
 	
-ALTENTRY	
+ALTENTRY
+
+	; Start protocol session — MUST be called before any file operations.
+	; PROT_EndTalking must be called on ALL exit paths.
+	JSR PROT_StartTalking
 
 ;Lets try to open a file
 	PRINTSTATUSANDWAIT OPENINGFILE, 100
@@ -84,12 +88,21 @@ SIZE_OK
 
 	JSR PROT_DisableDisplay
 	JSR LoadFileBySize
-	BCC +
-	JMP ERRORREADING
-+
-ERRORREADING	
+	BCC LOAD_SUCCESS		; Carry clear = success
+	JMP ERRORREADING		; Carry set = error
+
+	; File loaded successfully — close and display.
+LOAD_SUCCESS
+	JSR PROT_CloseFile
 	JSR PROT_EnableDisplay
-	PRINTSTATUSANDWAIT READINGFAILED, 200		
+	JSR DISPLAYPICTURE
+	JMP INPUT_GET
+
+	; File was opened before this error path — close it before exit.
+ERRORREADING
+	JSR PROT_CloseFile
+	JSR PROT_EnableDisplay
+	PRINTSTATUSANDWAIT READINGFAILED, 200
 	JMP EXITFAIL
 	
 ERROR_OPENING_FILE	
@@ -99,6 +112,8 @@ ERROR_OPENING_FILE
 	
 
 ERROR_BADSIZE
+	; File was opened before this check — close it before exit.
+	JSR PROT_CloseFile
 	JSR PROT_EnableDisplay
 	PRINTSTATUSANDWAIT BADSIZE, 250
 	JMP EXITFAIL
@@ -127,11 +142,11 @@ INPUT_GET
  	JSR GETIN		; Get the pressed key by the kernal routine
   	BEQ INPUT_GET		; If zero then no key is pressed so repeat
 	
-EXITFAIL	
+EXITFAIL
 	JSR RESTORESTATE		; Restore VIC/$01 state for clean menu return
+	JSR PROT_EndTalking		; End protocol session before returning to menu
 	JSR PROT_DisableDisplay
 	JSR PROT_ExitToMenu
-
 	JMP *
 DISPLAYPICTURE
 	LDA READBUFFER
