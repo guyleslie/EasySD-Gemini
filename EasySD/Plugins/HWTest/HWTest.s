@@ -125,6 +125,7 @@ _done
     LDX #90                     ; ~1.5s at PAL 50Hz, ~1.25s at NTSC 60Hz
     JSR WAITFRAMES
     JSR RESTORESTATE
+    JSR PROT_EndTalking         ; End protocol session before returning to menu
     JSR PROT_DisableDisplay
     JSR PROT_ExitToMenu
     JMP *
