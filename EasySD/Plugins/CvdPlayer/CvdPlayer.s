@@ -88,7 +88,13 @@ DELAYFRAMES	.macro
 	JSR WAITFRAMES
 	.endm
 
+; Tier-2 API macros (#GETFILEINFO, #EXTRACTFILESIZE, etc.)
+.include "../../Loader/APIMacros.s"
 
+; 4-byte ZP counter: remaining bytes in CVD file.
+; Decremented by 400 each block; underflow triggers clean exit.
+; Uses $8B-$8E (free per CartZpMap.inc).
+CVD_SIZE = $8B
 
 	*=$080E
 	
@@ -132,6 +138,20 @@ CVD_STRLEN_DONE
 	JMP ERROR_OPENING_FILE
 
 +
+	; Query file size for natural end-of-stream detection.
+	; TRANSFERBUFFER ($A000) is safe to use here — streaming not yet started.
+	#GETFILEINFO TRANSFERBUFFER
+	BCC +
+	; GETFILEINFO failed: set counter to max ($FFFFFFFF) — stream until SEL press
+	LDA #$FF
+	STA CVD_SIZE
+	STA CVD_SIZE+1
+	STA CVD_SIZE+2
+	STA CVD_SIZE+3
+	JMP CVD_SIZE_READY
++	#EXTRACTFILESIZE TRANSFERBUFFER, CVD_SIZE
+CVD_SIZE_READY
+
 	DELAYFRAMES 2
 	LDA #50     ; 50 * 8 = 400 bytes per block
 	JSR PROT_NIStream
@@ -170,32 +190,10 @@ ZIBIRT
 AGAIN	
 	CLV
 	
-LOOP 	
+LOOP
 	BIT FG_GATE
-	BVS EXIT		
-    
-    ; --- STOP Key Check ---
-    LDA $01
-    PHA
-    LDA #$37
-    STA $01
-    JSR $FFE1       ; Check STOP key
-    BEQ StopPressed
-    PLA
-    STA $01
-    ; ----------------------
-    
+	BVS EXIT
 	JMP LOOP
-
-StopPressed
-    PLA
-    STA $01
-    SEI
-    LDA #$00
-    STA $D01A       ; Disable Raster IRQ
-    JSR PROT_CloseFile
-    JSR PROT_ExitToMenu
-    RTS
 
 EXIT
 	LDA #$37			
@@ -236,16 +234,46 @@ EXIT
 	STA BORDER
 .include "FGStuff.s"
 
-OUTCOPY	
+OUTCOPY
 	LDA #00
 	STA BORDER
-
+	; Decrement 32-bit remaining-byte counter by 400 (one CVD block = 400 bytes).
+	; Carry clear on underflow means file is exhausted — exit cleanly.
+	SEC
+	LDA CVD_SIZE+0
+	SBC #<400
+	STA CVD_SIZE+0
+	LDA CVD_SIZE+1
+	SBC #>400
+	STA CVD_SIZE+1
+	LDA CVD_SIZE+2
+	SBC #0
+	STA CVD_SIZE+2
+	LDA CVD_SIZE+3
+	SBC #0
+	STA CVD_SIZE+3
+	BCC CVD_DONE
 	INY
 	CPY #20
 	BNE +
 	LDY #$00
-+	
++
 	JMP AGAIN
+
+; Natural end-of-file exit path.
+; Arduino exits HandleNonInterruptedStream() on EOF, then calls StartListening().
+; We delay 5 frames (~100ms) to let the Arduino complete that transition before
+; re-sending PROT_StartTalking to re-establish the command session.
+CVD_DONE
+	SEI
+	LDA #$00
+	STA $D01A       ; Disable raster IRQ
+	DELAYFRAMES 5
+	JSR PROT_StartTalking
+	JSR PROT_CloseFile
+	JSR PROT_EndTalking
+	JSR PROT_ExitToMenu
+	RTS
 	
 ;TRANSFERROUTINE
 ;	LDX #$00
@@ -340,7 +368,9 @@ INIT		; Input : None, Changed : A
 		
 	RTS
 	
-ERROR_OPENING_FILE	
+ERROR_OPENING_FILE
+	; PROT_StartTalking was called before PROT_OpenFile, so EndTalking is required.
+	JSR PROT_EndTalking
 	JSR PROT_ExitToMenu
 	
 

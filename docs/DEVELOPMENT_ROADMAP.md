@@ -89,7 +89,7 @@ Commits: `b3454ed` (KOA + PET), `a43749a` (HWTest)
 
 ---
 
-### Bug: CvdPlayer — NI Stream Exit Path (NOT YET FIXED)
+### Bug: CvdPlayer — NI Stream Exit Path (FIXED 2026-04-11)
 
 CvdPlayer correctly calls `PROT_StartTalking`. Its main failure is the exit mechanism.
 
@@ -120,10 +120,15 @@ side. After the user presses SEL:
 2. C64 code (if it detects GAME line going low) calls `JSR PROT_StartTalking` again
 3. Then `JSR PROT_CloseFile` → `JSR PROT_EndTalking` → `JSR PROT_ExitToMenu`
 
-**Required fix:**
-- Detect GAME line ($DD00 bit) going low as the exit trigger instead of STOP key
-- OR restructure the streaming loop so the C64 counts frames and terminates gracefully
-- `ERROR_OPENING_FILE` also needs `PROT_EndTalking` before `PROT_ExitToMenu`
+**Fix applied (2026-04-11):**
+- C64: Added `#GETFILEINFO` call before `PROT_NIStream` to read file size into `CVD_SIZE`
+  ($8B-$8E, 32-bit). `OUTCOPY` decrements CVD_SIZE by 400 each block; underflow jumps
+  to `CVD_DONE` which does SEI + 5-frame delay + `PROT_StartTalking` re-sync + clean exit.
+- Arduino: `HandleNonInterruptedStream()` now checks EOF after each buffer refill
+  (`workingFile.read() == 0` → `goto ni_out`). Both sides exit concurrently at file end.
+- Removed broken STOP key handler (called `PROT_CloseFile` while Arduino was in NI loop).
+- Fixed `ERROR_OPENING_FILE`: added `PROT_EndTalking` before `PROT_ExitToMenu`.
+- Hardware test pending.
 
 ---
 
@@ -249,7 +254,7 @@ Phase 1 — Plugin bug fixes (in progress)
   ✅ KoalaDisplayer: StartTalking + EndTalking + CloseFile paths
   ✅ PetsciiDisplayer: StartTalking + BCC label fix + EndTalking + CloseFile paths
   ✅ HWTest: EndTalking added at _done exit point
-  🔲 CvdPlayer: NI stream exit redesign (GAME line detection)
+  ✅ CvdPlayer: NI stream exit redesign — frame counter + Arduino EOF detection
   🔲 WavPlayer: hardware debug with border colors
   🔲 MusPlayer: verify SIDPLAYER.PRG + ComputePlayerSymbols.inc alignment
 

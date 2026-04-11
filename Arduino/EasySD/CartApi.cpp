@@ -1046,15 +1046,18 @@ void CartApi::HandleNonInterruptedStream() {
             PORTC = portCVal | (val & 0x0F);            
         }   
         
-        // --- This is the key: Read next data into the buffer we just finished sending ---
-        // Since we are outside the inner loop, we can afford a bit more time.
+        // --- Refill the buffer we just finished sending ---
         // C64 is currently busy processing the 400 bytes we just sent.
-        interrupts(); // Temporarily re-enable interrupts for SD card stability
+        // interrupts() re-enabled here for SD card stability.
+        // EOF check: if read() returns 0 the file is exhausted — exit cleanly.
+        // The C64 detects end-of-stream via its CVD_SIZE frame counter and will
+        // call PROT_StartTalking to re-establish the session after this exit.
+        interrupts();
         if (currentBuffer == 0) {
-            workingFile.read((uint8_t*)streamBuffer1, bufferLength);
+            if (workingFile.read((uint8_t*)streamBuffer1, bufferLength) == 0) goto ni_out;
             currentBuffer = 1; // Next time we send buffer 2
         } else {
-            workingFile.read((uint8_t*)streamBuffer2, bufferLength);
+            if (workingFile.read((uint8_t*)streamBuffer2, bufferLength) == 0) goto ni_out;
             currentBuffer = 0; // Next time we send buffer 1
         }
         noInterrupts();
