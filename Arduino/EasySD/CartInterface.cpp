@@ -167,7 +167,8 @@ void CartInterface::IOSetup() {
   // Set EXROM HIGH before enabling output — avoids a ~1-2µs LOW glitch that
   // occurs when pinMode(OUTPUT) drives PD2 low before digitalWrite(HIGH).
   // The C64 PLA samples EXROM on PHI2 (1µs period) and would catch that glitch,
-  // asserting /ROML and letting the CPU read from the (empty) EEPROM socket →
+  // asserting /ROML and letting the CPU read from the (empty) cartridge ROML
+  // chip socket (AT28C64B / M27C64A) →
   // floating data bus → garbage opcode → immediate system freeze.
   PORTD |= _BV(PD2);   // latch HIGH first
   DDRD  |= _BV(PD2);   // then enable output — pin starts HIGH, no glitch
@@ -296,11 +297,13 @@ void CartInterface::EnableCartridge() {
 }
 
 void CartInterface::EnableExromOnly() {
-  // EXROM LOW — cartridge ROM becomes visible to C64 (ROML active).
-  // Data bus pins intentionally left as INPUT (tristate) so the EEPROM can
-  // drive the data bus undisturbed. Required for the CBM80 check at $8004-$8008:
-  // if data pins were OUTPUT(0x00) here, ATmega's 40mA sink would override the
-  // EEPROM's 4mA source and CBM80 detection would fail even with EEPROM installed.
+  // EXROM LOW — cartridge ROML chip (AT28C64B / M27C64A) becomes visible to
+  // C64 at $8000-$9FFF (ROML active).
+  // Data bus pins intentionally left as INPUT (tristate) so the cartridge ROML
+  // chip can drive the data bus undisturbed. Required for the CBM80 check at
+  // $8004-$8008: if data pins were OUTPUT(0x00) here, ATmega's 40mA sink would
+  // override the chip's 4mA source and CBM80 detection would fail even with
+  // the chip installed.
   PORTD &= ~_BV (PD2);
 }
 
