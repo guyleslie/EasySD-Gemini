@@ -113,7 +113,7 @@ class CartApi {
   void HandleWriteEeprom();
   void IncrementEepromAddress();
   void SaveLastDir();
-  void RestoreLastDir();
+  bool RestoreLastDir();  // returns true if restore succeeded, false if stayed at root
   void HandleValueResponse(uint8_t value);
   void HandleSetPort();
   void HandleEndTalking();
