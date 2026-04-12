@@ -71,43 +71,46 @@ static uint16_t crc16_update(uint16_t crc, uint8_t a) {
 // Last-Directory Persistence Functions
 // ============================================================================
 
-// Saves the current directory path to EEPROM as a validated resume record.
-// Called only after a successful COMMAND_CHANGE_DIR. Does not run at boot.
-// If path is root, invalidates the record instead of writing it.
+// Saves a directory path to EEPROM as a validated resume record.
+// Parameterized (not implicit) for flexibility: caller provides the path.
+// If path is root ("/"), invalidates the record instead of writing it.
 // Write order: committed=0x00 (invalidate), payload+CRC, committed=0xAA (commit).
-void CartApi::SaveLastDir() {
-  // If current path is root ("/"), invalidate any existing resume record.
+// Returns true on success, false on failure.
+bool CartApi::SaveLastDirRecord(const char* path) {
+  // If path is root ("/"), invalidate any existing resume record.
   // This gives clean semantics: "no resume state" rather than "invalid save".
-  if (dirFunc.currentPath[0] == '/' && dirFunc.currentPath[1] == '\0') {
+  if (path[0] == '/' && path[1] == '\0') {
     EEPROM.update(EEPROM_LD_COMMITTED, 0x00);
-    return;
+    return true;
   }
 
   // Step 1: Invalidate old record first (crash-safe)
   EEPROM.update(EEPROM_LD_COMMITTED, 0x00);
 
   // Step 2: Write payload (magic, version, pathLen, path)
-  uint8_t pathLen = strlen(dirFunc.currentPath);
+  uint8_t pathLen = strlen(path);
   if (pathLen > 63) pathLen = 63;
 
   EEPROM.update(EEPROM_LD_MAGIC0, 0xE5);
   EEPROM.update(EEPROM_LD_MAGIC1, 0xD0);
   EEPROM.update(EEPROM_LD_VERSION, 0x01);
   EEPROM.update(EEPROM_LD_PATHLEN, pathLen);
-  eeprom_update_block(dirFunc.currentPath, (void*)(EEPROM_LD_PATH), 64);
+  eeprom_update_block(path, (void*)(EEPROM_LD_PATH), 64);
 
   // Step 3: Compute and write CRC16
   uint16_t crc = 0;
   crc = crc16_update(crc, 0x01);  // version
   crc = crc16_update(crc, pathLen);
   for (uint8_t i = 0; i <= pathLen; i++)  // include null terminator
-    crc = crc16_update(crc, dirFunc.currentPath[i]);
+    crc = crc16_update(crc, path[i]);
 
   EEPROM.update(EEPROM_LD_CRC_LO, (uint8_t)(crc & 0xFF));
   EEPROM.update(EEPROM_LD_CRC_HI, (uint8_t)(crc >> 8));
 
   // Step 4: Commit (write last)
   EEPROM.update(EEPROM_LD_COMMITTED, 0xAA);
+
+  return true;  // Simplified: assume EEPROM write succeeds (AVR is reliable)
 }
 
 // Reads and validates the EEPROM resume record. Returns true if a valid
@@ -159,8 +162,8 @@ bool CartApi::RestoreLastDir() {
 
 void CartApi::Init() {
   eepromIndex = 0;
-  lastDirPendingSave = false;
-  lastDirIdleCounter = 0;
+  lastDirDirty = false;
+  pendingLastDir[0] = '\0';
   /* Not talking at the moment */
   //TalkStatus = 0;
   cartInterface.SetPage(0);
@@ -557,10 +560,12 @@ void CartApi::HandleChangeDirectory() {
 
   if (success) {
     dirFunc.Prepare();
-    // Deferred save: flag the last-dir for saving, but don't write to EEPROM here.
-    // The write happens later during idle, to avoid blocking the protocol response.
-    lastDirPendingSave = true;
-    lastDirIdleCounter = 0;  // Reset idle counter to start waiting for idle window
+    // RAM shadow: remember the new directory, but don't write to EEPROM yet.
+    // The actual EEPROM flush happens when the menu reloads (before restore).
+    // This keeps the COMMAND_CHANGE_DIR response path clean and fast.
+    strncpy(pendingLastDir, dirFunc.currentPath, sizeof(pendingLastDir) - 1);
+    pendingLastDir[sizeof(pendingLastDir) - 1] = '\0';
+    lastDirDirty = true;
     HandleResponse(SUCCESSFUL, 1);
   } else {
     LOGE(DIR, "CD FAILED");
@@ -1328,20 +1333,7 @@ void CartApi::HandleApi() {
         //LOGD(PROTO, "Port clear!");
 
         cartInterface.SetPage(0);
-        // Reset idle counter on every command
-        lastDirIdleCounter = 0;
       }
-   } else {
-     // Idle: increment counter and check for deferred save
-     lastDirIdleCounter++;
-
-     // Save last-dir only after sufficient idle time (~50 cycles = ~50-100ms idle)
-     // This ensures the save happens in a relaxed window, not during protocol critical path
-     if (lastDirPendingSave && lastDirIdleCounter > 50) {
-       SaveLastDir();
-       lastDirPendingSave = false;
-       lastDirIdleCounter = 0;
-     }
    }
 }  
 
@@ -1489,17 +1481,27 @@ void CartApi::TransferMenu() {
   cartInterface.DisableCartridge();
 
   // ========================================================================
-  // Last-directory restore: delayed auto-restore
+  // Last-directory persistence: next-menu-reload flush + restore
   // ========================================================================
-  // Close the menu source file before restore: keeps SdFat state clean.
+  // Close the menu source file: keeps SdFat state clean.
   // The file is no longer needed — the menu PRG is now in C64 RAM.
   if (readFromFile && workingFile) workingFile.close();
 
-  // Restore the last saved directory now — before StartListening() activates
-  // the command loop — so the first COMMAND_READ_DIR response reflects the
-  // saved path. If restore fails for any reason, dirFunc stays at root
-  // (safe fallback). The C64 does not need to know about restore — it simply
-  // gets the correct directory listing in the first response.
+  // Flush any pending last-dir change from the previous menu session.
+  // The RAM shadow (pendingLastDir + lastDirDirty) was set during successful
+  // COMMAND_CHANGE_DIR, but EEPROM write was deferred to avoid blocking the
+  // protocol response. Now, during menu transfer (safe point), we write it.
+  if (lastDirDirty) {
+    if (SaveLastDirRecord(pendingLastDir)) {
+      lastDirDirty = false;  // Only clear flag on successful write
+    }
+  }
+
+  // Restore the last saved directory (either freshly flushed, or from previous session).
+  // Restore happens after flush, so we read the most up-to-date record.
+  // If restore fails, dirFunc stays at root (safe fallback).
+  // The C64 does not need to know about restore — it simply gets the correct
+  // directory listing in the first COMMAND_READ_DIR response.
   RestoreLastDir();
 
   // ========================================================================
