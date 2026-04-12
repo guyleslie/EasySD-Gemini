@@ -131,7 +131,9 @@ python Tools/build.py arduino-upload-isp --optiboot
 
 ### Flash the Cartridge ROML Chip
 
-The build produces `EasySD/build/easysd.prg` — this is the C64 cartridge ROM image. Write it to the AT27C512R-45PU or M27C512 with a suitable programmer.
+The build produces `EasySD/build/IRQLoaderRom.bin` — this is the image for the cartridge ROML chip. Write it to the AT27C512R-45PU or M27C512 with a suitable programmer.
+
+`EasySD/build/easysd.prg` is the C64 menu program that `TransferMenu()` prefers to load from the SD card root as `EASYSD.PRG` when present.
 
 ---
 

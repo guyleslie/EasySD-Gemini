@@ -386,7 +386,7 @@ if c64_sources_modified_after(buildconfig_timestamp):
 ```bash
 Tools/test_directory_navigation.py
 ```
-- Validates CWD invariant (firmware's currentPath is authoritative)
+- Validates the firmware CWD invariant; `currentPath` is a mirrored UI/debug path, not the source of truth
 - Tests ChangeDirectory() rollback on failure
 - Verifies Prepare() counts entries correctly
 

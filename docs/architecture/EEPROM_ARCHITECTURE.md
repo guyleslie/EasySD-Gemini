@@ -11,12 +11,12 @@ terminology used throughout the source code and documents both chips' roles.
 | Concept | Canonical name in comments | Physical device |
 |---------|---------------------------|-----------------|
 | ATmega328P built-in EEPROM | **MCU internal EEPROM** | On-chip, 1 KB, read/write at runtime via `EEPROM.h` / `avr/eeprom.h` |
-| Cartridge PCB memory chip | **cartridge ROML chip** | External IC on PCB: Microchip AT28C64B (EEPROM) or ST M27C64A (UV EPROM), 8 KB, programmed externally |
+| Cartridge PCB memory chip | **cartridge ROML chip** | External IC on PCB: AT27C512R-45PU or M27C512, 64 KB, programmed externally |
 
 Key rule: whenever source code comments mention "MCU internal EEPROM" they
 refer to Arduino runtime read/write via `EEPROM.read()` / `EEPROM.write()`.
 Whenever comments mention "cartridge ROML chip" they refer to the external
-AT28C64B or M27C64A IC that the C64 sees at `$8000-$9FFF` (ROML).
+AT27C512R-45PU or M27C512 IC that the C64 sees at `$8000-$9FFF` (ROML).
 
 ---
 
@@ -26,17 +26,17 @@ AT28C64B or M27C64A IC that the C64 sees at `$8000-$9FFF` (ROML).
 
 | Variant | Type | Notes |
 |---------|------|-------|
-| Microchip **AT28C64B** | 8K×8 EEPROM | Most common "modern" type; erased/programmed electrically with a programmer |
-| ST Microelectronics **M27C64A** | 8K×8 UV EPROM | Classic windowed EPROM; erased with UV light, programmed with a programmer |
+| **AT27C512R-45PU** | 64K×8 cartridge ROM device | Supported cartridge ROML chip used in the current PCB/build documentation |
+| **M27C512** | 64K×8 EPROM | Compatible cartridge ROML chip option |
 
 Both are pin-compatible and functionally identical at runtime (read-only from
 the Arduino's perspective).
 
 ### Role
 
-This chip holds the IRQ loader code that the C64 executes from cartridge ROM
-space (`$8000–$9FFF`, ROML). It also serves as the **data transfer medium**
-for the NMI streaming protocol (`SetPage` + fixed read address).
+This chip holds the cartridge-side loader image that the C64 executes from cartridge ROM
+space (`$8000–$9FFF`, ROML). It also serves as the data source for the NMI transfer path
+that uses `SetPage` plus fixed ROML read addresses.
 
 ### Hardware connections
 
@@ -86,10 +86,10 @@ This is `CARTRIDGE_BANK_VALUE = $80AB` in the C64 assembly source.
 
 ### Chip image layout
 
-The 8 KB chip is divided into **32 pages × 256 bytes** (for the IRQ loader
-image). Every page contains the same IRQ loader code, but at specific byte
-offsets within each page the value equals the page index. This allows
-`SetPage()` + fixed read address to transfer an arbitrary byte value.
+The current build generates a 64 KB image for the cartridge ROML chip.
+It is built from repeated IRQ-loader pages with embedded page-index bytes at
+selected offsets. This allows `SetPage()` + fixed read address to transfer an
+arbitrary byte value.
 
 Offsets within each page that contain the page index (decimal):
 
@@ -119,9 +119,8 @@ python Tools/build.py release
 
 `build.py` function: `create_eprom_loader(irq_bin, eprom_out, eprom_pos)`
 
-Input: `IRQLoader.65s.bin` (256 bytes — the IRQ loader binary)
-Output: `IRQLoaderRom.bin` (65536 bytes — 256 copies, one per page, with
-page index embedded at the positions listed above)
+Input: `IRQLoader.65s.bin` (IRQ loader binary)
+Output: `IRQLoaderRom.bin` (65536 bytes — generated image for the cartridge ROML chip)
 
 ---
 
@@ -210,8 +209,8 @@ protocol (IO2 software serial, C64 → Arduino).
 | | Cartridge ROML chip (PCB) | MCU internal EEPROM |
 |---|---|---|
 | Canonical name | "cartridge ROML chip" | "MCU internal EEPROM" |
-| Chip variants | AT28C64B (EEPROM) or M27C64A (UV EPROM) | Built-in ATmega328P |
-| Size | 8 KB | 1 KB |
+| Chip variants | AT27C512R-45PU or M27C512 | Built-in ATmega328P |
+| Size | 64 KB | 1 KB |
 | Arduino write | No (read-only at runtime) | Yes |
 | Purpose | IRQ loader ROM + NMI streaming data transfer | Persistent settings (last-visited dir) |
 | C64 access | `LDA $80AB` (ROML, via SetPage) | `PROT_ReadEeprom` / `PROT_WriteEeprom` |

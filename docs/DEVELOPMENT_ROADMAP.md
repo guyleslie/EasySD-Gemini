@@ -1,162 +1,46 @@
 # EasySD Development Roadmap
 
-Last updated: 2026-04-12 (status reconciled with source)
+Last updated: 2026-04-12
 
-This document captures the current state of the project, the root causes of known bugs,
-architectural decisions, and the planned sequence of work. Intended as a hand-off document
-between development sessions.
+This file is the short planning view of the project. It should stay focused on current source-backed status and next work, not on historical debugging transcripts.
 
 ---
 
-## Current Hardware Status (PCB v3, source-verified 2026-04-12)
+## Current Source-Backed State
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Cold boot auto-load (menu appears) | ✅ | |
-| Directory navigation, scroll indicators | ✅ | |
-| PRG loading — all lengths | ✅ | KernalBridge + P2TK for $C000+ programs |
-| LFN filenames with spaces | ✅ | BUG-E fixed |
-| Long filenames >31 chars | ✅ | BUG-G fixed |
-| HWTest plugin | 🔧 | Protocol fix applied (a43749a, 2026-04-10), test pending |
-| MultiLoad (Last Ninja 2 etc.) | ⚠️ | GETFILEINFO fix applied, hardware test pending |
-| KoalaDisplayer (.KOA) | 🔧 | Protocol fix applied (2026-04-10), test pending |
-| PetsciiDisplayer (.PET) | 🔧 | Protocol fix applied (2026-04-10), test pending |
-| WavPlayer (.WAV) | ❌ | Protocol session handling present; full-path open fix applied, hardware retest pending |
-| MusPlayer (.MUS) | ❌ | Full-path open fix applied; now opens `/PLUGINS/SIDPLAYER.PRG`, hardware retest pending |
-| CvdPlayer (.CVD) | 🔧 | NI stream EOF exit redesign implemented in source; hardware test pending |
+The following points are directly supported by the current codebase:
+
+- Cold boot auto-load path exists in the firmware: `setup()` waits for stable PHI2, then calls `TransferMenu()`.
+- `TransferMenu()` prefers `EASYSD.PRG` from the SD card root and falls back to built-in `cartridgeData` if the file is not present.
+- Directory handling uses firmware CWD as the source of truth, with `currentPath` kept as UI/debug state.
+- PRG loading uses KernalBridge and the P2TK path for programs extending into `$C000+`.
+- Long filenames and full path handling are supported by the current firmware and recent plugin-side fixes no longer assume a fixed 31-byte media filename.
+- MusPlayer now opens `/PLUGINS/SIDPLAYER.PRG` explicitly.
+- WavPlayer, MusPlayer, and CvdPlayer all contain the expected session-level protocol pieces (`PROT_StartTalking`, file/session cleanup, and the newer path handling), but source inspection alone does not prove final real-hardware reliability.
 
 ---
 
-## Root Cause Analysis: Plugin Failures
+## Current Cautions
 
-### The Core Protocol Invariant
+These are the areas where the source shows active complexity or recently changed behavior, but the repository does not currently provide a single unambiguous, final hardware-status source:
 
-Every plugin that communicates with the cartridge MUST follow this pattern — without
-exception. KernalBridge (the working PRG loader) is the reference implementation:
-
-```asm
-JSR PROT_StartTalking      ; 1. Send 3-byte handshake — synchronises the Arduino
-                           ;    into command-receive mode. MUST come first.
-
-; ... file operations: #OPENFILE, PROT_GetInfoForFile, LoadFileBySize, etc. ...
-
-JSR PROT_CloseFile         ; Close any open file handle
-JSR PROT_EndTalking        ; 2. Send END_TALKING cmd, reset cartridge bank.
-                           ;    MUST be called on ALL exit paths (success AND error).
-JSR PROT_ExitToMenu        ; 3. Send EXIT_TO_MENU cmd — Arduino calls TransferMenu().
-```
-
-**Why PROT_StartTalking is mandatory:**
-The Arduino calls `cartInterface.StartListening()` after every plugin transfer. This waits
-for the 3-byte handshake from the C64. Without it, the Arduino is listening but not
-synchronised — it will silently discard or misinterpret all subsequent command bytes.
-Result: `#OPENFILE` fails, `PROT_ExitToMenu` fails, the C64 hangs forever.
-
-**Why PROT_EndTalking must be on every exit path:**
-`PROT_EndTalking` sends cmd 30 (END_TALKING) and then executes `#SETBANK PP_CONFIG_DEFAULT`
-which resets the cartridge memory map. Without it, the cartridge remains in an active
-state, corrupting subsequent operations.
-
-**File handle cleanup rule:**
-`PROT_CloseFile` must be called before `PROT_EndTalking` on any path where a file was
-successfully opened (i.e. `#OPENFILE` returned carry clear). On paths where `#OPENFILE`
-failed (carry set), no close is needed.
+- WavPlayer remains one of the highest-risk plugins because of its timing-sensitive playback paths and multiple hardware modes.
+- MusPlayer depends on the external SID player binary and symbol alignment in addition to the plugin code itself.
+- CvdPlayer contains the newer EOF-driven NI-stream exit path, but this should still be treated as a path that benefits from dedicated hardware confirmation.
+- MultiLoad support is present, but current repository docs do not establish one clean, final status statement for hardware behavior.
 
 ---
 
-### Bug Log: KoalaDisplayer, PetsciiDisplayer, HWTest (FIXED 2026-04-10)
+## Protocol Invariants Worth Preserving
 
-**KoalaDisplayer:**
-- Missing `JSR PROT_StartTalking` at `ALTENTRY` — all protocol calls failed silently
-- Missing `JSR PROT_CloseFile` in `ERRORREADING` and `ERROR_BADSIZE` paths
-- Missing `JSR PROT_EndTalking` in `EXITFAIL` before `PROT_ExitToMenu`
+The current source strongly suggests these rules remain critical for cartridge-facing plugins:
 
-**PetsciiDisplayer (had an additional critical bug):**
-- Missing `JSR PROT_StartTalking` at `ALTENTRY`
-- **Critical:** `BCC +` after `LoadFileBySize` — the `+` anonymous label pointed
-  directly at `ERRORREADING`. Both the success path and the error path jumped to the
-  same error handler. Even a perfect file load would show "READING FAILED" and exit.
-  Fixed by adding explicit `LOAD_SUCCESS` label with `CloseFile → DisplayPicture → INPUT_GET`.
-- Missing `JSR PROT_CloseFile` in `ERRORREADING` and `ERROR_BADSIZE`
-- Missing `JSR PROT_EndTalking` in `EXITFAIL`
+1. Start the cartridge session before file/cart operations.
+2. Close opened files on all paths where open succeeded.
+3. End the session on both success and failure exits.
+4. Return to the menu only after session cleanup.
 
-Commits: `b3454ed` (KOA + PET), `a43749a` (HWTest)
-
-**HWTest:**
-- `PROT_StartTalking` was correctly called before `COMMAND_HWTEST`
-- Missing `JSR PROT_EndTalking` at the single `_done` exit point (both success and
-  `_comm_fail` paths flow through it). No file operations → no `PROT_CloseFile` needed.
-
----
-
-### Bug: CvdPlayer — NI Stream Exit Path (FIXED 2026-04-11)
-
-CvdPlayer correctly calls `PROT_StartTalking`. Its main failure is the exit mechanism.
-
-**How NI streaming works:**
-1. C64 calls `JSR PROT_NIStream` with A=50 — this sends `COMMAND_NI_STREAM` to the Arduino.
-2. Arduino enters `HandleNonInterruptedStream()` — an infinite loop that streams data
-   synchronised to IO2 falling edges, until the physical **SEL button** is pressed.
-3. C64 NMI handlers (`NMI.s`) receive 8 bytes per NMI fire via `READCART_MODULATED`.
-
-**The broken exit path (STOP key):**
-```asm
-StopPressed:
-    SEI                    ; Stops NMI handlers — no more IO2 pulses from C64
-    STA $D01A              ; Disable raster IRQ
-    JSR PROT_CloseFile     ; BUG: Arduino is still in NI stream loop, not command mode
-    JSR PROT_ExitToMenu    ; BUG: same — Arduino cannot receive this command
-```
-
-The Arduino's NI stream loop only exits on `!selRead()` (physical SEL button press).
-When the C64 stops firing NMIs (SEI), the Arduino spins forever waiting for IO2.
-`PROT_CloseFile` and `PROT_ExitToMenu` try to send commands on the serial channel —
-but the Arduino is not listening for commands, it's waiting for IO2 edges. Deadlock.
-
-**Correct exit sequence for NI streaming:**
-The physical SEL button press is the only way to terminate the NI stream from the Arduino
-side. After the user presses SEL:
-1. Arduino exits `HandleNonInterruptedStream()`, calls `cartInterface.StartListening()`
-2. C64 code (if it detects GAME line going low) calls `JSR PROT_StartTalking` again
-3. Then `JSR PROT_CloseFile` → `JSR PROT_EndTalking` → `JSR PROT_ExitToMenu`
-
-**Fix applied (2026-04-11):**
-- C64: Added `#GETFILEINFO` call before `PROT_NIStream` to read file size into `CVD_SIZE`
-  ($8B-$8E, 32-bit). `OUTCOPY` decrements CVD_SIZE by 400 each block; underflow jumps
-  to `CVD_DONE` which does SEI + 5-frame delay + `PROT_StartTalking` re-sync + clean exit.
-- Arduino: `HandleNonInterruptedStream()` now checks EOF after each buffer refill
-  (`workingFile.read() == 0` → `goto ni_out`). Both sides exit concurrently at file end.
-- Removed broken STOP key handler (called `PROT_CloseFile` while Arduino was in NI loop).
-- Fixed `ERROR_OPENING_FILE`: added `PROT_EndTalking` before `PROT_ExitToMenu`.
-- Hardware test pending.
-
----
-
-### Bug: WavPlayer and MusPlayer (OPEN)
-
-These are still failing on hardware, but they are **not** missing the same basic
-protocol calls as the previously fixed plugins. Both already contain a valid
-`PROT_StartTalking` / `PROT_CloseFile` / `PROT_EndTalking` pattern.
-
-**WavPlayer:** Very complex (1300+ lines), multiple playback modes (SID, DigiMax, MK3).
-May have timing issues with the double-buffered streaming on real hardware. The source
-already contains border-color debug markers in the playback IRQ paths, and the repo also
-contains `WavPlayerViceTest.s` for C64-side audio path verification in VICE. Next step:
-identify the exact hang stage on real hardware using the existing border markers.
-
-2026-04-12 update: the plugin no longer relies on a fixed 31-byte filename length when
-re-opening the selected media file. It now sends the full null-terminated path.
-
-**MusPlayer:** Depends on loading `SIDPLAYER.PRG` from the SD card at `$9000`.
-If the player binary is missing, incorrect format, or its entry point symbols
-(`PLAYER_INSTALL`, `PLAYER_INIT_SONG`, etc.) do not match the loaded binary,
-the plugin will crash after loading. The `ComputePlayerSymbols.inc` file provides
-these addresses. Next step: verify that the SD card contains the correct `SIDPLAYER.PRG`
-build and that it matches `ComputePlayerSymbols.inc`.
-
-2026-04-12 update: the plugin no longer truncates the selected `.MUS` path to 31 bytes,
-and it now looks up the external player as `/PLUGINS/SIDPLAYER.PRG` instead of a
-directory-relative `SIDPLAYER.PRG`.
+KernalBridge remains the clearest reference implementation for this pattern.
 
 ---
 
@@ -213,7 +97,7 @@ The protocol dispatch core:
 - `GetArgumentsStatic()` / `GetArgumentsDynamic()` — argument receivers
 - `HandleResponse()` / `HandleValueResponse()` — response senders
 - `AwaitByte()` / `GetByte()` — low-level byte reception
-- All `Handle*()` file, directory, EEPROM, stream handlers
+- All `Handle*()` file, directory, MCU-internal-EEPROM, and stream handlers
 - `Init()`, `SaveLastDir()`, `RestoreLastDir()`
 
 ---
@@ -232,11 +116,9 @@ CartLibStream.s → CartLibHi.s → CartLib.s → CartLibCommon.s → System.inc
 ### Decision: DO NOT split CartLibHi.s
 
 Reasons:
-1. Splitting requires a new umbrella include file and updating every plugin — high churn,
-   low gain.
-2. The "alien" routines (VIC display on/off, EEPROM access) are all protocol commands
-   (`COMMAND_*` bytes sent to Arduino) — they belong in the same protocol layer.
-3. ~577 lines is not large for an embedded ASM library file.
+1. Splitting requires a new umbrella include file and updating every plugin — high churn, low gain.
+2. The VIC-display, directory, stream, and MCU-internal-EEPROM helpers are all part of one protocol-facing layer.
+3. The current size alone does not justify structural churn.
 
 ### What IS worth doing in CartLibHi.s
 - Improve English comments (many are outdated or missing)
@@ -262,13 +144,11 @@ of CartLibHi.s or in a separate `PluginTemplate.s`:
 ## Recommended Work Sequence
 
 ```
-Phase 1 — Plugin bug fixes (in progress)
-  ✅ KoalaDisplayer: StartTalking + EndTalking + CloseFile paths
-  ✅ PetsciiDisplayer: StartTalking + BCC label fix + EndTalking + CloseFile paths
-  ✅ HWTest: EndTalking added at _done exit point
-  ✅ CvdPlayer: NI stream exit redesign — frame counter + Arduino EOF detection
-  🔲 WavPlayer: hardware debug with existing border-color markers / WavPlayerViceTest baseline
-  🔲 MusPlayer: verify SIDPLAYER.PRG on SD card + ComputePlayerSymbols.inc alignment
+Phase 1 — Plugin validation and cleanup
+  🔲 WavPlayer: hardware-focused validation of playback modes and timing-sensitive paths
+  🔲 MusPlayer: verify SIDPLAYER.PRG asset flow and runtime symbol expectations
+  🔲 CvdPlayer: confirm EOF-driven NI stream exit behavior on hardware
+  🔲 MultiLoad: verify current hardware behavior and document it from source + test evidence
 
 Phase 2 — Arduino CartApi.cpp refactor
   🔲 Extract TapConverter.cpp/.h
@@ -296,12 +176,12 @@ Phase 3 — C64 library comment cleanup
 | `EasySD/Loader/CartLibStream.s` | 32-bit streaming wrapper (top of include chain) |
 | `EasySD/Loader/APIMacros.s` | Tier-2 macros: #OPENFILE, #CLOSEFILE, #GETFILEINFO, #SETADDR |
 | `EasySD/Loader/SystemMacros.s` | Tier-1 macros: #SETBANK, #WAITFOR, #READCART, etc. |
-| `EasySD/Plugins/KoalaDisplayer/KoalaDisplayer.s` | KOA plugin (fixed) |
-| `EasySD/Plugins/PetsciiDisplayer/PetsciiDisplayer.s` | PET plugin (fixed) |
-| `EasySD/Plugins/CvdPlayer/CvdPlayer.s` | CVD plugin (EOF-based NI stream exit redesign present in source) |
+| `EasySD/Plugins/KoalaDisplayer/KoalaDisplayer.s` | KOA plugin |
+| `EasySD/Plugins/PetsciiDisplayer/PetsciiDisplayer.s` | PET plugin |
+| `EasySD/Plugins/CvdPlayer/CvdPlayer.s` | CVD plugin with EOF-based NI-stream exit logic in source |
 | `EasySD/Plugins/WavPlayer/WavPlayerViceTest.s` | VICE-only audio pipeline test for WAV playback path |
-| `EasySD/Plugins/WavPlayer/WavPlayer.s` | WAV plugin (failure TBD) |
-| `EasySD/Plugins/MusPlayer/MusPlayer.s` | MUS plugin (SIDPLAYER.PRG dependency) |
+| `EasySD/Plugins/WavPlayer/WavPlayer.s` | WAV plugin |
+| `EasySD/Plugins/MusPlayer/MusPlayer.s` | MUS plugin with `/PLUGINS/SIDPLAYER.PRG` dependency |
 | `EasySD/Loader/Bridges/KernalBridge/KernalBridge.s` | Reference plugin — correct protocol usage |
 | `EasySD/Loader/CartZpMap.inc` | Zero page allocation — single source of truth |
 

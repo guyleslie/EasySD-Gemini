@@ -4,7 +4,8 @@
 **Date:** 2026-03-11
 
 This document describes a proposed hardware and software upgrade replacing the current
-Arduino Nano 3.x (ATmega328P) + AT27C512 EEPROM with an Arduino Nano Every (ATmega4809)
+Arduino Nano 3.x (ATmega328P) + cartridge ROML chip implementation
+(AT27C512R-45PU / M27C512 class EPROM device) with an Arduino Nano Every (ATmega4809)
 + 6264 SRAM. It is based on verified hardware data and accurate analysis of the existing
 codebase.
 
@@ -45,31 +46,32 @@ Power-on
   │
   └─ C64 reads $8000–$9FFF (ROML)
        │
-       └─ AT27C512 EEPROM drives data bus
+       └─ cartridge ROML chip drives data bus
             │
-            └─ C64 runs IRQ boot loader from EEPROM
+            └─ C64 runs IRQ boot loader from the cartridge ROML chip
                  │
                  └─ Arduino streams menu PRG via NMI → C64 runs menu
 ```
 
-**AT27C512 role:** Static 64 KB EPROM, programmed once (via external programmer).
+**Current cartridge ROML chip role:** Static 64 KB EPROM, programmed once (via external programmer).
 Contains the IRQ loader binary, replicated at 12 page positions in the 64 KB image
 (see `build.py:create_eprom_loader`, `eprom_pos = [171, 166, ...]`). The input binary
-(`IRQLoader.65s.bin`) is 256 bytes; the rest of the EPROM is mostly empty.
+(`IRQLoader.65s.bin`) is 256 bytes; the rest of the EPROM image is mostly empty.
 
 **Bus contention (current design):** The Arduino permanently drives D4–D7 / A0–A3
-as outputs. During NMI transfers, the Arduino's `SetPage()` overrides the EEPROM
-output by brute force — both are on the bus simultaneously. This works because the
-EEPROM's drive strength is weak relative to the Arduino, but it is not a clean design.
+as outputs. During NMI transfers, the Arduino's `SetPage()` overrides the cartridge
+ROML chip output by brute force — both are on the bus simultaneously. This works
+because the EPROM's drive strength is weak relative to the Arduino, but it is not a
+clean design.
 
 ---
 
 ## 3. Proposed Architecture
 
-Replace the AT27C512 EEPROM with a **6264 static SRAM** (8 KB, DIP-28, 5 V). The
+Replace the external cartridge ROML chip with a **6264 static SRAM** (8 KB, DIP-28, 5 V). The
 Arduino writes the IRQ loader content into the SRAM at power-on while holding the
 C64 in reset, then releases reset. The C64 boots from SRAM identically to how it
-booted from EEPROM.
+booted from the cartridge ROML chip.
 
 ```
 Power-on
@@ -78,7 +80,7 @@ Power-on
   ├─ Arduino writes 8 KB boot ROM image to SRAM (boot loader + padding)
   ├─ Arduino releases /RESET
   │
-  └─ C64 reads $8000–$9FFF (ROML) — now from SRAM, not EEPROM
+     └─ C64 reads $8000–$9FFF (ROML) — now from SRAM, not the cartridge ROML chip
        │
        └─ (same as before)
 ```
