@@ -803,6 +803,14 @@ void CartApi::HandleValueResponse(uint8_t value) {
   HandleResponse( (value & 0xFE)>>1, 1); //Embed rest of the value
 }
 
+// ============================================================================
+// MCU INTERNAL EEPROM command handlers (COMMAND_READ/SEEK/WRITE_EEPROM)
+// These access the ATmega328P's built-in 1 KB EEPROM via EEPROM.h / avr/eeprom.h.
+// They have NO connection to the cartridge ROML chip (external AT28C64B /
+// M27C64A on the PCB) — that chip is programmed externally and is read-only at
+// runtime via the ROML ($8000-$9FFF) address space.
+// ============================================================================
+
 void CartApi::IncrementEepromAddress() {
     eepromIndex++;
     if (eepromIndex>1024) eepromIndex = 0;
@@ -913,7 +921,10 @@ void CartApi::HandleStream() {
       streamBufferIndex = 1;             // Next request will get buffer[1]
       lastStreamRequestTime = millis();  // Initialize timeout timer
 
-      cartInterface.EnableCartridge(); // EXROM LOW: ROML ($8000-$9FFF) = EEPROM, needed for CARTRIDGE_BANK_VALUE reads
+      // EXROM LOW: cartridge ROML chip (AT28C64B / M27C64A) becomes visible to
+      // C64 at $8000-$9FFF. Required so the C64's CIA1 ISR can read
+      // CARTRIDGE_BANK_VALUE from the chip during streaming.
+      cartInterface.EnableCartridge();
       TIMSK2 = 0; // Disable timer 2 interrupts
       attachInterrupt(digitalPinToInterrupt(IO2), CartApi::DoubleBufferedStreaming, FALLING);
 
@@ -1247,14 +1258,14 @@ void CartApi::TransferMenu() {
   //int menu_data_length = (readFromFile? workingFile.size() : data_len) ;
   int menu_data_length = (readFromFile? workingFile.size() : data_len) ;
 
-  // Phase 1: EXROM LOW only — data bus stays tristate so EEPROM can present
-  // CBM80 ($8004-$8008) undisturbed. ATmega output sinks 40 mA vs EEPROM
-  // source 4 mA, so any non-tristate Arduino output overrides the EEPROM and
-  // the CBM80 check fails even with the chip installed.
+  // Phase 1: EXROM LOW only — data bus stays tristate so the cartridge ROML
+  // chip (AT28C64B / M27C64A) can present CBM80 ($8004-$8008) undisturbed.
+  // ATmega output sinks 40 mA vs chip source 4 mA, so any non-tristate Arduino
+  // output overrides the chip and the CBM80 check fails even with it installed.
   cartInterface.EnableExromOnly();
   cartInterface.ResetC64();
 
-  delay(300);  // CBM80 window: EEPROM drives bus, sets $0318 NMI vector
+  delay(300);  // CBM80 window: cartridge ROML chip drives bus, sets $0318 NMI vector
 
   // Phase 2: data bus OUTPUT — safe now, NMI handler is already installed
   cartInterface.EnableDataBus();

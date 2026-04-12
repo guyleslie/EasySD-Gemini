@@ -48,9 +48,12 @@
 #define COMMAND_DELETE_DIR          12
 #define COMMAND_CREATE_DIR          13
 #define COMMAND_GOTO_PATH           14  // Multi-Load V2: navigate to absolute path
-#define COMMAND_READ_EEPROM         15
-#define COMMAND_SEEK_EEPROM         16
-#define COMMAND_WRITE_EEPROM        17
+// MCU internal EEPROM commands — these operate on the ATmega328P's built-in
+// 1 KB EEPROM (avr/eeprom.h / EEPROM.h), NOT on the cartridge ROML chip
+// (the external AT28C64B / M27C64A on the PCB that the C64 reads via ROML).
+#define COMMAND_READ_EEPROM         15  // Read one byte from MCU internal EEPROM
+#define COMMAND_SEEK_EEPROM         16  // Set MCU internal EEPROM read/write pointer
+#define COMMAND_WRITE_EEPROM        17  // Write one byte to MCU internal EEPROM
 #define COMMAND_SET_PORT            20
 #define COMMAND_SET_IO              21  // defined in protocol; currently no handler
 #define COMMAND_INVOKE_WITH_NAME    23
