@@ -34,11 +34,14 @@ class DirFunction {
     void ForceReset();
     void CloseDirHandle();
 
-    // Scan CWD for a non-hidden file whose full LFN starts with the first `len`
-    // chars of `prefix` (case-insensitive). On match writes the full name into
-    // outName[outSize] and returns true. Does not affect Iterate() state.
+    // Scan CWD for a non-hidden file whose LFN starts with the first `len`
+    // chars of `prefix` (case-insensitive). On match writes the captured name
+    // into outName[outSize] and returns true. Does not affect Iterate() state.
     bool FindByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize);
+    bool FindDirectoryByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize);
 
+    // Preview buffer used for menu listing transport to the C64.
+    // It intentionally stores only the leading part of a filename.
     char currentFileName[64];
     int IsDirectory;
     int IsFinished;

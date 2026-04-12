@@ -14,6 +14,8 @@ COMMANDNEXTPAGE  = $40
 COMMANDPREVPAGE  = $41
 PATH_MAX         = 96
 PATHBUF_SIZE     = 160
+DIRLOAD_PAGES    = 6
+DIRLOAD_TOTAL_BYTES = DIRLOAD_PAGES * 256
 
 ; --- Menu Zero Page Variables (User range $FB-$FE) ---
 NAMELOW          = $FB
@@ -89,7 +91,7 @@ CART_ROM_RESTORE .macro
 	STA ZP_IRQ_API_DATA_LO
 	LDA #>DIRLOAD
 	STA ZP_IRQ_API_DATA_HI
-	LDA #$03		;Max 256*3 bytes of data
+	LDA #DIRLOAD_PAGES	; page-based receive buffer size
 	STA ZP_IRQ_API_DATA_LENGTH
 	LDA #<(DIRREAD-1)
 	STA ZP_IRQ_API_CALLBACK_LO
@@ -374,7 +376,7 @@ _eld_done
 ENTERDIR
 .if DEBUG = 0
 	; Set filename: NAMELOW/NAMEHIGH point to selected dir's record (set by ISDIRECTORY)
-	; Record format: bytes 0-30 = null-terminated ASCII dirname, byte 31 = type
+	; Record format: bytes 0-62 = null-terminated ASCII dirname, byte 63 = type
 	LDX NAMELOW
 	LDY NAMEHIGH
 	JSR PROT_SetNameZ		; sets KERNAL_FILENAME_LOW/LENGTH from null-terminated name
@@ -392,9 +394,8 @@ DOREADDIRECTORY
 	STA ZP_IRQ_API_DATA_LO
 	LDA #>DIRLOAD
 	STA ZP_IRQ_API_DATA_HI
-	LDA #$03		;Max 256*3 bytes of data
+	LDA #DIRLOAD_PAGES	; page-based receive buffer size
 	STA ZP_IRQ_API_DATA_LENGTH
-
 	LDY #$00
 	LDX #21			;Max 21 directory items
 	LDA CURPAGEINDEX
@@ -932,7 +933,7 @@ ISDIRECTORY
 	STA NAMELOW
 	LDA NAMESHI, X
 	STA NAMEHIGH
-	LDY #31
+	LDY #63			; byte 63 = type flag (0x04=dir, 0x00=file)
 	LDA (NAMELOW), Y
 	CMP #$04
 	RTS
@@ -1267,7 +1268,7 @@ SETCOL
 	BEQ FINISH	
 	LDA NAMELOW
 	CLC
-	ADC #$20
+	ADC #$40		; advance by 64 (MAXFILENAMELENGTH)
 	STA NAMELOW
 	BCC NEXTFILE
 	INC NAMEHIGH
@@ -1780,7 +1781,7 @@ COLS
 ;	.WORD $0594, $05BC, $05E4, $060C, $0634, $065C, $0684, $06AC, $06D4, $06FC
 ;	.WORD $0724, $074C, $0774, $079C, $07C4
 	
-MAXFILENAMELENGTH = 32
+MAXFILENAMELENGTH = 64
 MAXDIRITEMS = 21
 -       = GAMELIST + range(0, MAXDIRITEMS * MAXFILENAMELENGTH, MAXFILENAMELENGTH)
 NAMESLO   .byte <(-)
@@ -1810,10 +1811,12 @@ CURPAGEITEMS	.BYTE 5
 PAGECOUNT		.BYTE 1
 GAMELIST
 DIRLOAD = GAMELIST - 2
-; Reserve space for 21 directory entries (21 * 32 bytes = 672 bytes)
+; PROT_ReceiveFragment writes whole 256-byte pages starting at DIRLOAD.
+; With 6 pages requested, the receive area must be 1536 bytes total including
+; the 2-byte CURPAGEITEMS/PAGECOUNT header at DIRLOAD.
 ; In DEBUG mode: SETDIR1/2/3 copies MOCK_DIR1/2/3 data here
 ; In release mode: PROT_ReadDirectory fills this from SD card
-	.FILL (MAXDIRITEMS * 32), 0
+	.FILL (DIRLOAD_TOTAL_BYTES - 2), 0
 
 
 CHARDATA
@@ -1882,9 +1885,9 @@ COLORDATA
 ; Wire format (must match Arduino CartApi.cpp exactly):
 ;   Byte 0:    CURPAGEITEMS (number of entries on this page)
 ;   Byte 1:    PAGECOUNT (total pages, always 1 here)
-;   Byte 2+:   32-byte entries:
-;              Bytes 0-30:  ASCII filename, null-padded
-;              Byte 31:     $04 = directory, $00 = file
+;   Byte 2+:   64-byte entries:
+;              Bytes 0-62:  ASCII filename, null-padded
+;              Byte 63:     $04 = directory, $00 = file
 ;
 ; Directory flag trick: .enc "screen" + .TEXT "D" = $04
 ; Filenames are ASCII (.TEXT default), converted to screen

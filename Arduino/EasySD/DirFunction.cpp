@@ -6,6 +6,54 @@
 
 extern SdFat  sd;
 
+namespace {
+
+class FilenameCaptureSink : public Print {
+ public:
+  FilenameCaptureSink(char* buffer, size_t capacity)
+      : m_buffer(buffer), m_capacity(capacity), m_index(0) {
+    reset();
+  }
+
+  size_t write(uint8_t c) override {
+    if (m_capacity > 1 && (m_index + 1) < m_capacity) {
+      m_buffer[m_index++] = static_cast<char>(c);
+      m_buffer[m_index] = '\0';
+    }
+    return 1;
+  }
+
+  void reset() {
+    m_index = 0;
+    if (m_capacity > 0) {
+      m_buffer[0] = '\0';
+    }
+  }
+
+ private:
+  char* m_buffer;
+  size_t m_capacity;
+  size_t m_index;
+};
+
+static void CaptureFileNamePreview(File& file, char* outName, size_t outSize) {
+  FilenameCaptureSink sink(outName, outSize);
+  file.printName(&sink);
+}
+
+static bool PrefixMatchesCaseInsensitive(const char* candidate,
+                                         const char* prefix,
+                                         uint8_t len) {
+  for (uint8_t i = 0; i < len; i++) {
+    if (tolower((uint8_t)candidate[i]) != tolower((uint8_t)prefix[i])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+}  // namespace
+
 // Canonical way to synchronize m_dirFile with the CWD after any sd.chdir().
 // openCwd() is the SdFat 2.x method that ties the file object to the volume's
 // current working directory — do not open by currentPath string (UI only).
@@ -180,7 +228,7 @@ int DirFunction::Iterate() {
   if (currentIndex < count) {
     if (file.openNext(&m_dirFile)) {
       if (!file.isHidden()) {
-        file.getName(currentFileName, sizeof(currentFileName));
+        CaptureFileNamePreview(file, currentFileName, sizeof(currentFileName));
         currentIndex++;
         IsDirectory = file.isSubDir();
         IsHidden = 0;
@@ -301,17 +349,26 @@ bool DirFunction::FindByPrefix(const char* prefix, uint8_t len,
   File f;
   while (f.openNext(&m_dirFile)) {
     if (f.isDir() || f.isHidden()) { f.close(); continue; }
-    size_t n = f.getName(outName, outSize);
+    CaptureFileNamePreview(f, outName, outSize);
+    size_t n = strlen(outName);
     f.close();
     if (n < len) continue;
-    bool match = true;
-    for (uint8_t i = 0; i < len; i++) {
-      if (tolower((uint8_t)outName[i]) != tolower((uint8_t)prefix[i])) {
-        match = false;
-        break;
-      }
-    }
-    if (match) return true;
+    if (PrefixMatchesCaseInsensitive(outName, prefix, len)) return true;
+  }
+  return false;
+}
+
+bool DirFunction::FindDirectoryByPrefix(const char* prefix, uint8_t len,
+                                        char* outName, size_t outSize) {
+  m_dirFile.rewind();
+  File f;
+  while (f.openNext(&m_dirFile)) {
+    if (!f.isDir() || f.isHidden()) { f.close(); continue; }
+    CaptureFileNamePreview(f, outName, outSize);
+    size_t n = strlen(outName);
+    f.close();
+    if (n < len) continue;
+    if (PrefixMatchesCaseInsensitive(outName, prefix, len)) return true;
   }
   return false;
 }

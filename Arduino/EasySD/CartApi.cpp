@@ -347,14 +347,14 @@ void CartApi::HandleReadDirectory() {
     //Send initial state of directories.
     while (curItemIndex<numberOfEntries && dirFunc.Iterate() && !dirFunc.IsFinished) {  
       if (!dirFunc.IsHidden) {  
-        if (actualTransferredBytes + 32 <maxBytesToTransfer) {
-          // Print the file number and name.
+        if (actualTransferredBytes + 64 <maxBytesToTransfer) {
+          // Send up to 63 chars of the LFN preview, then the type flag.
           uint8_t flen = (uint8_t)strlen(dirFunc.currentFileName);
-          if (flen > 31) flen = 31;
+          if (flen > 63) flen = 63;
           for (uint8_t i = 0; i < flen; i++) {
             cartInterface.TransmitByteFast(tolower((uint8_t)dirFunc.currentFileName[i]));
           }
-          for (uint8_t i = flen; i < 31; i++) {
+          for (uint8_t i = flen; i < 63; i++) {
             cartInterface.TransmitByteFast(0x00);
           }
 
@@ -364,7 +364,7 @@ void CartApi::HandleReadDirectory() {
             cartInterface.TransmitByteFast(0x00);
           }
 
-          actualTransferredBytes = actualTransferredBytes +32;        
+          actualTransferredBytes = actualTransferredBytes +64;        
           
           curItemIndex++;
         } else {
@@ -405,6 +405,13 @@ void CartApi::HandleChangeDirectory() {
   }
 
   bool success = dirFunc.ChangeDirectoryBasename(fileName);
+  if (!success) {
+    static char matchBuf[128];
+    uint8_t len = (uint8_t)strlen(fileName);
+    if (dirFunc.FindDirectoryByPrefix(fileName, len, matchBuf, sizeof(matchBuf))) {
+      success = dirFunc.ChangeDirectoryBasename(matchBuf);
+    }
+  }
 
   if (success) {
     dirFunc.Prepare();
@@ -782,8 +789,8 @@ void CartApi::HandleInvokeWithName() {
   // sd.exists() fails, scan the CWD using SdFat's getName() to find the full
   // LFN that starts with the received prefix (case-insensitive).
   if (!sd.exists(openName)) {
-    // Static: avoids 64B stack allocation inside a path that may be hot.
-    static char matchBuf[64];
+    // Static: avoids large stack allocation inside a path that may be hot.
+    static char matchBuf[128];
     uint8_t len = strlen(openName);
     if (!dirFunc.FindByPrefix(openName, len, matchBuf, sizeof(matchBuf))) {
       HandleResponse(FILE_NOT_FOUND, 0);

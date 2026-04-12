@@ -116,42 +116,80 @@ _mrd_l2
 ; ============================================================
 ; SETDIR1 / SETDIR2 / SETDIR3
 ;   Copy MOCK_DIR1/2/3 to DIRLOAD area.
-;   Copy uses X register (forward) — Y (backward) corrupts data.
+;   Use a 16-bit copy helper because each mock directory block is >255 bytes
+;   with 64-byte entries.
 ; ============================================================
+
+; 16-bit copy helper: copy ($08/$09) -> DIRLOAD, total bytes in $0B/$0C (lo/hi)
+; Uses $08-$0E. Clobbers A, X, Y.
+SETDIR_COPY16
+	LDA #<DIRLOAD
+	STA $0D
+	LDA #>DIRLOAD
+	STA $0E
+	LDX $0C
+	BEQ _sdc_final
+_sdc_page
+	LDY #0
+_sdc_page_loop
+	LDA ($08), Y
+	STA ($0D), Y
+	INY
+	BNE _sdc_page_loop
+	INC $09
+	INC $0E
+	DEX
+	BNE _sdc_page
+_sdc_final
+	LDY #0
+	LDX $0B
+	BEQ _sdc_done
+_sdc_tail
+	LDA ($08), Y
+	STA ($0D), Y
+	INY
+	DEX
+	BNE _sdc_tail
+_sdc_done
+	RTS
 
 SETDIR1
 	LDA #$02        ; BORDER = RED (visual indicator)
 	STA $D020
-	LDX #$00
--
-	LDA MOCK_DIR1, X
-	STA DIRLOAD, X
-	INX
-	CPX #(MOCK_DIR2-MOCK_DIR1)
-	BNE -
+	LDA #<MOCK_DIR1
+	STA $08
+	LDA #>MOCK_DIR1
+	STA $09
+	LDA #<(MOCK_DIR2-MOCK_DIR1)
+	STA $0B
+	LDA #>(MOCK_DIR2-MOCK_DIR1)
+	STA $0C
+	JSR SETDIR_COPY16
 	LDA #$05        ; BORDER = GREEN (visual indicator)
 	STA $D020
 	RTS
 
 SETDIR2
-	LDX #$00
--
-	LDA MOCK_DIR2, X
-	STA DIRLOAD, X
-	INX
-	CPX #(MOCK_DIR3-MOCK_DIR2)
-	BNE -
-	RTS
+	LDA #<MOCK_DIR2
+	STA $08
+	LDA #>MOCK_DIR2
+	STA $09
+	LDA #<(MOCK_DIR3-MOCK_DIR2)
+	STA $0B
+	LDA #>(MOCK_DIR3-MOCK_DIR2)
+	STA $0C
+	JMP SETDIR_COPY16
 
 SETDIR3
-	LDX #$00
--
-	LDA MOCK_DIR3, X
-	STA DIRLOAD, X
-	INX
-	CPX #(MOCK_DIR3_END-MOCK_DIR3)
-	BNE -
-	RTS
+	LDA #<MOCK_DIR3
+	STA $08
+	LDA #>MOCK_DIR3
+	STA $09
+	LDA #<(MOCK_DIR3_END-MOCK_DIR3)
+	STA $0B
+	LDA #>(MOCK_DIR3_END-MOCK_DIR3)
+	STA $0C
+	JMP SETDIR_COPY16
 
 ; ------------------------------------------------------------
 ; MOCK_GetCurrentPath
@@ -244,9 +282,9 @@ _mpe_copy
 ; Wire format (must match Arduino CartApi.cpp exactly):
 ;   Byte 0:    CURPAGEITEMS (number of entries on this page)
 ;   Byte 1:    PAGECOUNT (total pages, always 1 here)
-;   Byte 2+:   32-byte entries:
-;              Bytes 0-30:  ASCII filename, null-padded
-;              Byte 31:     $04 = directory, $00 = file
+;   Byte 2+:   64-byte entries:
+;              Bytes 0-62:  ASCII filename, null-padded
+;              Byte 63:     $04 = directory, $00 = file
 ;
 ; Directory flag trick: .enc "screen" + .TEXT "D" = $04
 ; Filenames are ASCII (.TEXT default), converted to screen
@@ -291,22 +329,22 @@ MOCK_DIR1
 	.BYTE 1             ; PAGECOUNT
 	;-- entry 0: "games" (directory) --
 	.TEXT "games"
-	.FILL 26, 0
+	.FILL 58, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 1: "giana.prg" (PRG file) --
 	.TEXT "giana.prg"
-	.FILL 23, 0         ; byte 31 = $00 = file
+	.FILL 55, 0         ; byte 63 = $00 = file
 	;-- entry 2: "wizball.prg" (PRG file) --
 	.TEXT "wizball.prg"
-	.FILL 21, 0
+	.FILL 53, 0
 	;-- entry 3: "sunset.koa" (Koala image) --
 	.TEXT "sunset.koa"
-	.FILL 22, 0
+	.FILL 54, 0
 	;-- entry 4: "logo.petg" (PETSCII art) --
 	.TEXT "logo.petg"
-	.FILL 23, 0
+	.FILL 55, 0
 
 ; --- /games/ (DIRLEVEL=1) — 6 entries -----------------------
 MOCK_DIR2
@@ -314,31 +352,31 @@ MOCK_DIR2
 	.BYTE 1             ; PAGECOUNT
 	;-- entry 0: ".." (parent directory) --
 	.TEXT ".."
-	.FILL 29, 0
+	.FILL 61, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 1: "demos" (directory) --
 	.TEXT "demos"
-	.FILL 26, 0
+	.FILL 58, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 2: "music" (directory) --
 	.TEXT "music"
-	.FILL 26, 0
+	.FILL 58, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 3: "bubble.prg" (PRG file) --
 	.TEXT "bubble.prg"
-	.FILL 22, 0
+	.FILL 54, 0
 	;-- entry 4: "ocean.koa" (Koala image) --
 	.TEXT "ocean.koa"
-	.FILL 23, 0
+	.FILL 55, 0
 	;-- entry 5: "intro.petg" (PETSCII art) --
 	.TEXT "intro.petg"
-	.FILL 22, 0
+	.FILL 54, 0
 
 ; --- /games/demos/ (DIRLEVEL=2) — 6 entries -----------------
 MOCK_DIR3
@@ -346,28 +384,28 @@ MOCK_DIR3
 	.BYTE 1             ; PAGECOUNT
 	;-- entry 0: ".." (parent directory) --
 	.TEXT ".."
-	.FILL 29, 0
+	.FILL 61, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 1: "tools" (directory) --
 	.TEXT "tools"
-	.FILL 26, 0
+	.FILL 58, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 2: "matrix.prg" (PRG file) --
 	.TEXT "matrix.prg"
-	.FILL 22, 0
+	.FILL 54, 0
 	;-- entry 3: "space.koa" (Koala image) --
 	.TEXT "space.koa"
-	.FILL 23, 0
+	.FILL 55, 0
 	;-- entry 4: "ascii.petg" (PETSCII art) --
 	.TEXT "ascii.petg"
-	.FILL 22, 0
+	.FILL 54, 0
 	;-- entry 5: "coder.wav" (WAV audio) --
 	.TEXT "coder.wav"
-	.FILL 23, 0
+	.FILL 55, 0
 
 MOCK_DIR3_END
 
