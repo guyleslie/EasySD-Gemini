@@ -1,52 +1,52 @@
 # Centralized Data Management for EasySD Gemini Project
 
-Ez a dokumentum a jelenlegi EasySD kódbázis központosított adat- és címkezelési szabályait foglalja össze. A cél a build stabilitásának biztosítása, a Zero Page ütközések elkerülése és a karbantartható `64tass` include-lánc rögzítése. Ha eltérés van a dokumentum és a forrás között, a forrás az elsődleges.
+This document summarizes the current centralized data and symbol-management rules for the EasySD codebase. Its purpose is to keep builds stable, prevent Zero Page collisions, and document a maintainable `64tass` include chain. If this document ever disagrees with the source, the source is authoritative.
 
 ---
 
-## 1. Architekturális Alapelvek
+## 1. Architectural Principles
 
-A projekt a **"Linear Include Chain"** (Lineáris beágyazási lánc) elvét követi. Mivel a `64tass` nem támogatja a hagyományos C-stílusú include-guard-okat (`.ifndef`), a többszörös beágyazás "duplicate definition" hibát okoz.
+The project follows a **Linear Include Chain** model. Because `64tass` does not support conventional C-style include guards such as `.ifndef`, repeated inclusion leads to duplicate-definition errors.
 
-### 1.1. A Lineáris Lánc felépítése
-A szimbólumok a jelenlegi forrásban az alábbi sorrendben öröklődnek:
+### 1.1. Current Include Chain
+In the current source tree, symbols flow through the chain below:
 `CartLibStream.s` (wrapper)
-  └── `CartZpMap.inc` (ZP definíciók)
+    └── `CartZpMap.inc` (ZP definitions)
   └── `CartLibHi.s` (high-level API)
       └── `CartLib.s` (low-level interface)
-          └── `CartLibCommon.s` (alapvető rendszercímek)
-              └── `Common/System.inc` (C64 hardver és KERNAL)
-              └── `Common/EasySD.inc` (EasySD parancsok és státuszkódok)
+                    └── `CartLibCommon.s` (core system addresses)
+                            └── `Common/System.inc` (C64 hardware and KERNAL symbols)
+                            └── `Common/EasySD.inc` (EasySD commands and status codes)
 
-Az API-makrók külön réteget alkotnak: az `APIMacros.s` nincs automatikusan ebbe a láncba kötve, ezért azt minden olyan fájlban explicit módon kell include-olni, amelyik használja a makróit.
+The API macros are a separate layer. `APIMacros.s` is not pulled in automatically by this chain, so any file that uses those macros must include it explicitly.
 
-### 1.2. Include Ownership (Tulajdonjog)
-Ez jelenleg projektkonvenció, nem külön build-rendszer által kikényszerített szabályrendszer:
-*   **`CartZpMap.inc`**: a normál include-láncon keresztül kerüljön be, ne közvetlenül több helyről.
-*   **`CartLibCommon.s`**: a `CartLib.s` tulajdona, ne pluginból vagy menüből include-old közvetlenül.
-*   **Pluginok/Menü**: a wrapper szintet include-olják (`CartLibStream.s`, illetve szükség szerint `APIMacros.s`), ne a lánc belső elemeit.
+### 1.2. Include Ownership
+This is currently a project convention rather than a rule enforced by a dedicated build validator:
+*   **`CartZpMap.inc`** should enter through the normal include chain, not be included directly from multiple locations.
+*   **`CartLibCommon.s`** belongs to `CartLib.s` and should not be included directly from plugins or menu code.
+*   **Plugins/Menu** should include the wrapper level (`CartLibStream.s`, plus `APIMacros.s` when needed), not the internal layers of the chain.
 
 ---
 
-## 2. Központi Definíciós Fájlok
+## 2. Central Definition Files
 
 ### 2.1. `System.inc` (C64 Standard)
-Tartalmazza a Commodore 64 fix címeit. Aliasok helyett a kanonikus neveket használjuk:
-*   **KERNAL Belépési pontok (ROM):** `K_OPEN` ($F34A), `K_CLOSE` ($F291), `K_CHKIN` ($F20E), `K_CHRIN` ($F157), `K_CLRCHN` ($F32F).
-*   **KERNAL RAM Vektorok:** `V_OPEN` ($031A), `V_CLOSE` ($031C), `V_CHKIN` ($031E), `V_CLRCHN` ($0322), `V_CHRIN` ($0324).
-*   **Hardver Regiszterek:** `VIC_CONTROL_1` ($D011), `VIC_INT_ACK` ($D019), `CIA_1_BASE` ($DC00), stb.
-*   **Hardver Maszkok:** `VIC_DEN` ($10), `VIC_INT_RASTER` ($01).
+This file contains fixed Commodore 64 addresses. Prefer canonical names over local aliases:
+*   **KERNAL entry points (ROM):** `K_OPEN` ($F34A), `K_CLOSE` ($F291), `K_CHKIN` ($F20E), `K_CHRIN` ($F157), `K_CLRCHN` ($F32F).
+*   **KERNAL RAM vectors:** `V_OPEN` ($031A), `V_CLOSE` ($031C), `V_CHKIN` ($031E), `V_CLRCHN` ($0322), `V_CHRIN` ($0324).
+*   **Hardware registers:** `VIC_CONTROL_1` ($D011), `VIC_INT_ACK` ($D019), `CIA_1_BASE` ($DC00), and others.
+*   **Hardware masks:** `VIC_DEN` ($10), `VIC_INT_RASTER` ($01).
 
 ### 2.2. `EasySD.inc` (Hardware API)
-Az EasySD kártya specifikus parancsai és státuszkódjai:
-*   **Parancsok:** `COMMAND_READ_FILE` (78), `COMMAND_OPEN_FILE` (2), `COMMAND_STREAM` (25), stb.
-*   **Státusz:** `CARTRIDGE_READY` ($00), `CARTRIDGE_PROCESS_OK` ($80).
-*   **KERNAL Paraméterek:** `KERNAL_FILENAME_LENGTH` ($B7), `KERNAL_FILENAME_LOW` ($BB), `KERNAL_STATUS` ($90).
+This file contains EasySD-specific commands and status codes:
+*   **Commands:** `COMMAND_READ_FILE` (78), `COMMAND_OPEN_FILE` (2), `COMMAND_STREAM` (25), and others.
+*   **Status codes:** `CARTRIDGE_READY` ($00), `CARTRIDGE_PROCESS_OK` ($80).
+*   **KERNAL parameters:** `KERNAL_FILENAME_LENGTH` ($B7), `KERNAL_FILENAME_LOW` ($BB), `KERNAL_STATUS` ($90).
 
-### 2.3. `CartZpMap.inc` (Zero Page Térkép)
-Ez a fájl a **Single Source of Truth** minden ZP-t használó rutin számára. Minden itt lévő név `ZP_` prefixet kap.
+### 2.3. `CartZpMap.inc` (Zero Page Map)
+This file is the **single source of truth** for every routine that uses Zero Page. Every symbol defined here uses the `ZP_` prefix.
 
-| Tartomány | Leírás | Címkék (példa) |
+| Range | Description | Example labels |
 |:---|:---|:---|
 | **$64** | Foreground Sync | `ZP_IRQ_WaitHandle` |
 | **$69-$6A** | Data/Seek Pointer | `ZP_IRQ_SEEK_LOW`, `ZP_IRQ_SEEK_HIGH` |
@@ -61,33 +61,33 @@ Ez a fájl a **Single Source of Truth** minden ZP-t használó rutin számára. 
 
 ---
 
-## 3. Használati Útmutató Fejlesztőknek
+## 3. Developer Usage Rules
 
-### 3.1. Beágyazás (Plugin / Menü)
-A pluginok elején tilos a `.inc` fájlok direkt meghívása, ha a kód a lánc valamelyik elemét használja.
-**Helyes módszer:**
+### 3.1. Inclusion from Plugins and Menu Code
+Do not include internal `.inc` files directly at the top of a plugin if the code already depends on the loader chain.
+**Correct pattern:**
 ```assembly
-; Plugin kód...
-.include "../../Loader/CartLibStream.s" ; Ez automatikusan hozza a ZP és System definíciókat
+; Plugin code...
+.include "../../Loader/CartLibStream.s" ; Pulls in the shared ZP and system definitions through the chain
 ```
 
-### 3.2. Hivatkozás a Zero Page-re
-Soha ne használj fix címet vagy prefix nélküli nevet!
-*   **Helytelen:** `STA $6C` vagy `STA IRQ_DATA_LOW`
-*   **Helyes:** `STA ZP_IRQ_DATA_LOW`
+### 3.2. Referencing Zero Page
+Never use hardcoded addresses or prefix-less symbol names.
+*   **Wrong:** `STA $6C` or `STA IRQ_DATA_LOW`
+*   **Correct:** `STA ZP_IRQ_DATA_LOW`
 
-### 3.3. Kanonikus nevek használata
-A kód olvashatósága és a központi módosíthatóság érdekében kerüld a helyi aliasokat.
-*   **Helytelen:** `STA FILENAME_LOW`
-*   **Helyes:** `STA KERNAL_FILENAME_LOW`
+### 3.3. Using Canonical Names
+Avoid local aliases when a shared canonical name already exists. This improves readability and keeps central changes manageable.
+*   **Wrong:** `STA FILENAME_LOW`
+*   **Correct:** `STA KERNAL_FILENAME_LOW`
 
 ---
 
-## 4. DEBUG Mode Viselkedés és Korlátai
+## 4. DEBUG Mode Behavior and Limits
 
-A projekt támogatja a `DEBUG=1` build flag-et (64tass: `-D DEBUG=1`), amely **jelentősen módosítja** a futási viselkedést. A DEBUG mode **KIZÁRÓLAG** VICE emulátorban történő fejlesztéshez és hibakereséshez használható.
+The project supports the `DEBUG=1` build flag (`64tass: -D DEBUG=1`), which **materially changes** runtime behavior. DEBUG mode is suitable **only** for development and debugging in VICE.
 
-### 4.1. DEBUG Mode Módosítások
+### 4.1. DEBUG Mode Changes
 
 **CartLibHi.s - `PROT_WaitProcessing` bypass:**
 ```assembly
@@ -99,48 +99,48 @@ PROT_WaitProcessing
     ; normal hardware polling
 ```
 
-**Hatás:**
-- A feldolgozási várakozás debug buildben azonnal sikeresnek látszik.
-- Ez gyors VICE iterációt ad, de nem reprezentál valós Arduino kommunikációt.
-- A dokumentum korábbi SafeStream-specifikus debug leírásai már nem számítanak jelenlegi, normatív viselkedésnek.
+**Effect:**
+- Processing waits appear to succeed immediately in debug builds.
+- This makes VICE iteration faster, but it does not represent real Arduino communication.
+- Older SafeStream-specific debug descriptions should no longer be treated as current normative behavior.
 
-### 4.2. KRITIKUS FIGYELMEZTETÉS
+### 4.2. Critical Warning
 
-**⚠️ DEBUG=1 build SOHA NEM futtatható valós EasySD hardveren!**
+**⚠️ A `DEBUG=1` build must never be run on real EasySD hardware.**
 
-**Miért?**
-- Az `PROT_WaitProcessing` bypass miatt a C64 **nem vár** az Arduino válaszra
-- A memória unitializált marad vagy hibás adatokat tartalmaz
-- A program "látszólag fut" de hibásan működik
-- **Silent failure** - nehezen diagnosztizálható hibák
+**Why:**
+- Because of the `PROT_WaitProcessing` bypass, the C64 does **not wait** for the Arduino response.
+- Memory may remain uninitialized or contain invalid data.
+- The program may appear to run while behaving incorrectly.
+- This creates silent failures that are hard to diagnose.
 
-**Használati Útmutató:**
+**Usage:**
 ```bash
-# VICE emulátorban (fejlesztés):
+# In VICE (development):
 64tass -D DEBUG=1 EasySDMenu.s -o menu.prg
 
-# Valós hardveren (production):
+# On real hardware (production):
 64tass -D DEBUG=0 EasySDMenu.s -o menu.prg
-# VAGY egyszerűen:
+# Or simply:
 64tass EasySDMenu.s -o menu.prg  (DEBUG alapértelmezetten 0)
 ```
 
-### 4.3. Ajánlott Fejlesztési Workflow
+### 4.3. Recommended Development Workflow
 
-1. **VICE-ban tesztelés** (DEBUG=1):
-   - Gyors iteráció
-   - Parameter validation aktív
-   - Nincs szükség Arduino hardverre
+1. **Test in VICE** (`DEBUG=1`):
+    - Fast iteration
+    - Parameter validation is active
+    - No Arduino hardware required
 
-2. **Production build** (DEBUG=0):
-    - Valós hardware kommunikáció
-    - cartridge ROML chip programozás
-    - Végső tesztelés fizikai C64-en
+2. **Production build** (`DEBUG=0`):
+    - Real hardware communication
+    - Cartridge ROML chip programming
+    - Final testing on physical C64 hardware
 
 ---
 
-## 5. Konfigurációs Szabályok (Summary)
+## 5. Configuration Rules Summary
 
-*   A **$80-$87** tartomány szent és sérthetetlen: kizárólag a `LoadFileBySize` használhatja.
-*   A menü és a pluginok saját, ideiglenes változói a **$FB-$FE** (User range) tartományba kerülhetnek, de ezeket nem szabad a `CartZpMap.inc`-be tenni.
-*   Ha egy új rutin ZP-t igényel, azt **kötelező** regisztrálni a `CartZpMap.inc` fájlban a konfliktusok elkerülése végett.
+*   The **$80-$87** range is reserved exclusively for `LoadFileBySize`.
+*   Menu and plugin-local temporary variables may use the **$FB-$FE** user range, but those should not be added to `CartZpMap.inc`.
+*   If a new routine needs ZP storage, it must be registered in `CartZpMap.inc` to avoid collisions.
