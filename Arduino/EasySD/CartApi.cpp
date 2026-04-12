@@ -159,6 +159,8 @@ bool CartApi::RestoreLastDir() {
 
 void CartApi::Init() {
   eepromIndex = 0;
+  lastDirPendingSave = false;
+  lastDirIdleCounter = 0;
   /* Not talking at the moment */
   //TalkStatus = 0;
   cartInterface.SetPage(0);
@@ -555,7 +557,10 @@ void CartApi::HandleChangeDirectory() {
 
   if (success) {
     dirFunc.Prepare();
-    SaveLastDir();
+    // Deferred save: flag the last-dir for saving, but don't write to EEPROM here.
+    // The write happens later during idle, to avoid blocking the protocol response.
+    lastDirPendingSave = true;
+    lastDirIdleCounter = 0;  // Reset idle counter to start waiting for idle window
     HandleResponse(SUCCESSFUL, 1);
   } else {
     LOGE(DIR, "CD FAILED");
@@ -1323,8 +1328,21 @@ void CartApi::HandleApi() {
         //LOGD(PROTO, "Port clear!");
 
         cartInterface.SetPage(0);
+        // Reset idle counter on every command
+        lastDirIdleCounter = 0;
       }
-   }  
+   } else {
+     // Idle: increment counter and check for deferred save
+     lastDirIdleCounter++;
+
+     // Save last-dir only after sufficient idle time (~50 cycles = ~50-100ms idle)
+     // This ensures the save happens in a relaxed window, not during protocol critical path
+     if (lastDirPendingSave && lastDirIdleCounter > 50) {
+       SaveLastDir();
+       lastDirPendingSave = false;
+       lastDirIdleCounter = 0;
+     }
+   }
 }  
 
 

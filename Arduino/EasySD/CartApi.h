@@ -88,6 +88,8 @@ class CartApi {
   File    workingFile;
   uint8_t Arguments[MAX_ARGUMENTS_LENGTH + 2];
   int     eepromIndex;
+  bool    lastDirPendingSave;     // Deferred save: flag set on successful dir change
+  uint16_t lastDirIdleCounter;    // Idle counter: increment each HandleApi cycle, reset on command
 
   int16_t GetByte();
   int16_t AwaitByte(int16_t maxTryCount);
