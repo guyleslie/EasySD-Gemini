@@ -28,6 +28,12 @@ extern CartInterface cartInterface;
 // Total: 71 bytes (EEPROM[0..70])
 // Write strategy: invalidate first (committed=0x00), then payload+CRC, finally committed=0xAA
 // Read strategy: validate in order (magic → version → committed → pathLen → CRC → navigate)
+//
+// OLD FORMAT (legacy, NOT compatible): 2-byte magic + 64-byte raw path (bytes 0-65)
+// The old format is NOT "backward compatible" — it is silently IGNORED by validation.
+// Old byte 2 contains the path's first character (e.g. 0x2F = '/'), not version (0x01),
+// so the version check will fail. The old record is discarded. First successful
+// COMMAND_CHANGE_DIR rewrites EEPROM in the new format, replacing the old layout entirely.
 #define EEPROM_LD_MAGIC0       0    // 0xE5
 #define EEPROM_LD_MAGIC1       1    // 0xD0
 #define EEPROM_LD_VERSION      2    // 0x01
@@ -37,10 +43,6 @@ extern CartInterface cartInterface;
 #define EEPROM_LD_CRC_HI      69    // CRC16 high byte
 #define EEPROM_LD_COMMITTED   70    // 0xAA = complete, else = torn
 #define EEPROM_LD_SIZE        71    // total record size
-
-// Legacy offsets (old format, kept for backward compat reference only)
-#define EEPROM_LASTDIR_MAGIC_0  0xE5
-#define EEPROM_LASTDIR_MAGIC_1  0xD0
 
 //volatile static uint8_t * streamBuffer;
 // Static buffers for streaming (fix dangling pointer issue)
@@ -111,13 +113,15 @@ void CartApi::SaveLastDir() {
 // Reads and validates the EEPROM resume record. Returns true if a valid
 // saved path was found and successfully navigated. Returns false (stays at
 // root) if the record is absent, corrupt, or the path no longer exists on SD.
-// Validation order: magic → version → committed → pathLen → CRC16 → navigate.
+// Validation order: magic → version → committed → pathLen → CRC → navigate.
+// NOTE: Old 2-byte-magic format is NOT supported. It fails version check
+// (old byte 2 is path's first char, not version 0x01) and is silently discarded.
 bool CartApi::RestoreLastDir() {
   // Check magic bytes
   if (EEPROM.read(EEPROM_LD_MAGIC0) != 0xE5) return false;
   if (EEPROM.read(EEPROM_LD_MAGIC1) != 0xD0) return false;
 
-  // Check version
+  // Check version — rejects old format (which has path char in this byte, not 0x01)
   if (EEPROM.read(EEPROM_LD_VERSION) != 0x01) return false;
 
   // Check committed byte (torn write detection)
