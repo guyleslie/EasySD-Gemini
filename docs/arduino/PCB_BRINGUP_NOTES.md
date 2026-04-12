@@ -1,5 +1,12 @@
 # PCB Bringup Notes
-*First hardware test session on PCB — 2026-03-13*
+*Historical bringup and investigation notes for PCB hardware sessions.*
+
+This file is a session log, not the canonical source of current feature status.
+For current behavior, verify against the source code first.
+
+Terminology used here:
+- **cartridge ROML chip** = the external cartridge memory device on the PCB
+- **MCU internal EEPROM** = the ATmega328P built-in EEPROM used by the Arduino firmware
 
 ## Setup
 - Arduino Nano 3.x on PCB (socketed)
@@ -98,7 +105,7 @@ External 5V ──────────────────────�
 
 **Hardware self-test (debug firmware, COM4):** 8/8 PASS — SD_INIT, OPEN_RD_CL, SEEK, OPEN_NOEX, WR_DEL, MEM_STAB, ROOT_LIST, DIR_NAV. RAM: 413B free (stable).
 
-**Full system test (release firmware, real C64):** All core functions verified:
+**Full system test (release firmware, real C64):** session snapshot from this hardware run:
 - Cold boot: EasySD menu auto-loads ✅
 - Directory navigation (enter/back) ✅
 - File listing and scrolling ✅
@@ -106,6 +113,8 @@ External 5V ──────────────────────�
 - Long MENU button: exit to BASIC ✅
 - PETSCII, KOA, WAV, MUS, CVD, HWT plugins: ✅
 - MultiLoad games: not yet working (separate investigation pending)
+
+This section records what was observed in that session. It should not override newer source-level investigation or later dedicated status tracking by itself.
 
 ---
 
@@ -146,30 +155,30 @@ DisableCartridge()       DisableCartridge()
 
 **Flash impact:** 23690B (77%, +0B net — no size change).
 
-**EEPROM role (AT27C512R-45PU):** The EEPROM is a permanent, required component — not optional.
+**Cartridge ROML chip role (AT27C512R-45PU):** The external cartridge ROML chip is a permanent, required component — not optional.
 It provides three things the system cannot function without:
 1. **CBM80 string at $8004–$8008** — triggers C64 cartridge autostart instead of BASIC boot
 2. **Cold-start code at $8009** — initialises hardware, sets software NMI vector `$0318` = `$8066`
 3. **NMI data handler at $8066** — receives each byte from Arduino (`LDA $80AB`) and stores it to C64 RAM; this is how `TransferMenu()` fills RAM with the menu program
 
-Without the EEPROM installed: C64 boots to BASIC (no freeze after fix), but MENU button does nothing useful — CBM80 check fails, `$0318` stays at KERNAL default (`$FE66` = RTI), all NMI transfers are silently discarded.
+Without the cartridge ROML chip installed: C64 boots to BASIC (no freeze after fix), but MENU button does nothing useful — CBM80 check fails, `$0318` stays at KERNAL default (`$FE66` = RTI), all NMI transfers are silently discarded.
 
 ---
 
-## Issue 5: CBM80 check fails even with EEPROM — TransferMenu() data bus timing
+## Issue 5: CBM80 check fails even with cartridge ROML chip — TransferMenu() data bus timing
 
 *Discovered 2026-04-05 during root-cause analysis*
 
-**Root cause: ATmega output overrides EEPROM during CBM80 window**
+**Root cause: ATmega output overrides cartridge ROML chip during CBM80 window**
 
 The original `TransferMenu()` called `EnableCartridge()` before `ResetC64()`.
 `EnableCartridge()` sets D4–D7 / A0–A3 as OUTPUT (value = 0x00 from last `SetPage(0)`).
 
 The C64 CBM80 check at `$8004–$8008` happens ~2–5 ms into the 300 ms delay after reset.
-At that moment ROML is active, and both the EEPROM and Arduino drive the same bus lines:
+At that moment ROML is active, and both the cartridge ROML chip and Arduino drive the same bus lines:
 
 ```
-EEPROM output (AT27C512R): IOH_max ≈ 4 mA  (CMOS source)
+Cartridge ROML chip output (AT27C512R): IOH_max ≈ 4 mA  (CMOS source)
 ATmega328P output:          IOL_max = 40 mA (strong sink)
 ```
 
@@ -198,27 +207,27 @@ where the C64 is already running and CBM80 is not a concern.
 
 ## Current firmware state (2026-04-06)
 
-Three bus/boot fixes applied and verified on real C64 hardware with PCB v3 + EEPROM:
+Three bus/boot fixes applied and verified on real C64 hardware with PCB v3 + cartridge ROML chip:
 
 | Fix | Commit | Effect |
 |---|---|---|
 | Data bus tristate at idle | `8964487` | C64 no longer freezes on power-on with PCB inserted |
-| Data bus tristate during CBM80 window | `b8dc98e` | EEPROM can present CBM80 + NMI handler correctly |
+| Data bus tristate during CBM80 window | `b8dc98e` | cartridge ROML chip can present CBM80 + NMI handler correctly |
 | `TransferMenu()` called from `setup()` | *(this session)* | EasySD menu auto-loads on every cold boot |
 
-**Verified boot behaviour (EEPROM installed):**
+**Verified boot behaviour (cartridge ROML chip installed):**
 
 | Action | Result |
 |---|---|
 | Cold boot (C64 + Arduino power on together) | EasySD menu loads automatically — BASIC never visible ✅ |
 | Short MENU button press (≤500 ms) | C64 resets, EasySD menu reloads ✅ |
 | Long MENU button press (>500 ms) | `ResetNoCartridge()` — C64 resets to BASIC ✅ |
-| Cold boot without EEPROM | BASIC `READY.` — no freeze; MENU button resets to BASIC only |
+| Cold boot without cartridge ROML chip | BASIC `READY.` — no freeze; MENU button resets to BASIC only |
 
 Current startup policy after later real-hardware regression work:
 - Always start the menu from root at boot.
 - Do not restore the saved last directory during `CartApi::Init()`.
-- Keep EEPROM path storage for later/manual reuse, but exclude it from the cold-boot path.
+- Keep MCU internal EEPROM path storage for later/manual reuse, but exclude it from the cold-boot path.
 
 **Flash:** 23708 / 30720 B (77%, 7012 B free). **RAM:** 1284 / 2048 B (764 B free).
 
@@ -266,55 +275,55 @@ No changes needed in firmware or hardware for the MENU button.
 
 ---
 
-## Investigation: EEPROM A8-A11 wiring — root-cause analysis — 2026-04-06
+## Investigation: cartridge ROML chip A8-A11 wiring — root-cause analysis — 2026-04-06
 
-**Question:** EEPROM A8-A11 are connected to Arduino A0-A3 (ROM_A8-A11 net), not directly to
+**Question:** Cartridge ROML chip A8-A11 are connected to Arduino A0-A3 (ROM_A8-A11 net), not directly to
 C64 expansion port A8-A11. Is this a hardware design flaw?
 
 **Answer: No. This is correct by design — identical to the original IRQHack64.**
 
-### Actual EEPROM wiring (clarified 2026-04-06)
+### Actual cartridge ROML chip wiring (clarified 2026-04-06)
 
 ```
-EEPROM A0-A7   ← C64 A0-A7  (byte offset within page)
-EEPROM A8-A11  ← Arduino A0-A3  (PORTC[0:3])
-EEPROM A12-A15 ← Arduino D4-D7  (PORTD[4:7])
-EEPROM D0-D7   ← C64 D0-D7  (data bus)
-EEPROM OE#/CE# ← C64 ROML
+ROML chip A0-A7   ← C64 A0-A7  (byte offset within page)
+ROML chip A8-A11  ← Arduino A0-A3  (PORTC[0:3])
+ROML chip A12-A15 ← Arduino D4-D7  (PORTD[4:7])
+ROML chip D0-D7   ← C64 D0-D7  (data bus)
+ROML chip OE#/CE# ← C64 ROML
 ```
 
-C64 A8-A15 are NOT connected to the EEPROM at all. Arduino controls all 8 upper address bits.
+C64 A8-A15 are NOT connected to the cartridge ROML chip at all. Arduino controls all 8 upper address bits.
 
 ### SetPage(byte) — dual-purpose operation
 
 `SetPage(N)` writes to PORTD[4:7] = `N & 0xF0` and PORTC[0:3] = `N & 0x0F`. This simultaneously:
 1. **Drives C64 data bus** with byte N (D4-D7 upper nibble + D0-D3 lower nibble)
-2. **Selects EEPROM page N** (A12-A15 upper nibble + A8-A11 lower nibble = N)
+2. **Selects cartridge ROML chip page N** (A12-A15 upper nibble + A8-A11 lower nibble = N)
 
 This is why `IRQLoaderRom.bin` has 256 pages where page N has all placeholder bytes = N:
-whichever page the Arduino selects, the EEPROM would output that same value N from every
-placeholder position — but the Arduino always wins (40mA sink vs EEPROM 4mA source) during
-NMI transfers, so the EEPROM page content is irrelevant then.
+whichever page the Arduino selects, the cartridge ROML chip would output that same value N from every
+placeholder position — but the Arduino always wins (40mA sink vs ROML chip 4mA source) during
+NMI transfers, so the selected ROML page content is irrelevant then.
 
 ### Why it works
 
 **Phase 1 — CBM80 check window (EnableExromOnly, data bus tristate):**
 - Arduino A0-A3 and D4-D7 are INPUT (tristate); PORTD[4:7]=0 and PORTC[0:3]=0 (default)
-- EEPROM A8-A15 float near 0V (last driven value was 0, held by parasitic capacitance)
-- EEPROM selects page 0 → presents CBM80 bytes at $8004-$8008 ✅
-- Arduino does not drive D0-D7 → EEPROM output reaches C64 data bus undisturbed ✅
+- ROML chip A8-A15 float near 0V (last driven value was 0, held by parasitic capacitance)
+- ROML chip selects page 0 → presents CBM80 bytes at $8004-$8008 ✅
+- Arduino does not drive D0-D7 → ROML chip output reaches C64 data bus undisturbed ✅
 
 **Phase 2 — NMI data transfers (EnableDataBus, Arduino drives bus):**
-- `SetPage(dataValue)` sets EEPROM to page `dataValue` and drives C64 bus with `dataValue`
-- Arduino (40mA) overrides EEPROM output (4mA) — C64 reads Arduino's data ✅
-- EEPROM page content is irrelevant during NMI transfers
+- `SetPage(dataValue)` sets the cartridge ROML chip page to `dataValue` and drives C64 bus with `dataValue`
+- Arduino (40mA) overrides ROML chip output (4mA) — C64 reads Arduino's data ✅
+- ROML page content is irrelevant during NMI transfers
 
 **Phase 3 — EXROM HIGH (DisableCartridge):**
-- ROML inactive → EEPROM OE# deasserted → EEPROM output disabled ✅
+- ROML inactive → ROML chip OE# deasserted → output disabled ✅
 
 ### Original IRQHack64 comparison
 
-The original IRQHack64 uses the same dual-purpose wiring (Arduino controls all EEPROM upper
+The original IRQHack64 uses the same dual-purpose wiring (Arduino controls all cartridge ROML chip upper
 address bits + C64 data bus simultaneously). The design is intentional and correct.
 
 
@@ -323,7 +332,7 @@ address bits + C64 data bus simultaneously). The design is intentional and corre
 | Issue | Root cause | Fix | Commit |
 |---|---|---|---|
 | C64 freezes on power-on | `SetAddressPinsOutput()` in `Init()` drove D4-D7/A0-A3 OUTPUT=0 from boot, conflicting with C64 bus | Removed from `Init()` — data bus stays tristate until `EnableCartridge()` | `8964487` |
-| CBM80 check fails with EEPROM | `EnableCartridge()` called before `ResetC64()` — ATmega drove D0-D7 during CBM80 window, overriding EEPROM | Split into `EnableExromOnly()` + `delay(300)` + `EnableDataBus()` | `b8dc98e` |
+| CBM80 check fails with cartridge ROML chip installed | `EnableCartridge()` called before `ResetC64()` — ATmega drove D0-D7 during CBM80 window, overriding the cartridge ROML chip output | Split into `EnableExromOnly()` + `delay(300)` + `EnableDataBus()` | `b8dc98e` |
 | Directory navigation freezes on ENTER | `ENTERDIR` in `EasySDMenu.s` called `PROT_ChangeDirectory` without prior `PROT_SetNameZ` — Arduino received length=0, returned error, C64 froze in `CHANGEDIRFAIL` | Added `LDX NAMELOW / LDY NAMEHIGH / JSR PROT_SetNameZ` before the call; also improved `CHANGEDIRFAIL` error recovery and `GOBACK` error handling | `3a46be7` |
 | EasySD menu never auto-loads on cold boot | `TransferMenu()` was never called from `setup()` — C64 always booted to BASIC; menu only loaded on button press | Added `cartApi.TransferMenu()` at the end of `setup()`, after `cartApi.Init()` | *(this session)* |
 

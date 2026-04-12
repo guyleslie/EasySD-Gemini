@@ -4,6 +4,8 @@ Plugins are standalone 6502 programs loaded from `/PLUGINS/` on the SD card.
 When the user selects a file whose extension maps to a plugin, the menu loads
 `/PLUGINS/<EXT>PLUGIN.PRG` to `$C000` and jumps to `$C000`.
 
+This guide is intentionally behavior-focused. Treat the current source code as the primary reference, and use this file as a compact checklist instead of a code dump.
+
 ---
 
 ## Plugin Binary Constraints
@@ -11,7 +13,7 @@ When the user selects a file whose extension maps to a plugin, the menu loads
 | Property | Value |
 |----------|-------|
 | Load address | `$C000` |
-| Maximum size | ~12 KB (`$C000–$CFFF`) |
+| Practical size target | Keep the plugin inside the `$C000` plugin area and verify the built binary |
 | Build output | `EasySD/build/plugins/<name>plugin.prg` |
 | SD card path | `/PLUGINS/<EXT>PLUGIN.PRG` (e.g. `KOAPLUGIN.PRG`) |
 
@@ -19,112 +21,48 @@ When the user selects a file whose extension maps to a plugin, the menu loads
 
 ## Required Include Chain
 
-Every plugin must pull in the CartLib API. Include the highest-level wrapper needed:
-
-```asm
-; For most plugins (file I/O):
-.include "../../Loader/CartLibStream.s"
-.include "../../Loader/DebugStrings.s"
-```
+Every plugin must pull in the CartLib API. For most file-oriented plugins, include the highest-level wrapper you need.
 
 `CartLibStream.s` includes the full chain:
 `CartLibStream.s → CartLibHi.s → CartLib.s → CartLibCommon.s → System.inc / EasySD.inc`
 
 ### Tier 2 — APIMacros (explicit include required)
 
-```asm
-; Add BEFORE the origin directive if you use #OPENFILE, #SETADDR, etc.
-.include "../../Loader/DebugMacros.s"
-.include "../../Loader/APIMacros.s"
-```
-
 `APIMacros.s` is **not** pulled in by `CartLibStream.s` — you must include it explicitly
 at the top of any file that uses its macros.
 
 ---
 
-## Entry / Exit Pattern
+## Entry / Exit Checklist
 
-```asm
-* = $C000
-    JMP MAIN
+Typical current plugin flow:
 
-MAIN:
-    JSR SAVESTATE           ; save VIC + $01 registers
-    ; ... plugin logic ...
+1. Save machine state with `SAVESTATE`.
+2. Start cartridge communication with `PROT_StartTalking` before cartridge file operations.
+3. Open, inspect, load, stream, or play the selected content.
+4. Close any opened file handle with `PROT_CloseFile` when appropriate.
+5. End the cartridge session with `PROT_EndTalking` on normal and error exit paths.
+6. Restore machine state with `RESTORESTATE`.
+7. Return via `PROT_ExitToMenu`.
 
-EXIT:
-    JSR RESTORESTATE        ; restore VIC + $01 for clean menu return
-    JSR PROT_DisableDisplay
-    JSR PROT_ExitToMenu
-    JMP *                   ; never reached
-```
-
-`SAVESTATE` / `RESTORESTATE` save and restore: `$01`, `$DD00`, `$D011`, `$D016`,
-`$D018`, `$D020`, `$D021`, `$D022`, `$D023`.
+Exact structure varies by plugin, but the protocol contract above is the current invariant to preserve.
 
 ---
 
-## File Open / Read / Close Pattern
+## File Handling Notes
 
-```asm
-    ; Open file (path in FILE_PATH_BUF, length 31, flags read=1)
-    JSR PROT_DisableDisplay
-    #OPENFILE FILE_PATH_BUF, #31, #01
-    BCC file_opened
-    JMP error_handler
-file_opened:
-    JSR PROT_EnableDisplay
-
-    ; Get file size from FAT directory entry
-    #SETADDR INFO_BUFFER, ZP_IRQ_API_DATA_LO
-    JSR PROT_DisableDisplay
-    JSR PROT_GetInfoForFile
-    BCC size_ok
-    JMP error_handler
-size_ok:
-    JSR PROT_EnableDisplay
-    #EXTRACTFILESIZE INFO_BUFFER, ZP_LOADFILE_API_SIZE0
-
-    ; Set load target and skip (0 = no header, 2 = skip PRG load address)
-    LDA #<LOAD_TARGET
-    STA ZP_IRQ_API_DATA_LO
-    LDA #>LOAD_TARGET
-    STA ZP_IRQ_API_DATA_HI
-    LDA #2                  ; skip 2-byte PRG header
-    STA ZP_LOADFILE_API_SKIP_LO
-    LDA #0
-    STA ZP_LOADFILE_API_SKIP_HI
-
-    JSR PROT_DisableDisplay
-    JSR LoadFileBySize
-    BCC load_ok
-    JMP error_handler
-load_ok:
-
-    JSR PROT_CloseFile
-```
+- Use `#OPENFILE`, `#GETFILEINFO`, `#EXTRACTFILESIZE`, `#SETADDR`, and `#CLOSEFILE` where they fit the control flow.
+- Do not assume a fixed 31-byte filename length in new code. Current firmware accepts dynamic filename lengths and null-terminated paths.
+- `LoadFileBySize` remains the standard way to load plugin payloads into C64 memory.
+- Some plugins use explicit `PROT_SetNameZ` + `PROT_OpenFile` sequences instead of `#OPENFILE` when that fits their control flow better.
 
 ---
 
-## ERROR_GATE Pattern
+## Error Handling Notes
 
-For plugins that call multiple file operations:
-
-```asm
-ERROR_GATE:
-    BCC +           ; carry clear = success, skip error
-    JMP PLUGIN_FAIL
-+   RTS
-
-PLUGIN_FAIL:
-    JSR PROT_EnableDisplay
-    ; display error message ...
-    JSR RESTORESTATE
-    JSR PROT_DisableDisplay
-    JSR PROT_ExitToMenu
-    JMP *
-```
+- Preserve carry-based success/error flow consistently.
+- Ensure `PROT_EndTalking` is not skipped on failure paths after a session has started.
+- Ensure `PROT_CloseFile` is called on every path where file open succeeded.
 
 ---
 
@@ -164,7 +102,7 @@ Full map: `EasySD/Loader/CartZpMap.inc`.
 | KoalaDisplayer | adopted |
 | MusPlayer | adopted |
 | PetsciiDisplayer | adopted |
-| CvdPlayer | not needed (uses NIStream) |
+| CvdPlayer | limited use; NI stream path is the primary concern |
 | HWTest | not needed (direct NMI setup, no file I/O) |
 
 ---

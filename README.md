@@ -1,14 +1,14 @@
 # EasySD Gemini
 
-**Load programs, music, graphics and video on your Commodore 64 — straight from an SD card.**
+**Load programs and media on your Commodore 64 straight from an SD card.**
 
-EasySD is a cartridge for the Commodore 64 that turns any FAT-formatted SD card into a file library. Plug it into the expansion port, browse your files with cursor keys, and load them instantly. No tape drive, no disk drive, no fuss.
+EasySD is a cartridge for the Commodore 64 that combines an Arduino-based SD card controller with a cartridge ROML chip that boots the C64-side menu. You browse files on the C64, then the selected file is loaded directly from the SD card.
 
-> Current version: **v3.1.3** (2026-03-09)
+> Documentation note: this README describes the current architecture and user-visible behavior at a high level. Detailed implementation status belongs in the developer docs.
 
 ![EasySD v3 PCB](PCB%20EasySd%20v3%20.png)
 
-*EasySD v3 PCB render: Arduino Nano (blue, top), DIP-28 EEPROM socket (bottom), MicroSD slot (top left), MENU/RESET button (top right), and the C64 expansion port edge connector.*
+*EasySD v3 PCB render: Arduino Nano (blue, top), DIP-28 cartridge ROML chip socket (bottom), MicroSD slot (top left), MENU/RESET button (top right), and the C64 expansion port edge connector.*
 
 ---
 
@@ -22,10 +22,8 @@ EasySD is a cartridge for the Commodore 64 that turns any FAT-formatted SD card 
 
 - **Browse files** on an SD card directly on your C64 — folder navigation with cursor keys
 - **Load programs** (`.PRG`) — BASIC and machine code, including programs that use KERNAL file I/O
-- **View graphics** — Koala Painter (`.KOA`) and PETSCII art (`.PET`)
-- **Play audio** — digitized sound (`.WAV`) and Sidplayer SID music (`.MUS`)
-- **Play video** — CVD video files (`.CVD`) converted from standard video sources
-- **Automatic TAP conversion** — `.TAP` tape images load without a separate plugin
+- **Use file-type plugins** for graphics, audio, and video playback from the SD card
+- **Convert supported tape images** (`.TAP`) into launchable content without a separate TAP plugin
 
 ---
 
@@ -34,9 +32,9 @@ EasySD is a cartridge for the Commodore 64 that turns any FAT-formatted SD card 
 The cartridge has two parts working together:
 
 - An **Arduino Nano** reads the SD card and streams file data to the C64 at up to ~40 KB/s via the NMI line
-- A **512 Kbit (64 KB) EEPROM** holds the cartridge ROM: the file browser menu that boots when you turn on the C64
+- A **512 Kbit (64 KB) cartridge ROML chip** holds the cartridge menu and transfer handler used by the C64 side
 
-When you select a file, the menu loads the matching plugin from the SD card's `/PLUGINS/` folder, which handles playback or display. This keeps the ROM small and lets new file types be added without reflashing the EEPROM.
+When you select a file, the menu loads the matching plugin from the SD card's `/PLUGINS/` folder, which handles playback or display. This keeps the ROM small and lets new file types be added without reprogramming the cartridge ROML chip.
 
 ---
 
@@ -49,15 +47,13 @@ To build EasySD you need the following components:
 | **Commodore 64** | PAL or NTSC |
 | **Arduino Nano 3.x** | ATmega328P, 5V — clones work fine |
 | **MicroSD card adapter (5V)** | Standard SPI module |
-| **EEPROM 512 Kbit** | AT27C512R-45PU or M27C512 — both compatible; holds the cartridge ROM |
+| **Cartridge ROML chip, 512 Kbit** | AT27C512R-45PU or M27C512 — holds the C64 cartridge ROM |
 | **EasySD PCB** | See schematic above (designed in EasyEDA) |
 | **100 nF ceramic + 10–100 µF electrolytic capacitor** | Both directly at SD module VCC/GND pins — required for stable SPI |
 | **5mm LED + 220 Ω resistor** | Power indicator — connect between PCB 5V rail and GND (always lit when powered) |
 | **Tactile pushbutton** | Menu/Reset button |
 
 > **SD card:** FAT16 or FAT32 formatted. Any capacity works. Copy your files into the root or subdirectories; put the plugin files in a `/PLUGINS/` folder.
->
-> **Filename limit:** 8.3 format — up to 8 characters for the name, 3 for the extension (e.g. `MYGAME.PRG`). Long filenames are not supported.
 >
 > **Directory depth limit:** The full path cannot exceed 63 characters. With 8-character folder names (FAT maximum) this allows approximately 7 levels of nesting; shorter names allow more.
 
@@ -73,7 +69,7 @@ SD card root/
 │   ├── PETGPLUGIN.PRG   ← PETSCII art viewer
 │   ├── WAVPLUGIN.PRG    ← WAV audio player
 │   ├── MUSPLUGIN.PRG    ← SID music player
-│   ├── SIDPLAYER.PRG    ← external Compute! SID player binary for MUS plugin
+│   ├── SIDPLAYER.PRG    ← external SID player binary used by the MUS plugin
 │   └── CVDPLUGIN.PRG    ← CVD video player
 ├── GAMES/
 │   ├── MYGAME.PRG
@@ -131,11 +127,11 @@ python Tools/build.py arduino-upload-isp --optiboot
 
 > Important: when writing the Arduino over ISP for EasySD, Optiboot should normally be omitted. The default `arduino-upload-isp` flow now keeps the chip in application-start mode (`BOOTRST=1`), avoiding bootloader delay. Use `--optiboot` only when you intentionally want to restore USB bootloader uploads.
 
-> After flashing, the Arduino firmware is complete. Next, program the C64-side ROM into the AT27C512R-45PU EEPROM using a TL866 or similar parallel EEPROM programmer — see **Flash the EEPROM** below.
+> After flashing, the Arduino firmware is complete. Next, program the C64-side ROM image into the cartridge ROML chip using a TL866 or similar programmer — see **Flash the Cartridge ROML Chip** below.
 
-### Flash the EEPROM
+### Flash the Cartridge ROML Chip
 
-The build produces `EasySD/build/easysd.prg` — this is the C64 cartridge ROM binary. Write it to the AT27C512R-45PU with any parallel EEPROM programmer (TL866II+, etc.).
+The build produces `EasySD/build/easysd.prg` — this is the C64 cartridge ROM image. Write it to the AT27C512R-45PU or M27C512 with a suitable programmer.
 
 ---
 
@@ -149,7 +145,7 @@ The LED is connected directly to the PCB 5V rail and is **always lit when the ca
 
 **SD card not detected** — Check that a 100 nF ceramic and a 10–100 µF electrolytic capacitor are fitted directly at the SD module's VCC/GND pins. Missing or misplaced bypass caps are the most common cause of SD init failures, especially on breadboard builds.
 
-**Garbled screen on boot** — Check that the EEPROM is correctly seated and the PCB connections are solid.
+**Garbled screen on boot** — Check that the cartridge ROML chip is correctly seated and the PCB connections are solid.
 
 **File won't load** — Make sure the correct plugin is in `/PLUGINS/` on the SD card. Plugin filenames must match exactly (8.3 format, uppercase).
 
@@ -162,9 +158,9 @@ The LED is connected directly to the PCB 5V rail and is **always lit when the ca
 
 EasySD has two cooperating halves:
 
-**Arduino firmware** (`Arduino/EasySD/`) — manages SD card, FAT filesystem, directory navigation, file streaming. Entry point: `EasySD.ino`. Command routing: `CartApi.cpp`. Directory logic: `DirFunction.cpp`. ATmega328P constraint: 2 KB SRAM, ~415 bytes free at boot.
+**Arduino firmware** (`Arduino/EasySD/`) — manages SD card access, directory state, file streaming, and the ATmega328P internal EEPROM used for saved path data.
 
-**C64 software** (`EasySD/`) — 6502 assembly built with 64tass. Cartridge ROM includes the communication library (`Loader/`), file browser menu (`Menu/EasySD/`), and plugin system (`Plugins/`).
+**C64 software** (`EasySD/`) — 6502 assembly built with 64tass. The cartridge ROML chip contains the communication library, transfer handler, and the boot menu used to start the system.
 
 **Data transfer:**
 | Mechanism | Rate | Used by |
