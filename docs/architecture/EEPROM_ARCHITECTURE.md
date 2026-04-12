@@ -135,36 +135,9 @@ Intended use: **persistent user settings** (e.g., last directory, preferences).
 
 ### Current status
 
-**Partially in use** — the firmware still saves the last-visited directory, but boot-time restore is disabled in the current real-hardware build.
-
-### Last-visited directory persistence (SaveLastDir / RestoreLastDir)
-
-On every successful directory change (`COMMAND_CHANGE_DIR`, GoBack), the
-firmware writes the current absolute path to the MCU internal EEPROM
-(`SaveLastDir()`).  The restore helper (`RestoreLastDir()`) still exists, but
-`CartApi::Init()` no longer calls it during startup. The menu now always starts
-from root because restoring the last visited directory was identified as the
-real cause of the incomplete menu startup seen on real C64 hardware.
-
-EEPROM layout — **66 bytes total** (2 magic + 64 path buffer):
-
-| Offset | Size | Content |
-|--------|------|---------|
-| 0 | 1 byte | Magic `0xE5` |
-| 1 | 1 byte | Magic `0xD0` |
-| 2–65 | ≤64 bytes | Null-terminated absolute path (e.g. `/GAMES/ACTION`) |
-
-Why 66 bytes?  The path buffer is a fixed 64-byte field (max 63 printable
-characters + terminating `\0`). Prepending 2 magic bytes for validity
-detection gives `2 + 64 = 66`. The remaining ~958 bytes of the 1 KB EEPROM
-are currently unused.
-
-`EEPROM.update()` is used (writes only if value changed) to minimise write
-cycles (100k endurance limit).
-
-If the magic bytes are absent or the path is invalid, restore is silently
-skipped and the menu starts at root. In the current firmware, boot starts at
-root unconditionally even when valid EEPROM data exists.
+**Not in use** — last-directory persistence has been removed from the firmware.
+The menu always starts from root. All 1 KB of MCU internal EEPROM is available
+for future use.
 
 ### C64-accessible MCU internal EEPROM commands
 
@@ -212,7 +185,7 @@ protocol (IO2 software serial, C64 → Arduino).
 | Chip variants | AT27C512R-45PU or M27C512 | Built-in ATmega328P |
 | Size | 64 KB | 1 KB |
 | Arduino write | No (read-only at runtime) | Yes |
-| Purpose | IRQ loader ROM + NMI streaming data transfer | Persistent settings (last-visited dir) |
+| Purpose | IRQ loader ROM + NMI streaming data transfer | Persistent settings (reserved for future use) |
 | C64 access | `LDA $80AB` (ROML, via SetPage) | `PROT_ReadEeprom` / `PROT_WriteEeprom` |
 | Build artifact | `build/IRQLoaderRom.bin` (flash with programmer) | N/A |
-| Currently used | Yes (streaming, WavPlayer, CvdPlayer) | Yes (last-visited directory storage, 66 bytes; startup restore currently disabled) |
+| Currently used | Yes (streaming, WavPlayer, CvdPlayer) | No (last-directory persistence removed; all 1 KB available) |

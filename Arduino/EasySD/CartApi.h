@@ -88,8 +88,6 @@ class CartApi {
   File    workingFile;
   uint8_t Arguments[MAX_ARGUMENTS_LENGTH + 2];
   int     eepromIndex;
-  bool    lastDirDirty;           // RAM shadow: unsaved dir change waiting for menu reload
-  char    pendingLastDir[64];     // RAM shadow: last directory path to persist on next menu load
 
   int16_t GetByte();
   int16_t AwaitByte(int16_t maxTryCount);
@@ -114,8 +112,6 @@ class CartApi {
   void HandleSeekEeprom();
   void HandleWriteEeprom();
   void IncrementEepromAddress();
-  bool SaveLastDirRecord(const char* path);  // Write path to EEPROM, returns true on success
-  bool RestoreLastDir();                      // Read and restore from EEPROM, returns true on success
   void HandleValueResponse(uint8_t value);
   void HandleSetPort();
   void HandleEndTalking();

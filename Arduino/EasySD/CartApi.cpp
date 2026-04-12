@@ -15,35 +15,6 @@ extern SdFat  sd;
 extern DirFunction dirFunc;
 extern CartInterface cartInterface;
 
-// ============================================================================
-// EEPROM layout for last-directory persistence (redesigned, validated record)
-// ============================================================================
-// Explicit offsets (no struct — no compiler packing assumptions):
-//   Byte 0-1:   magic (0xE5, 0xD0) — record signature
-//   Byte 2:     version (0x01) — layout version for future migration
-//   Byte 3:     pathLen — actual path length (1..63, 0 = invalid)
-//   Byte 4-67:  path[64] — null-terminated absolute path
-//   Byte 68-69: crc16 (lo, hi) — CRC16 checksum over version+pathLen+path[0..pathLen]
-//   Byte 70:    committed (0xAA = fully written, anything else = torn/invalid)
-// Total: 71 bytes (EEPROM[0..70])
-// Write strategy: invalidate first (committed=0x00), then payload+CRC, finally committed=0xAA
-// Read strategy: validate in order (magic → version → committed → pathLen → CRC → navigate)
-//
-// OLD FORMAT (legacy, NOT compatible): 2-byte magic + 64-byte raw path (bytes 0-65)
-// The old format is NOT "backward compatible" — it is silently IGNORED by validation.
-// Old byte 2 contains the path's first character (e.g. 0x2F = '/'), not version (0x01),
-// so the version check will fail. The old record is discarded. First successful
-// COMMAND_CHANGE_DIR rewrites EEPROM in the new format, replacing the old layout entirely.
-#define EEPROM_LD_MAGIC0       0    // 0xE5
-#define EEPROM_LD_MAGIC1       1    // 0xD0
-#define EEPROM_LD_VERSION      2    // 0x01
-#define EEPROM_LD_PATHLEN      3    // 1..63 (0 = invalid)
-#define EEPROM_LD_PATH         4    // [64 bytes] path buffer
-#define EEPROM_LD_CRC_LO      68    // CRC16 low byte
-#define EEPROM_LD_CRC_HI      69    // CRC16 high byte
-#define EEPROM_LD_COMMITTED   70    // 0xAA = complete, else = torn
-#define EEPROM_LD_SIZE        71    // total record size
-
 //volatile static uint8_t * streamBuffer;
 // Static buffers for streaming (fix dangling pointer issue)
 volatile static uint8_t streamingBuffer1[DOUBLE_BUFFER_SIZE];
@@ -57,113 +28,9 @@ volatile static unsigned long lastStreamRequestTime = 0;
 //volatile static uint8_t chunkLength;
 //volatile static uint8_t inChunkDelay;
 
-// ============================================================================
-// CRC16 helper — CCITT polynomial (0x1021)
-// ============================================================================
-static uint16_t crc16_update(uint16_t crc, uint8_t a) {
-  crc ^= (uint16_t)a << 8;
-  for (uint8_t i = 0; i < 8; i++)
-    crc = (crc & 0x8000) ? (crc << 1) ^ 0x1021 : (crc << 1);
-  return crc;
-}
-
-// ============================================================================
-// Last-Directory Persistence Functions
-// ============================================================================
-
-// Saves a directory path to EEPROM as a validated resume record.
-// Parameterized (not implicit) for flexibility: caller provides the path.
-// If path is root ("/"), invalidates the record instead of writing it.
-// Write order: committed=0x00 (invalidate), payload+CRC, committed=0xAA (commit).
-// Returns true on success, false on failure.
-bool CartApi::SaveLastDirRecord(const char* path) {
-  // If path is root ("/"), invalidate any existing resume record.
-  // This gives clean semantics: "no resume state" rather than "invalid save".
-  if (path[0] == '/' && path[1] == '\0') {
-    EEPROM.update(EEPROM_LD_COMMITTED, 0x00);
-    return true;
-  }
-
-  // Step 1: Invalidate old record first (crash-safe)
-  EEPROM.update(EEPROM_LD_COMMITTED, 0x00);
-
-  // Step 2: Write payload (magic, version, pathLen, path)
-  uint8_t pathLen = strlen(path);
-  if (pathLen > 63) pathLen = 63;
-
-  EEPROM.update(EEPROM_LD_MAGIC0, 0xE5);
-  EEPROM.update(EEPROM_LD_MAGIC1, 0xD0);
-  EEPROM.update(EEPROM_LD_VERSION, 0x01);
-  EEPROM.update(EEPROM_LD_PATHLEN, pathLen);
-  eeprom_update_block(path, (void*)(EEPROM_LD_PATH), 64);
-
-  // Step 3: Compute and write CRC16
-  uint16_t crc = 0;
-  crc = crc16_update(crc, 0x01);  // version
-  crc = crc16_update(crc, pathLen);
-  for (uint8_t i = 0; i <= pathLen; i++)  // include null terminator
-    crc = crc16_update(crc, path[i]);
-
-  EEPROM.update(EEPROM_LD_CRC_LO, (uint8_t)(crc & 0xFF));
-  EEPROM.update(EEPROM_LD_CRC_HI, (uint8_t)(crc >> 8));
-
-  // Step 4: Commit (write last)
-  EEPROM.update(EEPROM_LD_COMMITTED, 0xAA);
-
-  return true;  // Simplified: assume EEPROM write succeeds (AVR is reliable)
-}
-
-// Reads and validates the EEPROM resume record. Returns true if a valid
-// saved path was found and successfully navigated. Returns false (stays at
-// root) if the record is absent, corrupt, or the path no longer exists on SD.
-// Validation order: magic → version → committed → pathLen → CRC → navigate.
-// NOTE: Old 2-byte-magic format is NOT supported. It fails version check
-// (old byte 2 is path's first char, not version 0x01) and is silently discarded.
-bool CartApi::RestoreLastDir() {
-  // Check magic bytes
-  if (EEPROM.read(EEPROM_LD_MAGIC0) != 0xE5) return false;
-  if (EEPROM.read(EEPROM_LD_MAGIC1) != 0xD0) return false;
-
-  // Check version — rejects old format (which has path char in this byte, not 0x01)
-  if (EEPROM.read(EEPROM_LD_VERSION) != 0x01) return false;
-
-  // Check committed byte (torn write detection)
-  if (EEPROM.read(EEPROM_LD_COMMITTED) != 0xAA) return false;
-
-  // Check pathLen
-  uint8_t pathLen = EEPROM.read(EEPROM_LD_PATHLEN);
-  if (pathLen == 0 || pathLen > 63) return false;
-
-  // Read path from EEPROM
-  char path[64];
-  eeprom_read_block(path, (void*)(EEPROM_LD_PATH), 64);
-
-  // Validate null termination
-  if (path[pathLen] != '\0') return false;
-
-  // Skip root (no resume state for root)
-  if (path[0] != '/' || path[1] == '\0') return false;
-
-  // Verify CRC16
-  uint16_t storedCrc = (uint16_t)EEPROM.read(EEPROM_LD_CRC_LO) |
-                       ((uint16_t)EEPROM.read(EEPROM_LD_CRC_HI) << 8);
-  uint16_t computedCrc = 0;
-  computedCrc = crc16_update(computedCrc, 0x01);  // version
-  computedCrc = crc16_update(computedCrc, pathLen);
-  for (uint8_t i = 0; i <= pathLen; i++)  // include null terminator
-    computedCrc = crc16_update(computedCrc, path[i]);
-
-  if (storedCrc != computedCrc) return false;
-
-  // All validation passed — navigate to the saved path
-  bool success = dirFunc.NavigateToPath(path);
-  return success;
-}
 
 void CartApi::Init() {
   eepromIndex = 0;
-  lastDirDirty = false;
-  pendingLastDir[0] = '\0';
   /* Not talking at the moment */
   //TalkStatus = 0;
   cartInterface.SetPage(0);
@@ -560,12 +427,6 @@ void CartApi::HandleChangeDirectory() {
 
   if (success) {
     dirFunc.Prepare();
-    // RAM shadow: remember the new directory, but don't write to EEPROM yet.
-    // The actual EEPROM flush happens when the menu reloads (before restore).
-    // This keeps the COMMAND_CHANGE_DIR response path clean and fast.
-    strncpy(pendingLastDir, dirFunc.currentPath, sizeof(pendingLastDir) - 1);
-    pendingLastDir[sizeof(pendingLastDir) - 1] = '\0';
-    lastDirDirty = true;
     HandleResponse(SUCCESSFUL, 1);
   } else {
     LOGE(DIR, "CD FAILED");
@@ -1480,33 +1341,10 @@ void CartApi::TransferMenu() {
   delayMicroseconds(30);
   cartInterface.DisableCartridge();
 
-  // ========================================================================
-  // Last-directory persistence: next-menu-reload flush + restore
-  // ========================================================================
   // Close the menu source file: keeps SdFat state clean.
   // The file is no longer needed — the menu PRG is now in C64 RAM.
   if (readFromFile && workingFile) workingFile.close();
 
-  // Flush any pending last-dir change from the previous menu session.
-  // The RAM shadow (pendingLastDir + lastDirDirty) was set during successful
-  // COMMAND_CHANGE_DIR, but EEPROM write was deferred to avoid blocking the
-  // protocol response. Now, during menu transfer (safe point), we write it.
-  if (lastDirDirty) {
-    if (SaveLastDirRecord(pendingLastDir)) {
-      lastDirDirty = false;  // Only clear flag on successful write
-    }
-  }
-
-  // Restore the last saved directory (either freshly flushed, or from previous session).
-  // Restore happens after flush, so we read the most up-to-date record.
-  // If restore fails, dirFunc stays at root (safe fallback).
-  // The C64 does not need to know about restore — it simply gets the correct
-  // directory listing in the first COMMAND_READ_DIR response.
-  RestoreLastDir();
-
-  // ========================================================================
-  // Now the command loop is ready
-  // ========================================================================
   cartInterface.StartListening();
 }
 
