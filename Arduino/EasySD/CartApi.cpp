@@ -130,9 +130,48 @@ void CartApi::HandleOpenFile() {
     fileName[MAX_ARGUMENTS_LENGTH - 1] = 0;
   }
 
-  // Open relative to CWD (managed by DirFunction).
-  // Absolute LFN paths are unreliable in SdFat 2.x — always use relative names.
-  workingFile = sd.open(fileName, flags);
+  const char* openName = fileName;
+  bool restoreCwd = false;
+  char savedPath[64];
+
+  // SdFat 2.x absolute LFN paths are unreliable. For absolute paths, temporarily
+  // switch the CWD to the parent directory, open the basename, then restore CWD.
+  if (fileName[0] == '/') {
+    char* lastSlash = strrchr(fileName, '/');
+    if (lastSlash == NULL || lastSlash[1] == '\0') {
+      HandleResponse(INVALID_ARGUMENT, 1);
+      return;
+    }
+
+    strncpy(savedPath, dirFunc.currentPath, sizeof(savedPath) - 1);
+    savedPath[sizeof(savedPath) - 1] = '\0';
+    openName = lastSlash + 1;
+    restoreCwd = true;
+
+    if (lastSlash == fileName) {
+      if (strcmp(savedPath, "/") != 0 && !dirFunc.NavigateToPath("/")) {
+        HandleResponse(DIR_NOT_FOUND, 1);
+        return;
+      }
+    } else {
+      *lastSlash = '\0';
+      bool navOk = dirFunc.NavigateToPath(fileName);
+      *lastSlash = '/';
+      if (!navOk) {
+        HandleResponse(DIR_NOT_FOUND, 1);
+        return;
+      }
+    }
+  }
+
+  workingFile = sd.open(openName, flags);
+
+  if (restoreCwd && strcmp(savedPath, dirFunc.currentPath) != 0) {
+    if (!dirFunc.NavigateToPath(savedPath)) {
+      LOGE(DIR, "Restore CWD FAIL");
+      dirFunc.ToRoot();
+    }
+  }
 
   if (workingFile != NULL) {
     LOGI(FILE, "File opened successfully");

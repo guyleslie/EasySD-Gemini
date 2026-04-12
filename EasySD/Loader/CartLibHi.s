@@ -91,6 +91,32 @@ PROT_SetName
 	RTS
 
 ;-----------------------------------------
+; Registers In : X (low address), Y (high address) of a 0-terminated filename
+; Registers Used : A, X, Y
+; Registers Out : Carry clear = success, set = unterminated string
+;-----------------------------------------
+PROT_SetNameZ
+	STX $06
+	STY $07
+	LDY #$00
+-
+	LDA ($06), Y
+	BEQ +
+	INY
+	BNE -
+	SEC
+	RTS
++
+	TYA
+	PHA
+	LDX $06
+	LDY $07
+	PLA
+	JSR PROT_SetName
+	CLC
+	RTS
+
+;-----------------------------------------
 ; Registers In : None
 ; Registers Used : A, X, Y
 ;-----------------------------------------

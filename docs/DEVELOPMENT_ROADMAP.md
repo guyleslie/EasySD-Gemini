@@ -1,6 +1,6 @@
 # EasySD Development Roadmap
 
-Last updated: 2026-04-10 (HWTest fix added)
+Last updated: 2026-04-12 (status reconciled with source)
 
 This document captures the current state of the project, the root causes of known bugs,
 architectural decisions, and the planned sequence of work. Intended as a hand-off document
@@ -8,7 +8,7 @@ between development sessions.
 
 ---
 
-## Current Hardware Status (PCB v3, 2026-04-10)
+## Current Hardware Status (PCB v3, source-verified 2026-04-12)
 
 | Feature | Status | Notes |
 |---------|--------|-------|
@@ -21,9 +21,9 @@ between development sessions.
 | MultiLoad (Last Ninja 2 etc.) | ⚠️ | GETFILEINFO fix applied, hardware test pending |
 | KoalaDisplayer (.KOA) | 🔧 | Protocol fix applied (2026-04-10), test pending |
 | PetsciiDisplayer (.PET) | 🔧 | Protocol fix applied (2026-04-10), test pending |
-| WavPlayer (.WAV) | ❌ | StartTalking present, failure reason TBD |
-| MusPlayer (.MUS) | ❌ | StartTalking present, failure reason TBD |
-| CvdPlayer (.CVD) | ❌ | NI stream exit path broken, see below |
+| WavPlayer (.WAV) | ❌ | Protocol session handling present; full-path open fix applied, hardware retest pending |
+| MusPlayer (.MUS) | ❌ | Full-path open fix applied; now opens `/PLUGINS/SIDPLAYER.PRG`, hardware retest pending |
+| CvdPlayer (.CVD) | 🔧 | NI stream EOF exit redesign implemented in source; hardware test pending |
 
 ---
 
@@ -132,26 +132,38 @@ side. After the user presses SEL:
 
 ---
 
-### Bug: WavPlayer and MusPlayer (NOT YET INVESTIGATED)
+### Bug: WavPlayer and MusPlayer (OPEN)
 
-Both call `PROT_StartTalking` correctly. Failure reason unknown — needs hardware debug
-with border color tracing (`--ml-debug-borders` build) to isolate the hang stage.
+These are still failing on hardware, but they are **not** missing the same basic
+protocol calls as the previously fixed plugins. Both already contain a valid
+`PROT_StartTalking` / `PROT_CloseFile` / `PROT_EndTalking` pattern.
 
 **WavPlayer:** Very complex (1300+ lines), multiple playback modes (SID, DigiMax, MK3).
-May have timing issues with the double-buffered streaming on real hardware.
+May have timing issues with the double-buffered streaming on real hardware. The source
+already contains border-color debug markers in the playback IRQ paths, and the repo also
+contains `WavPlayerViceTest.s` for C64-side audio path verification in VICE. Next step:
+identify the exact hang stage on real hardware using the existing border markers.
+
+2026-04-12 update: the plugin no longer relies on a fixed 31-byte filename length when
+re-opening the selected media file. It now sends the full null-terminated path.
 
 **MusPlayer:** Depends on loading `SIDPLAYER.PRG` from the SD card at `$9000`.
 If the player binary is missing, incorrect format, or its entry point symbols
 (`PLAYER_INSTALL`, `PLAYER_INIT_SONG`, etc.) do not match the loaded binary,
 the plugin will crash after loading. The `ComputePlayerSymbols.inc` file provides
-these addresses — verify it matches the actual SIDPLAYER.PRG on the SD card.
+these addresses. Next step: verify that the SD card contains the correct `SIDPLAYER.PRG`
+build and that it matches `ComputePlayerSymbols.inc`.
+
+2026-04-12 update: the plugin no longer truncates the selected `.MUS` path to 31 bytes,
+and it now looks up the external player as `/PLUGINS/SIDPLAYER.PRG` instead of a
+directory-relative `SIDPLAYER.PRG`.
 
 ---
 
 ## Planned Refactoring — Arduino Side
 
 ### Goal
-`CartApi.cpp` is 1585 lines and mixes protocol dispatch, TAP decoding, PRG loading,
+`CartApi.cpp` is still a monolithic file (currently ~1374 lines) and mixes protocol dispatch, TAP decoding, PRG loading,
 streaming, hardware test, and string utilities. Splitting it improves navigability
 and makes each concern testable and reviewable independently.
 
@@ -224,7 +236,7 @@ Reasons:
    low gain.
 2. The "alien" routines (VIC display on/off, EEPROM access) are all protocol commands
    (`COMMAND_*` bytes sent to Arduino) — they belong in the same protocol layer.
-3. 633 lines is not large for an embedded ASM library file.
+3. ~577 lines is not large for an embedded ASM library file.
 
 ### What IS worth doing in CartLibHi.s
 - Improve English comments (many are outdated or missing)
@@ -255,8 +267,8 @@ Phase 1 — Plugin bug fixes (in progress)
   ✅ PetsciiDisplayer: StartTalking + BCC label fix + EndTalking + CloseFile paths
   ✅ HWTest: EndTalking added at _done exit point
   ✅ CvdPlayer: NI stream exit redesign — frame counter + Arduino EOF detection
-  🔲 WavPlayer: hardware debug with border colors
-  🔲 MusPlayer: verify SIDPLAYER.PRG + ComputePlayerSymbols.inc alignment
+  🔲 WavPlayer: hardware debug with existing border-color markers / WavPlayerViceTest baseline
+  🔲 MusPlayer: verify SIDPLAYER.PRG on SD card + ComputePlayerSymbols.inc alignment
 
 Phase 2 — Arduino CartApi.cpp refactor
   🔲 Extract TapConverter.cpp/.h
@@ -275,7 +287,7 @@ Phase 3 — C64 library comment cleanup
 
 | File | Purpose |
 |------|---------|
-| `Arduino/EasySD/CartApi.cpp` | Protocol dispatcher — 1585 lines, primary refactor target |
+| `Arduino/EasySD/CartApi.cpp` | Protocol dispatcher — ~1374 lines, primary refactor target |
 | `Arduino/EasySD/CartApi.h` | Command codes (COMMAND_*), response codes, class declaration |
 | `Arduino/EasySD/CartInterface.cpp` | Hardware I/O: TransmitByteFast, SetPage, NmiLow/High |
 | `Arduino/EasySD/DirFunction.cpp` | SD directory navigation, `currentPath[64]`, FindByPrefix |
@@ -286,7 +298,8 @@ Phase 3 — C64 library comment cleanup
 | `EasySD/Loader/SystemMacros.s` | Tier-1 macros: #SETBANK, #WAITFOR, #READCART, etc. |
 | `EasySD/Plugins/KoalaDisplayer/KoalaDisplayer.s` | KOA plugin (fixed) |
 | `EasySD/Plugins/PetsciiDisplayer/PetsciiDisplayer.s` | PET plugin (fixed) |
-| `EasySD/Plugins/CvdPlayer/CvdPlayer.s` | CVD plugin (NI stream exit still broken) |
+| `EasySD/Plugins/CvdPlayer/CvdPlayer.s` | CVD plugin (EOF-based NI stream exit redesign present in source) |
+| `EasySD/Plugins/WavPlayer/WavPlayerViceTest.s` | VICE-only audio pipeline test for WAV playback path |
 | `EasySD/Plugins/WavPlayer/WavPlayer.s` | WAV plugin (failure TBD) |
 | `EasySD/Plugins/MusPlayer/MusPlayer.s` | MUS plugin (SIDPLAYER.PRG dependency) |
 | `EasySD/Loader/Bridges/KernalBridge/KernalBridge.s` | Reference plugin — correct protocol usage |

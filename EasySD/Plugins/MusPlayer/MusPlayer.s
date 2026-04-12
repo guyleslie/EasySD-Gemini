@@ -114,7 +114,12 @@ Run_Fail:
 ;------------------------------------------------------------
 LoadSidPlayer9000:
     ; set name
-    #OPENFILE SidPlayerName, #SIDPLAYER_NAME_LEN, #$01
+    ldx #<SidPlayerPath
+    ldy #>SidPlayerPath
+    jsr PROT_SetNameZ
+    bcs LoadSid_Fail
+    ldx #$01
+    jsr PROT_OpenFile
     bcs LoadSid_Fail
     lda #1
     sta FILE_OPENED         ; Track open file
@@ -162,7 +167,12 @@ LoadSid_Fail:
 ;   Opens selected file name (FILENAME), loads MUS payload to $8000.
 ;------------------------------------------------------------
 LoadSelectedMus8000:
-    #OPENFILE FILE_PATH_BUF, #31, #$01
+    ldx #<FILE_PATH_BUF
+    ldy #>FILE_PATH_BUF
+    jsr PROT_SetNameZ
+    bcs LoadMus_Fail
+    ldx #$01
+    jsr PROT_OpenFile
     bcs LoadMus_Fail
     lda #1
     sta FILE_OPENED         ; Track open file
@@ -456,9 +466,9 @@ PLAYBACK_ACTIVE:
 FILE_OPENED:
     .byte 0                 ; 1 = file open, 0 = closed
 
-SidPlayerName:
-    .text "SIDPLAYER.PRG"
-
+SidPlayerPath:
+    .text "/PLUGINS/SIDPLAYER.PRG"
+    .byte 0
 ; 256-byte scratch for reads/GetInfo
 HdrPage:
     .fill 256, 0

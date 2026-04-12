@@ -73,6 +73,7 @@ SD card root/
 │   ├── PETGPLUGIN.PRG   ← PETSCII art viewer
 │   ├── WAVPLUGIN.PRG    ← WAV audio player
 │   ├── MUSPLUGIN.PRG    ← SID music player
+│   ├── SIDPLAYER.PRG    ← external Compute! SID player binary for MUS plugin
 │   └── CVDPLUGIN.PRG    ← CVD video player
 ├── GAMES/
 │   ├── MYGAME.PRG
@@ -118,9 +119,17 @@ python Tools/build.py release --skip-arduino
 # Upload via USB (Arduino already has a bootloader)
 python Tools/build.py arduino-upload COM4
 
-# Upload via ISP programmer (blank chip, first time)
+# Upload via ISP programmer (default, recommended for EasySD: no Optiboot)
+python Tools/build.py arduino-upload-isp
+
+# Upload via ISP programmer for a blank/bricked chip (slower SCK)
 python Tools/build.py arduino-upload-isp --isp-sck 100
+
+# Only use this if you explicitly want Optiboot restored for later USB uploads
+python Tools/build.py arduino-upload-isp --optiboot
 ```
+
+> Important: when writing the Arduino over ISP for EasySD, Optiboot should normally be omitted. The default `arduino-upload-isp` flow now keeps the chip in application-start mode (`BOOTRST=1`), avoiding bootloader delay. Use `--optiboot` only when you intentionally want to restore USB bootloader uploads.
 
 > After flashing, the Arduino firmware is complete. Next, program the C64-side ROM into the AT27C512R-45PU EEPROM using a TL866 or similar parallel EEPROM programmer — see **Flash the EEPROM** below.
 

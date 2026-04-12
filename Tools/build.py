@@ -276,6 +276,25 @@ def create_eprom_loader(input_file: Path, output_file: Path, positions: list[int
     output_file.write_bytes(eprom_data)
 
 
+def stage_sidplayer_asset(ctx: Context) -> None:
+    """
+    Stage the canonical external SID player binary used by MusPlayer.
+
+    The authoritative source in this repository is Tools/ComputeSidPlayer.prg,
+    which is already assembled for load address $9000 and matches the symbol
+    offsets in EasySD/Plugins/MusPlayer/ComputePlayerSymbols.inc.
+    """
+    src = ctx.tools_dir / "ComputeSidPlayer.prg"
+    dst = ctx.plugins_out_dir / "sidplayer.prg"
+
+    if not src.exists():
+        print(f"WARNING: {src} not found — SIDPLAYER.PRG will not be staged")
+        return
+
+    shutil.copyfile(src, dst)
+    print(f"  - Tools/{src.name} -> build/plugins/{dst.name}")
+
+
 # ============================================================================
 # Prebuild Checks
 # ============================================================================
@@ -542,6 +561,8 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
             cwd=ctx.irq_root
         )
 
+    stage_sidplayer_asset(ctx)
+
     print("[PLUGINS] OK")
 
 
@@ -773,7 +794,7 @@ def find_bootloader_hex(ctx: Context) -> Path:
 
 
 def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = False,
-                       burn_bootloader: bool = True) -> None:
+                       burn_bootloader: bool = False) -> None:
     """Compile and upload Arduino sketch via ISP programmer (USBTinyISP)"""
     output_dir = ctx.arduino_root / "build" / "arduino.avr.nano"
     size = arduino_compile(ctx, debug_mode=debug_mode, output_dir=output_dir)
@@ -791,7 +812,7 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
     print(f"  Programmer: usbtinyisp")
     print(f"  SCK period: {sck_period} µs  ({1000 // sck_period} kHz)")
     print(f"  DEBUG_SERIAL: {'ON' if debug_mode else 'OFF'}")
-    print(f"  Bootloader: {'YES (USB upload will work after)' if burn_bootloader else 'NO (--no-bootloader)'}")
+    print(f"  Bootloader: {'YES (--optiboot, USB upload will work after)' if burn_bootloader else 'NO (default, no Optiboot)'}")
     print("="*70)
 
     run_cmd(
@@ -808,10 +829,10 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
     )
 
     if not burn_bootloader:
-        # --no-bootloader: set hfuse BOOTRST=1 so CPU starts from $0000 (application)
+        # Default no-Optiboot mode: set hfuse BOOTRST=1 so CPU starts from $0000 (application)
         # not from the boot section ($7E00). Without this fuse change, the chip would
         # jump to $7E00 on reset even without a bootloader there → hang.
-        # Restoring Optiboot later: run arduino-upload-isp (without --no-bootloader).
+        # Restoring Optiboot later: run arduino-upload-isp --optiboot.
         print("\n" + "="*70)
         print("SETTING FUSE: BOOTRST=1 (application start at $0000, no Optiboot delay)")
         print("="*70)
@@ -829,7 +850,7 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
             cwd=ctx.repo_root
         )
         print("  NOTE: USB serial upload is now disabled.")
-        print("  To restore: python build.py arduino-upload-isp (will re-burn Optiboot)")
+        print("  To restore: python build.py arduino-upload-isp --optiboot")
 
     if burn_bootloader:
         bootloader_hex = find_bootloader_hex(ctx)
@@ -837,7 +858,7 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
         print("BURNING BOOTLOADER (USBTinyISP)")
         print("="*70)
         print(f"  Bootloader: {bootloader_hex.name}")
-        print(f"  (skip with --no-bootloader)")
+        print(f"  (enabled with --optiboot)")
         print("="*70)
 
         run_cmd(
@@ -926,10 +947,11 @@ Examples:
   python build.py arduino-setup        # One-time setup
   python build.py arduino-compile      # Compile (release mode)
   python build.py arduino-compile --debug  # Compile (debug mode - SERIAL ON)
-  python build.py arduino-upload COM4          # Compile + Upload (USB)
-  python build.py arduino-upload-isp           # Compile + Upload (ISP/USBTinyISP)
-  python build.py arduino-upload-isp --isp-sck 10  # ISP with custom SCK period (µs)
-  python build.py arduino-monitor COM4         # Serial monitor
+    python build.py arduino-upload COM4               # Compile + Upload (USB)
+    python build.py arduino-upload-isp                # Compile + Upload (ISP/USBTinyISP, no Optiboot)
+    python build.py arduino-upload-isp --optiboot    # ISP upload + re-burn Optiboot bootloader
+    python build.py arduino-upload-isp --isp-sck 10  # ISP with custom SCK period (µs)
+    python build.py arduino-monitor COM4              # Serial monitor
 
   # Full workflow
   python build.py all                  # C64 + Arduino (release)
@@ -970,8 +992,10 @@ Examples:
     p.add_argument("--baudrate", type=int, default=57600, help="Baudrate for serial monitor (default: 57600)")
     p.add_argument("--isp-sck", type=int, default=2, metavar="USEC",
                    help="ISP SCK period in µs for arduino-upload-isp (default: 2 = 500kHz, use 100 for blank/bricked chips)")
+    p.add_argument("--optiboot", action="store_true",
+                   help="After ISP upload, also burn the Optiboot bootloader so USB serial upload works again")
     p.add_argument("--no-bootloader", action="store_true",
-                   help="Skip bootloader burn after ISP upload (USB upload will not work)")
+                   help=argparse.SUPPRESS)
 
     return p.parse_args(list(argv))
 
@@ -1007,8 +1031,11 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if args.target == "arduino-upload-isp":
+        if args.optiboot and args.no_bootloader:
+            print("\nERROR: Use either --optiboot or --no-bootloader, not both")
+            return 1
         arduino_upload_isp(ctx, sck_period=args.isp_sck, debug_mode=args.debug,
-                           burn_bootloader=not args.no_bootloader)
+                           burn_bootloader=args.optiboot)
         return 0
 
     if args.target == "arduino-monitor":

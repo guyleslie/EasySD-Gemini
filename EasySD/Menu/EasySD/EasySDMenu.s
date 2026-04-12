@@ -267,34 +267,6 @@ ENTER
 NOPREV
 	; Enter directory (Arduino updates currentPath authoritatively)
 	JMP ENTERDIR
-; ------------------------------------------------------------
-; PROT_SetNameZ
-;   Input : X=lo, Y=hi pointer to 0-terminated string
-;   Output: calls PROT_SetName with computed length (max PATH_MAX)
-;   Carry : set on error (unterminated/too long), clear on success
-; ------------------------------------------------------------
-PROT_SetNameZ
-	STX $06
-	STY $07
-	LDY #0
-_isnz_loop
-	LDA ($06), Y
-	BEQ _isnz_done
-	INY
-	CPY #PATH_MAX
-	BNE _isnz_loop
-	SEC
-	RTS
-_isnz_done
-	TYA			; A = length
-	PHA
-	LDX $06
-	LDY $07
-	PLA
-	JSR PROT_SetName
-	CLC
-	RTS
-
 
 ; ------------------------------------------------------------
 ; PROT_GetCurrentPath

@@ -42,10 +42,13 @@ The plugin validates that `6 + v1_len + v2_len + v3_len ≤ payload_size`.
 | SD path | Description |
 |---------|-------------|
 | `/PLUGINS/MUSPLUGIN.PRG` | This plugin binary |
-| `/SIDPLAYER.PRG` | SID player engine (must be at root, assembled for `$9000`) |
+| `/PLUGINS/SIDPLAYER.PRG` | SID player engine (assembled for `$9000`) |
 | `<any path>/<song>.MUS` | Music file selected from menu |
 
 `SIDPLAYER.PRG` is expected to have a standard 2-byte PRG load header (`$00 $90`).
+
+In this repository the canonical binary is `Tools/ComputeSidPlayer.prg`, and
+`python Tools/build.py plugins` stages it automatically as `build/plugins/sidplayer.prg`.
 
 ---
 
@@ -91,7 +94,7 @@ CIA1 Timer A is set up for SID player timing (player provides `$DC04`/`$DC05` va
 
 ## Known Limitations
 
-- `SIDPLAYER.PRG` must be present at the SD card root. If not found, the plugin exits with an error.
+- `/PLUGINS/SIDPLAYER.PRG` must be present on the SD card. If not found, the plugin exits with an error.
 - The SID player engine is not bundled — it must be obtained separately and placed on the SD card.
 - Stereo or multi-SID songs are not supported (single SID chip only).
 - CIA1 Timer A is reconfigured for playback; other timer-dependent code will be affected.

@@ -121,17 +121,10 @@ CVD_SIZE = $8B
 	
 	LDA #$37
 	STA $01
-	; Compute length of null-terminated path placed in FILE_PATH_BUF by the menu
-	LDX #$00
--	LDA FILE_PATH_BUF, X
-	BEQ CVD_STRLEN_DONE
-	INX
-	BNE -
-CVD_STRLEN_DONE
-	TXA             ; A = path length
 	LDX #<FILE_PATH_BUF
 	LDY #>FILE_PATH_BUF
-	JSR PROT_SetName
+	JSR PROT_SetNameZ
+	BCS ERROR_OPENING_FILE
 	LDX #01		; Flags=read
 	JSR PROT_OpenFile
 	BCC +
