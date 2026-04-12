@@ -136,15 +136,16 @@ Intended use: **persistent user settings** (e.g., last directory, preferences).
 
 ### Current status
 
-**In use** — the firmware saves and restores the last-visited directory on boot.
+**Partially in use** — the firmware still saves the last-visited directory, but boot-time restore is disabled in the current real-hardware build.
 
 ### Last-visited directory persistence (SaveLastDir / RestoreLastDir)
 
 On every successful directory change (`COMMAND_CHANGE_DIR`, GoBack), the
 firmware writes the current absolute path to the MCU internal EEPROM
-(`SaveLastDir()`).  On boot (`CartApi::Init()`), the saved path is read back
-and the firmware navigates there before the C64 menu starts
-(`RestoreLastDir()`).
+(`SaveLastDir()`).  The restore helper (`RestoreLastDir()`) still exists, but
+`CartApi::Init()` no longer calls it during startup. The menu now always starts
+from root because restoring the last visited directory was identified as the
+real cause of the incomplete menu startup seen on real C64 hardware.
 
 EEPROM layout — **66 bytes total** (2 magic + 64 path buffer):
 
@@ -163,7 +164,8 @@ are currently unused.
 cycles (100k endurance limit).
 
 If the magic bytes are absent or the path is invalid, restore is silently
-skipped and the menu starts at root — safe for fresh chips and corrupted data.
+skipped and the menu starts at root. In the current firmware, boot starts at
+root unconditionally even when valid EEPROM data exists.
 
 ### C64-accessible MCU internal EEPROM commands
 
@@ -214,4 +216,4 @@ protocol (IO2 software serial, C64 → Arduino).
 | Purpose | IRQ loader ROM + NMI streaming data transfer | Persistent settings (last-visited dir) |
 | C64 access | `LDA $80AB` (ROML, via SetPage) | `PROT_ReadEeprom` / `PROT_WriteEeprom` |
 | Build artifact | `build/IRQLoaderRom.bin` (flash with programmer) | N/A |
-| Currently used | Yes (streaming, WavPlayer, CvdPlayer) | Yes (last-visited directory, 66 bytes) |
+| Currently used | Yes (streaming, WavPlayer, CvdPlayer) | Yes (last-visited directory storage, 66 bytes; startup restore currently disabled) |

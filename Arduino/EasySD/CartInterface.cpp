@@ -14,8 +14,43 @@ volatile unsigned long timeDifference = 0;
 volatile unsigned long interruptTime = 0;
 //volatile uint8_t toggle = 1;
 
+namespace {
+
+constexpr unsigned long PHI2_SYNC_TIMEOUT_US = 2000UL;
+
+inline bool phi2ReadFast() {
+  #ifdef __AVR__
+  return (PINC & _BV(PC4)) != 0;
+  #else
+  return phi2Read();
+  #endif
+}
+
+bool waitForPhi2Level(bool targetLevel, unsigned long timeoutUs) {
+  unsigned long start = micros();
+  while (phi2ReadFast() != targetLevel) {
+    if ((unsigned long)(micros() - start) > timeoutUs) {
+      return false;
+    }
+  }
+  return true;
+}
+
+void syncBusChangeToPhi2Low() {
+  // Cartridge visibility and bus-driving changes should happen while PHI2 is low,
+  // i.e. outside the CPU-owned half-cycle, to avoid mid-read mapping glitches.
+  if (phi2ReadFast()) {
+    if (!waitForPhi2Level(false, PHI2_SYNC_TIMEOUT_US)) {
+      return;
+    }
+  }
+
+  delayMicroseconds(1);
+}
+
+}
+
 static void CartInterface::ReceiveInterrupt() {
-  
     lastInterruptTime = interruptTime;
     interruptTime = micros();
     timeDifference = interruptTime - lastInterruptTime;
@@ -73,17 +108,15 @@ uint8_t CartInterface::ReceiveHandler() {
     if (receiveState == IN_TRANSMISSION) {
         return receiveState;
     }
-    //Serial.println(timeDifference);
     if (bitState < BIT_ZERO_END) {
       return receiveState;
     }
-    
-       
-    // A bit transfer has been finished
-        
+
+    // A bit transfer has been finished.
+
     if (bitState == BIT_ONE_END) {
       currentByte = currentByte | bitMask;      
-    }    
+    }
   
     bitMask<<=1;
     
@@ -92,21 +125,18 @@ uint8_t CartInterface::ReceiveHandler() {
         case IDLE : 
         if (currentByte == IDENTIFIER_1) {
           receiveState = IDENTIFIER_1_OK;
-          //Serial.println(F("1"));
         }
         break;
         
         case IDENTIFIER_1_OK : 
         if (currentByte == IDENTIFIER_2) {
           receiveState = IDENTIFIER_2_OK;
-          //Serial.println(F("2"));
         }
         break;
 
         case IDENTIFIER_2_OK :
         if (currentByte == IDENTIFIER_3) {
           receiveState = IDENTIFIER_3_OK;
-          //Serial.println(F("3"));
         }
         break;
         
@@ -116,7 +146,6 @@ uint8_t CartInterface::ReceiveHandler() {
           }          
           receiveState = IN_TRANSMISSION;      
           EnableCartridge(); 
-          //Serial.println(F("Q"));
         break;         
 
         case IN_TRANSMISSION : break;     
@@ -130,9 +159,18 @@ uint8_t CartInterface::ReceiveHandler() {
       currentByte = 0;      
     }
 
-    // Wait until next bit is transferred or whole process is restarted.
+    // Preserve the original edge-to-edge synchronization, but do not wedge the
+    // whole main loop forever if the C64 disappears or aborts mid-byte.
+    unsigned long waitStart = micros();
     while(bitState >= BIT_ZERO_END) {
       if (receiveState == IN_TRANSMISSION) break;
+      if ((unsigned long)(micros() - waitStart) > 2000UL) {
+        bitState = BIT_STARTED;
+        bitMask = 1;
+        currentByte = 0;
+        receiveState = IDLE;
+        break;
+      }
     }
 
     return receiveState;
@@ -164,6 +202,7 @@ uint16_t CartInterface::Read() {
 
 void CartInterface::IOSetup() {
   pinMode(IO2, INPUT);
+  pinMode(PHI2, INPUT);
   // Set EXROM HIGH before enabling output — avoids a ~1-2µs LOW glitch that
   // occurs when pinMode(OUTPUT) drives PD2 low before digitalWrite(HIGH).
   // The C64 PLA samples EXROM on PHI2 (1µs period) and would catch that glitch,
@@ -291,6 +330,7 @@ void CartInterface::EnableCartridge() {
   #ifdef EASYSD_DEBUG_SERIAL
   Serial.println(F("AVR Enabling Cartridge"));
   #endif
+  syncBusChangeToPhi2Low();
   DDRD |= 0xF0;          // D4-D7: OUTPUT (drive data bus)
   DDRC |= 0x0F;          // A0-A3: OUTPUT (drive data bus)
   PORTD &= ~_BV (PD2);  // EXROM LOW — cartridge visible to C64
@@ -304,12 +344,14 @@ void CartInterface::EnableExromOnly() {
   // $8004-$8008: if data pins were OUTPUT(0x00) here, ATmega's 40mA sink would
   // override the chip's 4mA source and CBM80 detection would fail even with
   // the chip installed.
+  syncBusChangeToPhi2Low();
   PORTD &= ~_BV (PD2);
 }
 
 void CartInterface::EnableDataBus() {
   // Switch data bus pins to OUTPUT — call after delay(300) CBM80 window,
   // immediately before NMI data transfers begin (SendHeader / TransmitByte*).
+  syncBusChangeToPhi2Low();
   DDRD |= 0xF0;   // D4-D7: OUTPUT
   DDRC |= 0x0F;   // A0-A3: OUTPUT
 }
@@ -317,6 +359,7 @@ void CartInterface::EnableDataBus() {
 
 
 void CartInterface::DisableCartridge() {
+  syncBusChangeToPhi2Low();
   PORTD |= _BV (PD2);   // EXROM HIGH — cartridge hidden from C64
   DDRD &= ~0xF0;         // D4-D7: INPUT (tristate — stop driving data bus)
   DDRC &= ~0x0F;         // A0-A3: INPUT (tristate — stop driving data bus)

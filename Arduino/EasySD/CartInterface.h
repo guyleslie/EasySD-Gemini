@@ -12,15 +12,16 @@
 #define IO2 3    // D3 → C64 /IO2 (INPUT, INT1, $DF00-$DFFF trigger detect)
 #define EXROM 2  // D2 → C64 /EXROM (OUTPUT, controls ROM visibility)
 #define NMI 8
-#define RESET 9
-#define SEL A6         // A6 — analog-only pin, MENU/RESET button; 10k pull-up to +5V, switch to GND
+#define RESET 9        // D9 → C64 cartridge port /RESET (OUTPUT)
+#define SEL A6         // A6 — analog-only local MENU button input; 10k pull-up to +5V, switch to GND
+#define PHI2 A4        // A4 ← C64 PHI2 clock (INPUT, used to detect C64 activity)
 #define STATUS_LED 21  // A7 — NC on PCB (LED is hardware-driven from cartridge 5V rail, not Arduino)
 // A5 = IRQ input from C64 cartridge port (future use — not yet read in firmware)
-// A4 = PHI2 input from C64 cartridge port (future use — not yet read in firmware)
 
 // A6 is analog-only: no digitalRead/INPUT_PULLUP support.
 // Returns true when button is released (high), false when pressed (low).
 inline bool selRead() { return analogRead(SEL) >= 512; }
+inline bool phi2Read() { return digitalRead(PHI2) != LOW; }
 
 #define PRE_WAIT 3
 #define INITIAL_WAIT 17

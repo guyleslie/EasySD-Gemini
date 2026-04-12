@@ -15,10 +15,10 @@ They share hardware signals but operate independently depending on context.
 | ROML   | C64 reads  | $8000–$9FFF       | D4–D7, A0–A3 | Data output (NMI transfer and streaming) |
 | /EXROM | Arduino → C64 | Expansion pin 9 | D2 (output) | Controls ROM visibility |
 | /NMI   | Arduino → C64 | Expansion pin 28 | D8 (output) | Triggers NMI on C64 |
-| /RESET | C64 → Arduino | Expansion pin 30 | A6 / MENU/RESET (analog input, 10kΩ pull-up to +5V, switch to GND) | Detects MENU/RESET button press |
-| /RESET | Arduino → C64 | Via D9 output | D9 (output) | Triggers C64 reset |
+| MENU button | Local to PCB | Tact switch | A6 (analog input) | Detects short/long MENU button press |
+| /RESET | Arduino → C64 | Expansion pin 30 | D9 (output) | Triggers C64 reset |
 | IRQ    | — | — | A5 (input, future use) | C64 /IRQ line — not yet read in firmware |
-| PHI2   | — | — | A4 (input, future use) | C64 system clock — not yet read in firmware |
+| PHI2   | C64 → Arduino | Expansion clock | A4 (input) | C64 system clock — used to synchronize cartridge visibility and bus-drive changes |
 
 ### Clock Frequencies
 

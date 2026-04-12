@@ -215,6 +215,11 @@ Three bus/boot fixes applied and verified on real C64 hardware with PCB v3 + EEP
 | Long MENU button press (>500 ms) | `ResetNoCartridge()` — C64 resets to BASIC ✅ |
 | Cold boot without EEPROM | BASIC `READY.` — no freeze; MENU button resets to BASIC only |
 
+Current startup policy after later real-hardware regression work:
+- Always start the menu from root at boot.
+- Do not restore the saved last directory during `CartApi::Init()`.
+- Keep EEPROM path storage for later/manual reuse, but exclude it from the cold-boot path.
+
 **Flash:** 23708 / 30720 B (77%, 7012 B free). **RAM:** 1284 / 2048 B (764 B free).
 
 ---
@@ -225,6 +230,7 @@ Three bus/boot fixes applied and verified on real C64 hardware with PCB v3 + EEP
 ```
 +5V → R2 (10kΩ) → MENU/RESET node → SW1 (tact switch) → GND
 ```
+- This node is the local PCB button input on Arduino A6. It is not the C64 cartridge port reset line.
 - Not pressed: A6 = +5V (pulled high via R2)
 - Pressed: A6 = GND (switch closes)
 

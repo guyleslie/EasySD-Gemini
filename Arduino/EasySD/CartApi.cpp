@@ -64,7 +64,8 @@ void CartApi::Init() {
   cartInterface.SetPage(0);
 
   dirFunc.ReInit();
-  RestoreLastDir();  // navigate to last-visited directory (no-op if EEPROM empty/corrupt)
+  // Always start from root on boot/menu init. Restoring the last directory adds
+  // extra SD/path state during startup and is not required for current behavior.
   dirFunc.Prepare();
 }
 

@@ -66,7 +66,7 @@ python Tools/build.py release --skip-arduino
 
 ### Dual-System Design
 
-**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. On boot: 3-attempt SD init, then `RestoreLastDir()` (EEPROM persistence of last-visited path), then `dirFunc.Prepare()`.
+**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. On boot: 3-attempt SD init, then `dirFunc.ReInit()` + `dirFunc.Prepare()` from root. EEPROM last-directory persistence still exists, but boot-time restore is disabled because it caused real-hardware startup instability.
 
 **C64 software** (`EasySD/`): Cartridge ROM with communication library (`Loader/`), main file browser menu (`Menu/EasySD/EasySDMenu.s`), and file-type plugins (`Plugins/`).
 
@@ -136,7 +136,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **SPI speed:** Use `SPI_HALF_SPEED` (8 MHz) — tested stable on breadboard (8/8 tests pass). `SPI_QUARTER_SPEED` is no longer needed.
 - **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail on nested paths.
 - **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.
-- **EEPROM persistence:** `SaveLastDir()` / `RestoreLastDir()` use `eeprom_update_block()` / `eeprom_read_block()` (avr-libc). Prefer these over byte-by-byte loops — smaller flash footprint. EEPROM layout: bytes 0-1 magic (`0xE5`, `0xD0`), bytes 2-65 null-terminated path.
+- **EEPROM persistence:** `SaveLastDir()` / `RestoreLastDir()` use `eeprom_update_block()` / `eeprom_read_block()` (avr-libc). Prefer these over byte-by-byte loops — smaller flash footprint. EEPROM layout: bytes 0-1 magic (`0xE5`, `0xD0`), bytes 2-65 null-terminated path. Current firmware still writes the last visited directory, but startup always begins from root instead of restoring it.
 - **Flash budget:** Release 23.7KB/30.7KB (77%, **~7KB free**) — this is the production target (includes COMMAND_HWTEST + auto-load). Debug build 30.7KB (99%, ~36B margin) — debug-only constraint, not a feature limit. Adding new `LOGD`/`LOGI` calls in debug mode can push it over 30720B.
 
 ## Key File Locations

@@ -20,8 +20,35 @@ const unsigned char stateReleased = 2;
 
 unsigned char state = stateNone;
 uint16_t pressTime = 0;
+unsigned long buttonEnableAtMs = 0;
 
 const unsigned char chipSelect = 10;
+const unsigned long BUTTON_ENABLE_DELAY_MS = 2000;
+
+static void suppressButtonsFor(unsigned long delayMs) {
+  buttonEnableAtMs = millis() + delayMs;
+  state = stateNone;
+  pressTime = 0;
+}
+
+static bool waitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs) {
+  unsigned long startMs = millis();
+  bool lastLevel = phi2Read();
+  uint16_t edgeCount = 0;
+
+  while ((millis() - startMs) < timeoutMs) {
+    bool currentLevel = phi2Read();
+    if (currentLevel != lastLevel) {
+      lastLevel = currentLevel;
+      edgeCount++;
+      if (edgeCount >= minEdges) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
 
 #ifdef EASYSD_DEBUG_SERIAL
 void ShowMem() {
@@ -142,40 +169,52 @@ void setup() {
   // cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
   cartApi.Init();
 
-  // Auto-load the EasySD menu on every cold boot.
-  // EXROM has been HIGH since IOSetup() (t=65ms), so the C64 booted to BASIC
-  // while the SD was initialising.  TransferMenu() now resets the C64 with
-  // EXROM=LOW so the EEPROM's CBM80 stub installs the NMI handler, then sends
-  // the menu program via NMI.  From this point the C64 runs the EasySD menu
-  // instead of BASIC.
+  // Auto-load the EasySD menu on cold boot only after the C64 clock is
+  // visibly running. On real hardware the later SEL-triggered menu reload is
+  // reliable because it happens against an already-stable PHI2 domain.
+  // The first setup-time menu transfer must wait for the same condition.
+  if (waitForStablePhi2(32, 1500)) {
+    delay(150);
+  } else {
+    // Fallback: if PHI2 could not be observed reliably, keep a conservative
+    // settle delay instead of skipping the autoload entirely.
+    delay(300);
+  }
   cartApi.TransferMenu();
+  suppressButtonsFor(BUTTON_ENABLE_DELAY_MS);
 }
 
 
 void loop() {
   cartApi.HandleApi();
 
-  if (!selRead() && state == stateNone) {
-    state = statePressed;
-    pressTime = millis()/100;
-  }
-
-  uint16_t elapsed;
-  if (selRead() && state == statePressed) {
-    state = stateReleased;          
-    elapsed = millis()/100 - pressTime;
-    if (elapsed > 5) {
-      cartApi.ResetNoCartridge();
-    } else {
-      cartApi.TransferMenu();
+  if ((long)(millis() - buttonEnableAtMs) < 0) {
+    state = stateNone;
+    pressTime = 0;
+  } else {
+    if (!selRead() && state == stateNone) {
+      state = statePressed;
+      pressTime = millis()/100;
     }
-  }
+
+    uint16_t elapsed;
+    if (selRead() && state == statePressed) {
+      state = stateReleased;
+      elapsed = millis()/100 - pressTime;
+      if (elapsed > 5) {
+        cartApi.ResetNoCartridge();
+      } else {
+        cartApi.TransferMenu();
+      }
+      suppressButtonsFor(BUTTON_ENABLE_DELAY_MS);
+    }
   
-  if (state == stateReleased) {
-    if ( (millis()/100 - pressTime)>15) {
-      state = stateNone;
-      elapsed = 0;
-      pressTime = 0;
+    if (state == stateReleased) {
+      if ((millis()/100 - pressTime) > 15) {
+        state = stateNone;
+        elapsed = 0;
+        pressTime = 0;
+      }
     }
   }
 
