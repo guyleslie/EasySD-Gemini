@@ -71,13 +71,12 @@ RL_STUB_ENTRY:
 	STA RL_SAVED_01
 	LDA #PP_CONFIG_RAM_ON_ROM   ; $35: Kernal RAM visible, ROML accessible
 	STA PROCESSOR_PORT
-	JSR RL_HANDLER              ; → $E800 (now in RAM, accessible with $01=$35)
+	JSR RL_HANDLER              ; → $E800; returns C=0/1, X=end_lo, Y=end_hi
 	LDA RL_SAVED_01
-	STA PROCESSOR_PORT          ; restore game's banking
-	LDX RL_SAVED_X
-	LDY RL_SAVED_Y
-	PLA
-	RTS
+	STA PROCESSOR_PORT          ; restore game's banking (IRQs still masked)
+	CLI                         ; safe to re-enable IRQs now ($01 is restored)
+	PLA                         ; restore A; carry flag preserved from handler
+	RTS                         ; X/Y = end address from RL_HANDLER
 
 ; Ensure stub code ends by $035B (32 bytes max from $033C)
 .if * > $035C
@@ -140,6 +139,10 @@ rl_dev8_ok:
 ; Data areas — fixed addresses within handler image.
 ; Uses .fill padding to reach exact RL_* constants from System.inc.
 ;----------------------------------------------
+
+; Saved game NMI vector ($0318/$0319) — restored after each transfer
+rl_saved_nmi_lo: .byte 0
+rl_saved_nmi_hi: .byte 0
 
 ; align to RL_DIR_PATH = $E840
 .fill $E840 - *, $00
@@ -565,24 +568,16 @@ RL_Send:
 RL_NMITAB:
 	.byte <CARTRIDGENMIHANDLERX1, <CARTRIDGENMIHANDLERX4, <CARTRIDGENMIHANDLERX8
 
-;--- Interrupt disable helpers ---
-RL_DisableVICInterrupts:
-	ASL VIC_INT_ACK
-	LDA #$00
-	STA VIC_INT_CONTROL
-	RTS
-
-RL_DisableCIAInterrupts:
-	LDA #$7F
-	STA CIA_1_BASE + CIA_INT_MASK
-	STA CIA_2_BASE + CIA_INT_MASK
-	LDA CIA_1_BASE + CIA_INT_MASK
-	LDA CIA_2_BASE + CIA_INT_MASK
-	RTS
-
+;--- Interrupt disable helper ---
+; Only disables CIA2 NMI sources to prevent spurious NMIs during transfer.
+; CIA1 and VIC interrupt sources are left intact — SEI masks IRQs sufficiently.
+; NOTE: CIA2 ICR mask cannot be read back (6526 hardware limitation), so the
+; original enable state is lost. This is an acceptable compromise because
+; virtually no multiload games use CIA2 NMI sources.
 RL_DisableInterrupts:
-	JSR RL_DisableVICInterrupts
-	JSR RL_DisableCIAInterrupts
+	LDA #$7F
+	STA CIA_2_BASE + CIA_INT_MASK   ; disable all CIA2 NMI sources
+	LDA CIA_2_BASE + CIA_INT_MASK   ; ack pending
 	RTS
 
 ;--- RL_ReceiveFragmentNoCallback ---
@@ -595,7 +590,13 @@ RL_DisableInterrupts:
 ; Setup: ZP_IRQ_API_DATA_LO/HI = target; ZP_IRQ_API_DATA_LENGTH = page count.
 ; Y in: transfer mode (0=x1, 1=x4, 2=x8).
 RL_ReceiveFragmentNoCallback:
-	JSR RL_DisableInterrupts
+	; Save game's NMI vector before overwriting
+	LDA SOFTNMIVECTOR           ; $0318
+	STA rl_saved_nmi_lo
+	LDA SOFTNMIVECTOR + 1       ; $0319
+	STA rl_saved_nmi_hi
+
+	JSR RL_DisableInterrupts    ; CIA2 NMI sources only
 	LDA RL_NMITAB, Y
 	STA SOFTNMIVECTOR
 	LDA #$80                    ; high byte of $8000 (ROML — TransferHandler)
@@ -614,6 +615,12 @@ RL_ReceiveFragmentNoCallback:
 -
 	BIT ZP_IRQ_STATE_WAITHANDLE
 	BVC -
+
+	; Restore game's NMI vector
+	LDA rl_saved_nmi_lo
+	STA SOFTNMIVECTOR
+	LDA rl_saved_nmi_hi
+	STA SOFTNMIVECTOR + 1
 
 	LDA #0
 	CLC
@@ -658,13 +665,11 @@ RL_StartTalking:
 
 ;--- RL_EndTalking ---
 ; NO #SETBANK — $01=$35 preserved throughout handler, restored by RL_STUB.
+; Interrupts remain disabled (SEI from RL_StartTalking). RL_STUB will CLI
+; after restoring $01, so game IRQ handlers never run under wrong banking.
 RL_EndTalking:
 	LDA #COMMAND_END_TALKING
 	JSR RL_Send
-	SEI
-	JSR RL_DisableCIAInterrupts
-	; NO #SETBANK PP_CONFIG_DEFAULT here
-	CLI
 	RTS
 
 ;--- RL_SetName ---

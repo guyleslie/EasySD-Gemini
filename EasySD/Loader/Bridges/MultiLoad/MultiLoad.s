@@ -53,14 +53,14 @@
 	JMP MAIN
 
 ;================================================================================
-; Config block — $C003 to $C014
+; Config block — $C003 to $C018
 ; Patched by Tools/create_multiload.py for each game.
-; RL_ constants reference $C015+ (MAIN etc.) which follows this block.
+; C64 PETSCII filenames are up to 16 chars; with ".PRG" suffix = 20 bytes max.
 ;================================================================================
 
 ML_CONFIG_VERSION:  .byte 3         ; $C003 — version sentinel, must be 3
 ML_FIRST_PART_LEN:  .byte 0         ; $C004 — length of first-part filename incl. ".PRG" (patched)
-ML_FIRST_PART_NAME: .fill 16, 0     ; $C005-$C014 — filename with ".PRG", null-padded (patched)
+ML_FIRST_PART_NAME: .fill 20, 0     ; $C005-$C018 — filename with ".PRG", null-padded (patched)
 
 ;================================================================================
 ; MAIN — entry point ($C015)

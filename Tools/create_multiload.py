@@ -30,7 +30,7 @@ EASYLOAD.PRG file layout (generated output):
     Byte  4     : $C0                                        (= $C002)
     Byte  5     : ML_CONFIG_VERSION = 2  (= $C003 in C64 RAM)
     Byte  6     : ML_FIRST_PART_LEN      (= $C004)
-    Bytes 7-22  : ML_FIRST_PART_NAME 16 bytes null-padded    (= $C005-$C014)
+    Bytes 7-26  : ML_FIRST_PART_NAME 20 bytes null-padded    (= $C005-$C018)
 
 bootplugin.prg template file layout (raw binary, no header):
     OFFSET_VERSION = 3  → $C003, OFFSET_LEN = 4 → $C004, OFFSET_NAME = 5 → $C005
@@ -56,7 +56,7 @@ OFFSET_VERSION = 3    # ML_CONFIG_VERSION  at $C003 → file offset 3
 OFFSET_LEN     = 4    # ML_FIRST_PART_LEN  at $C004 → file offset 4
 OFFSET_NAME    = 5    # ML_FIRST_PART_NAME at $C005 → file offset 5-20
 CONFIG_VERSION = 3
-MAX_NAME_LEN   = 16
+MAX_NAME_LEN   = 20   # C64 PETSCII name (16) + ".PRG" (4)
 
 # D64 sectors per track (index = track number, 1-based; index 0 unused)
 _D64_SPT = [0] + [21]*17 + [19]*7 + [18]*6 + [17]*5   # tracks 1-35
