@@ -201,28 +201,32 @@ uint16_t CartInterface::Read() {
 }
 
 void CartInterface::IOSetup() {
-  pinMode(IO2, INPUT);
-  pinMode(PHI2, INPUT);
-  // Set EXROM HIGH before enabling output — avoids a ~1-2µs LOW glitch that
-  // occurs when pinMode(OUTPUT) drives PD2 low before digitalWrite(HIGH).
-  // The C64 PLA samples EXROM on PHI2 (1µs period) and would catch that glitch,
-  // asserting /ROML and letting the CPU read from the (empty) cartridge ROML
-  // chip socket (AT28C64B / M27C64A) →
-  // floating data bus → garbage opcode → immediate system freeze.
-  PORTD |= _BV(PD2);   // latch HIGH first
-  DDRD  |= _BV(PD2);   // then enable output — pin starts HIGH, no glitch
-  // SEL is on A6 (analog-only): no pinMode/pullup needed, external 10k pullup used
+  // FIRST: hold C64 in reset immediately so it cannot run before we are ready.
+  // During ATmega power-on reset (~1-5ms) all pins are tri-state; the C64's
+  // internal pull-up keeps /RESET HIGH so the C64 starts briefly. Once we reach
+  // this code we pull /RESET LOW — the C64 halts within a few thousand cycles
+  // (well before KERNAL init completes). TransferMenu() later releases /RESET
+  // with EXROM already LOW, so the CBM80 check succeeds on the C64's very
+  // first boot attempt.
   #ifdef OPENCOLLECTORSTYLE
-    ResetHigh();
+    ResetLow();
     NmiHigh();
   #else
     pinMode(RESET, OUTPUT);
-    digitalWrite(RESET, HIGH);
+    digitalWrite(RESET, LOW);
 
     pinMode(NMI, OUTPUT);
     digitalWrite(NMI, HIGH);
   #endif
 
+  pinMode(IO2, INPUT);
+  pinMode(PHI2, INPUT);
+  // Set EXROM HIGH before enabling output — avoids a ~1-2µs LOW glitch.
+  // While /RESET is held LOW this doesn't matter (C64 CPU is halted), but
+  // we keep the safe sequence for consistency with warm-reset paths.
+  PORTD |= _BV(PD2);   // latch HIGH first
+  DDRD  |= _BV(PD2);   // then enable output — pin starts HIGH, no glitch
+  // SEL is on A6 (analog-only): no pinMode/pullup needed, external 10k pullup used
 }
 
 
@@ -265,10 +269,9 @@ void CartInterface::SoftEndListening() {
 
 void CartInterface::Init() {
   IOSetup();
-  // Data bus pins start as INPUT (tristate) — EnableCartridge() switches to OUTPUT.
-  // SetAddressPinsOutput() must NOT be called here: Arduino boots ~300ms after C64
-  // powers on. Driving D4-D7/A0-A3 OUTPUT (0x00) while EXROM=HIGH causes bus
-  // contention with C64 RAM/ROM → CPU reads BRK ($00) → system freeze.
+  // IOSetup() now holds C64 in /RESET LOW. Data bus pins start as INPUT
+  // (tristate) — EnableCartridge()/EnableDataBus() switches to OUTPUT later.
+  // SetAddressPinsOutput() must NOT be called here to avoid bus contention.
   StartListening();
 }
 

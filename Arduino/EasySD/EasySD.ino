@@ -141,11 +141,10 @@ void printHelp() {
 #endif // EASYSD_DEBUG_SERIAL
 
 void setup() {
-  cartInterface.Init();   // IOSetup: EXROM=HIGH at ~65ms; StartListening
-  // EXROM=HIGH keeps the cartridge hidden while the SD card initialises.
-  // C64 boots to BASIC during this window (no CBM80 visible).
-  // TransferMenu() at the end of setup() then resets the C64 with EXROM=LOW
-  // so the EEPROM's CBM80 stub installs the NMI handler and the menu loads.
+  cartInterface.Init();   // IOSetup: EXROM=HIGH, C64 held in /RESET LOW
+  // The C64 is held in reset from this point. It cannot run (no CBM80 check,
+  // no BASIC boot). We take as long as we need for SD init, then TransferMenu()
+  // sets EXROM LOW and releases /RESET — the C64's first boot sees CBM80.
   ledInit();
 
   LOG_BEGIN(57600);
@@ -169,17 +168,12 @@ void setup() {
   // cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
   cartApi.Init();
 
-  // Auto-load the EasySD menu on cold boot only after the C64 clock is
-  // visibly running. On real hardware the later SEL-triggered menu reload is
-  // reliable because it happens against an already-stable PHI2 domain.
-  // The first setup-time menu transfer must wait for the same condition.
-  if (waitForStablePhi2(32, 1500)) {
-    delay(150);
-  } else {
-    // Fallback: if PHI2 could not be observed reliably, keep a conservative
-    // settle delay instead of skipping the autoload entirely.
-    delay(300);
-  }
+  // No PHI2 wait needed on cold boot: the C64 is held in /RESET, so there is
+  // no PHI2 clock to observe. TransferMenu() will release /RESET (via
+  // ResetC64's LOW→HIGH sequence) and the C64 starts with EXROM already LOW.
+  // A short settle delay ensures SD/SPI state is fully quiescent.
+  delay(200);
+
   cartApi.TransferMenu();
   suppressButtonsFor(BUTTON_ENABLE_DELAY_MS);
 }
