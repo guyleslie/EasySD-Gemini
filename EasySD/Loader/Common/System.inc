@@ -80,9 +80,8 @@ V_LOAD   = $0330
 ; ResidentLoader area — used during multi-load game execution (overlaps FILE_PATH_BUF)
 ; Safe: during game execution no plugin loading happens; during menu no resident loader
 ;
-; V2 Memory Layout (updated from V1):
-;   $033C-$035B  RL_STUB code (~32 bytes): saves X/Y/A/$01, calls RL_HANDLER, restores
-;   $035C-$0367  padding (reserved, zero-filled)
+; V2.1 Memory Layout:
+;   $033C-$0367  RL_STUB code (~38 bytes + padding): early device check, saves X/Y/A/$01, calls RL_HANDLER, restores
 ;   $0368-$036A  RL_NMI_REDIRECT: JMP ($0318) — written to $FFFA/$FFFB for $01=$35 NMI dispatch
 ;   $036B-$036C  RL_ORIG_VEC (2 bytes): backup of $0330/$0331
 ;   $036D        RL_SAVED_01 (1 byte): game's $01 saved during hook

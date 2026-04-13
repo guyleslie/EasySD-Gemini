@@ -1,15 +1,15 @@
 # EasySD Plugin Hardware Bug Investigation
 
 **Status:** Open — hardware debugging in progress
-**Date:** 2026-04-06
-**Scope:** All plugins failing on real C64 hardware (PCB v3): WAV, KOA, MUS, PET, CVD, MultiLoad
+**Date:** 2026-04-12
+**Scope:** Common real-hardware plugin failures on PCB v3. MultiLoad notes below include both the historical hang report and the current post-fix retest status.
 
 ---
 
 ## 1. Symptom
 
-All six non-trivial plugins fail on real C64 hardware (PCB v3, ATmega328P, Optiboot).
-The same plugins pass 100% in VICE with `debug-vice` builds.
+Several non-trivial plugins fail on real C64 hardware (PCB v3, ATmega328P, Optiboot).
+The same plugins pass in VICE with `debug-vice` builds.
 
 | Plugin | Extension | VICE | Real HW |
 |--------|-----------|------|---------|
@@ -20,10 +20,13 @@ The same plugins pass 100% in VICE with `debug-vice` builds.
 | MusPlayer | `.MUS` | ✅ | ❌ hang |
 | PetsciiDisplayer | `.PET` | ✅ | ❌ hang |
 | CvdPlayer | `.CVD` | ✅ | ❌ hang |
-| MultiLoad | `.PRG` (EASYLOAD) | ✅ | ❌ hang (black/dark-blue border) |
+| MultiLoad | `.PRG` (EASYLOAD) | ✅ | ⚠️ historical hang on older build; current code needs hardware re-test |
 
-**MultiLoad observed failure:** black outer border + dark blue inner border appears immediately,
-then the system hangs indefinitely. No further visual change.
+**Historical MultiLoad failure:** on the older hardware-debug build, black outer border + dark blue inner border appeared immediately, then the system hung indefinitely.
+
+**Current status:** MultiLoad source changed materially on 2026-04-12. The resident loader now preserves the game's NMI vector during transfers, no longer destroys unrelated IRQ sources, returns X/Y correctly from the resident stub, and the first-part config field now stores the full filename including `.PRG` in 20 bytes. The Multiload template builds cleanly and the existing VICE PRG-load suite still passes, but the current MultiLoad code has not yet been re-verified on real hardware.
+
+So the old border-color observation is still useful as a historical clue, but it must not be treated as the final current-state verdict.
 
 ---
 
@@ -117,6 +120,19 @@ All other plugins are also loaded by the EasySD menu via KernalBridge or the bui
 loader. The initial `PROT_StartTalking` from within a plugin runs in the same state as
 KernalBridge. There is no apparent structural difference that should cause failure.
 
+### 3.6 MultiLoad Source Changes Since The Original Hardware Report
+
+The original MultiLoad hang notes in this file were written before the latest resident-loader fixes.
+The following changes are now present in source and must be considered before drawing conclusions
+from the older report:
+
+- `ML_FIRST_PART_NAME` is now 20 bytes, so the first-part filename is stored with the `.PRG` suffix.
+- `RL_ReceiveFragmentNoCallback` now saves and restores `$0318/$0319` instead of permanently overwriting the game's soft NMI vector.
+- `RL_DisableInterrupts` now disables only CIA2 NMI sources; it no longer wipes VIC and CIA1 IRQ sources.
+- `RL_STUB` now preserves the handler's X/Y return values and delays `CLI` until after `$01` has been restored.
+
+These changes reduce the chance that the old MultiLoad hang diagnosis still points at the same root cause.
+
 ---
 
 ## 4. Known Confirmed Bugs
@@ -158,7 +174,7 @@ assignment overwrites the old open handle. SdFat 2.x's assignment operator close
 file before opening the new one (verified by SdFat source), so no file descriptor is leaked.
 Effect on SD card state: none. FAT has no hardware file-locking mechanism.
 
-**Status:** Benign. Documents as "intentional protocol leak" in KernalBridge.s.
+**Status:** Benign. Not considered the root cause of the current MultiLoad investigation.
 
 ---
 
@@ -200,22 +216,19 @@ C64 border color (`$D020`) at each stage of plugin execution.
 
 ### 5.3 Build Instructions
 
-The debug markers are compiled in when `-D ML_DEBUG_BORDERS=1` is passed to 64tass.
-This is a release build (DEBUG=0), so PROT_WaitProcessing uses the real hardware path.
+The debug markers are compiled in when `ML_DEBUG_BORDERS=1` is passed to the MultiLoad build.
+Use a release-style build (`DEBUG=0`) so `PROT_WaitProcessing` follows the real hardware path.
 
 ```bash
-# Build MultiLoad template with border-color markers (real hardware path, not VICE debug):
-64tass --cbm-prg -D ML_DEBUG_BORDERS=1 -D DEBUG=0 \
-    EasySD/Loader/Bridges/MultiLoad/MultiLoad.s \
-    -o EasySD/build/plugins/bootplugin_hwdebug.prg
+# Build MultiLoad template with border-color markers:
+python Tools/build.py multiload --ml-debug-borders
 
-# Then patch per game:
+# Then generate a game-specific ZIP or EASYLOAD from that template:
 python Tools/create_multiload.py --from-disk GAME.d64 \
-    --template EasySD/build/plugins/bootplugin_hwdebug.prg
+    --template EasySD/build/plugins/bootplugin.prg
 ```
 
-The `build.py` system does not yet have a dedicated `hwdebug` target. Use the manual
-command above for hardware debugging sessions.
+`Tools/build.py multiload --ml-debug-borders` is the current supported way to build the border-debug template.
 
 ### 5.4 Source Changes
 
@@ -240,10 +253,13 @@ See `MultiLoad.s` source for complete implementation.
 
 ## 6. Next Steps (Priority Order)
 
-1. **Build the border-color debug binary** (see 5.3) and test on PCB v3 hardware.
-   Record the border color when the system hangs → narrows failure to one stage.
+1. **Re-test current MultiLoad on real hardware before assuming the old hang still reproduces.**
+    The source changed significantly on 2026-04-12, so the first question is whether MultiLoad still hangs at all on the updated build.
 
-2. **Based on result:**
+2. **If it still hangs, build the border-color debug binary** (see 5.3) and test on PCB v3 hardware.
+    Record the border color when the system hangs → narrows failure to one stage.
+
+3. **Based on result:**
    - If hangs at Green (5) → `PROT_WaitProcessing` never getting 0x80:
      - Check if `noInterrupts()` in `HandleReadFile` is still in effect (it shouldn't be)
      - Add Arduino serial debug print before and after `HandleResponse` in `HandleGetPath`
@@ -255,20 +271,22 @@ See `MultiLoad.s` source for complete implementation.
      - Add Arduino serial debug for `HandleOpenFile` result
      - Check `currentPath` on Arduino matches expected `/MULTILOAD/GAMENAME/`
 
-3. **Fix KernalBridge overflow** (BUG-1): shrink `$C700–$D113` code below `$CFFF`.
+4. **Fix KernalBridge overflow** (BUG-1): shrink `$C700–$D113` code below `$CFFF`.
    This requires identifying which functions can be removed or merged.
 
-4. **Once root cause found:** fix the specific issue, then validate all failing plugins
+5. **Once root cause found:** fix the specific issue, then validate all failing plugins
    in order (WAV → KOA → MUS → PET → CVD each may have additional plugin-specific bugs).
 
 ---
 
 ## 7. Other Plugin Failure Notes
 
-The six failing plugins all share the same failure pattern: hang on real hardware, pass in VICE.
-This strongly implies a **common root cause** (the same code path) rather than six independent
-plugin-specific bugs. Once the MultiLoad hang point is identified and fixed, the same fix will
-likely resolve all other plugin failures simultaneously.
+The failing plugins still strongly suggest a **common real-hardware root cause** rather than fully
+independent per-plugin bugs. However, MultiLoad should no longer be used as a frozen reference case
+without qualification, because its resident-loader code has changed since the original hardware notes.
+
+If current MultiLoad now works on hardware, that result becomes a useful divider: the remaining plugin
+hangs are then less likely to be caused by the exact same bug.
 
 Plugin-specific bugs (if any) will only become visible AFTER the common root cause is fixed.
 
@@ -277,4 +295,4 @@ see `docs/plugins/WavPlayer.md` and the WavPlayer memory file for CIA timing and
 
 ---
 
-*Document generated by AI analysis (Claude Sonnet 4.6, 2026-04-06). Hardware test results pending.*
+*Document updated from current source state on 2026-04-12. Real-hardware retest results still pending for the latest MultiLoad build.*

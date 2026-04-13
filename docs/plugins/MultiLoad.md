@@ -1,546 +1,218 @@
-# EasySD MultiLoad Plugin — Multi-Load Game Launcher
+# EasySD MultiLoad
 
-**Document Type:** Reference / User Guide
-**Version:** 3.1
-**Created:** 2026-03-15, **Updated:** 2026-04-06 (config version 3: first-part name stored with .PRG; RL_UNINSTALL added)
-**Status:** Current
+## Purpose
 
----
+MultiLoad lets EasySD run C64 games that continue loading additional parts with standard Kernal `LOAD` calls on device 8.
 
-## 1. Purpose
+EasySD does not emulate a full 1541 drive. Instead, `EASYLOAD.PRG` installs a resident hook on the Kernal LOAD vector at `$0330/$0331`, loads the first game part from SD, then hands control to the game. Any later `LOAD "NAME",8,x` call that goes through the normal Kernal path is redirected to the EasySD resident loader and served from the same game directory on the SD card.
 
-The MultiLoad plugin enables classic C64 multi-load games to run from the SD card via EasySD.
-These are games whose original floppy releases load additional program parts mid-game using
-`LOAD "FILENAME",8,1` or `LOAD "FILENAME",8` Kernal calls.
+This is intended for standard sequential multiload cracks, not for games that use custom fast loaders, raw sector access, or random-access file systems.
 
-EasySD cannot emulate a full 1541 drive over the expansion port. Instead, the MultiLoad system
-hooks the C64 Kernal LOAD vector (`$0330/$0331`) and intercepts every `JSR $FFD5` call that
-targets device 8. Matching calls are served from the SD card at approximately 100× floppy speed.
+## Quick Start
 
----
-
-## 2. Quick Start (V3)
+Build the MultiLoad template:
 
 ```bash
-# 1. Build the template (once per firmware update)
 python Tools/build.py multiload
-
-# 2. Preview disk contents
-python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...] --list-only
-
-# 3. Generate game ZIP (first file on first disk = first part, auto-detected)
-python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...]
-# Output: EasySD/build/multiload/GAMENAME.ZIP
-
-# Override first part name if needed:
-python Tools/create_multiload.py --from-disk DISK1.d64 --first-part "LOADER"
-
-# 4. Extract the ZIP to SD card root:
-#    /MULTILOAD/GAMENAME/
-#      EASYLOAD.PRG    ← generated launcher (select this from EasySD menu)
-#      LOADER.PRG      ← first game part
-#      LEVEL1.PRG      ← subsequent parts (loaded by game via LOAD "LEVEL1",8,1)
-#      LEVEL2.PRG
 ```
 
-No source-code editing or recompiling is needed for individual games.
-
----
-
-## 3. SD Card Directory Structure
-
-```
-/MULTILOAD/
-  TURRICAN/
-    EASYLOAD.PRG    ← generated launcher
-    LOADER.PRG      ← first game part
-    LEVEL1.PRG      ← subsequent parts (loaded by game code)
-    LEVEL2.PRG
-  PARADROID/
-    EASYLOAD.PRG    ← generated launcher
-    ROBBIE.PRG
-    DROID.PRG
-```
-
-Navigate to the game directory in the EasySD menu and select `EASYLOAD.PRG`.
-
-**Filename matching:**
-- `LOAD "LEVEL1",8,x` → hook searches for `LEVEL1.PRG`
-- `LOAD "LEVEL1.PRG",8,x` → hook searches for `LEVEL1.PRG` (extension already present)
-- Extension check: last four characters compared to `.PRG` (uppercase, case-sensitive)
-
----
-
-## 4. Game Compatibility Guide
-
-### 4.1 Compatible: Sequential Multi-Load Games
-
-These games load program parts one after another as the player progresses through the game.
-The previous part triggers the next `LOAD` call — there is no random access by the player.
-
-**Key indicators of compatibility:**
-
-| Signal | Details |
-|--------|---------|
-| Small file count | Typically 3–30 files per disk |
-| Sequential naming | `PART1`/`PART2`, `11`/`12`/`21`/`22`, `LA1`/`LB1`/`LC1` |
-| Single main PRG | One large loader that chains into level/data files |
-| SD2IEC compatible note | NFO says "loads on SD2IEC" → standard Kernal LOAD, ideal |
-| Multi-disk with no duplicates | Each disk contributes unique files for later stages |
-
-**Known compatible games (tested with create_multiload.py):**
-
-| Game | Disks | Files | Notes |
-|------|-------|-------|-------|
-| Barbarian 1&2 (Palace) | 1 | 4 | BOOT→MENU→game choice; simple chain |
-| The Last Ninja +12DGI | 2 | 27 | Main + 4 files/level × 6 levels |
-| Turrican 2 (notw) | 2 | 22 | "no transwarp" version; world-based loading |
-| Robocop Ocean fix2 | 1 | 3 | SD2IEC-fixed release; 85 KB main file |
-
-### 4.2 Not Compatible: Random-Access Loaders
-
-These games load files by name or ID based on player actions (entering a town, selecting a
-level, etc.). The same file may be loaded at any point, in any order.
-EasySD has no seek-within-file API, so these games cannot run.
-
-**Key indicators of incompatibility:**
-
-| Signal | Details |
-|--------|---------|
-| Large file count | 50+ files, often 100–350 |
-| Hex or alphabetical data names | `A0`, `B3`, `EF`, `FA`–`FY`, `MA`–`MY` |
-| Large single data file (>64 KB) | Cannot fit in C64 RAM; must be seeked into |
-| Identical files across disks | Many duplicates between disks = redundant region data |
-| RPG / open-world structure | Map/town/dungeon data loaded on demand |
-
-**Known incompatible games:**
-
-| Game | Files | Reason |
-|------|-------|--------|
-| Ultima IV Remastered | 10 | 136 KB GAM file; random seeks |
-| Ultima V Remastered | 229 | Dynamic file load by name; BackBit/custom API |
-| Knights of Legend | 354 | Hex-named room data; random access |
-| Lemmings | 112 | Level select → FA–FY / TA–TY / MA–MY by player choice |
-| Sam's Journey | 163 | Hex-named rooms; identical files duplicated across 4 disks |
-
-### 4.3 Special Cases
-
-**Transwarp / fast loader variants:**
-Games with a Transwarp or other custom fast loader replace the Kernal LOAD vector with their
-own serial routine. The MultiLoad hook intercepts `JSR $FFD5` (Kernal LOAD dispatch), not the
-fast loader's own entry point — so the hook cannot intercept those calls.
-- **Solution:** use a "notw" (no transwarp) or "standard loader" version of the crack.
-  Example: `t2rab-1-notw.d64` instead of `t2rab-1.d64` for Turrican 2.
-
-**EasyFlash packages:**
-D64/D81 images containing a `.CRT` file (cartridge image) and an EasyProg flasher PRG.
-These require a physical EasyFlash cartridge — incompatible with EasySD.
-
-**BackBit format:**
-Games distributed for the BackBit hardware use a BackBit-specific file-access API, not
-standard Kernal LOAD. Identified by the `-BackBit` suffix in the disk label or filename.
-Not compatible.
-
-### 4.4 Assessment Workflow
-
-```
-1. python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2...] --list-only
-
-2. Count files:
-     < 30 files  → promising
-     30–60 files → borderline, inspect names carefully
-     > 60 files  → likely random-access, skip
-
-3. Inspect file naming:
-     Sequential numbers (11/12/21, LA1/LB1) → sequential loader ✅
-     Hex names (A0/B3/EF) or alpha series (FA–FY) → random-access ❌
-
-4. Check for large single data files:
-     Any file > 64 KB → likely seeked into, not fully loaded ❌
-
-5. Check NFO (if available):
-     "SD2IEC compatible" → ideal candidate ✅
-     "transwarp" / "fast loader" → look for a notw version ⚠️
-     "EasyFlash" or ".CRT" → incompatible ❌
-
-6. If compatible: convert and test
-     python Tools/create_multiload.py --from-disk DISK1.d64 [...]
-     Extract ZIP → SD card /MULTILOAD/GAMENAME/
-     Select EASYLOAD.PRG from EasySD menu
-```
-
----
-
-## 5. Components
-
-### 5.1 Config Block (`$C003–$C014`)
-
-The `EASYLOAD.PRG` binary starts with a fixed-layout config block immediately after the
-3-byte entry jump. This block is patched by `create_multiload.py` per game.
-
-| Address | Symbol               | Value  | Meaning                              |
-|---------|----------------------|--------|--------------------------------------|
-| `$C000` | —                    | `JMP MAIN` | Plugin entry point (3 bytes)    |
-| `$C003` | `ML_CONFIG_VERSION`  | `3`    | Version sentinel; must be 3          |
-| `$C004` | `ML_FIRST_PART_LEN`  | N      | Length of first-part filename incl. `.PRG` (1–16) |
-| `$C005–$C014` | `ML_FIRST_PART_NAME` | string | Full filename with `.PRG`, null-padded (e.g. `LOADER.PRG`) |
-
-**File offset mapping** (for manual inspection or alternative patching tools):
-
-`bootplugin.prg` **template** is a raw binary (`64tass -b`, no load address header). File offset = RAM address − `$C000`.
-
-```
-Template (bootplugin.prg) — raw binary, no header:
-File byte 0     : $C000 — JMP opcode ($4C)
-File byte 1-2   : $C001-$C002 — JMP target (lo/hi)
-File byte 3     : $C003 — ML_CONFIG_VERSION   ← OFFSET_VERSION=3 in create_multiload.py
-File byte 4     : $C004 — ML_FIRST_PART_LEN   ← OFFSET_LEN=4
-File bytes 5-20 : $C005-$C014 — ML_FIRST_PART_NAME (16 bytes)  ← OFFSET_NAME=5
-```
-
-`EASYLOAD.PRG` **generated output** has a 2-byte PRG load address header prepended by
-`create_multiload.py`. This header is required so KernalBridge reads the correct load
-address (`$C000`) and triggers P2TK.
-
-```
-Generated output (EASYLOAD.PRG on SD card) — with header:
-File byte 0-1   : $00 $C0 — PRG load address header (= $C000, prepended by create_multiload.py)
-File byte 2     : $C000 — JMP opcode ($4C)
-File byte 3-4   : $C001-$C002 — JMP target (lo/hi)
-File byte 5     : $C003 — ML_CONFIG_VERSION
-File byte 6     : $C004 — ML_FIRST_PART_LEN
-File bytes 7-22 : $C005-$C014 — ML_FIRST_PART_NAME (16 bytes)
-```
-
-### 5.2 RL_STUB — Kernal LOAD Trampoline (`$033C`, 52 bytes)
-
-Patched into the Kernal LOAD vector. When the game calls `JSR $FFD5`, the C64 Kernal dispatches
-to `$033C` instead of the real Kernal LOAD routine.
-
-```
-RL_STUB ($033C):
-  PHA
-  STX RL_SAVED_X          ; save X (= MEMUSS lo when SA=0)
-  STY RL_SAVED_Y          ; save Y (= MEMUSS hi when SA=0)
-  LDA $01 → STA RL_SAVED_01   ; save game's memory config
-  LDA #$35 → STA $01          ; bank: Kernal ROM → RAM, I/O active
-  JSR RL_HANDLER              ; call main handler at $E800
-  LDA RL_SAVED_01 → STA $01   ; restore game's memory config
-  LDX RL_SAVED_X
-  LDY RL_SAVED_Y
-  PLA
-  RTS                         ; return to Kernal dispatch
-```
-
-**Why $01=$35:** `$35` = HIRAM=0, CHAREN=1. Kernal ROM at `$E000–$FFFF` is hidden, making the
-handler RAM at `$E800` visible. I/O at `$D000–$DFFF` stays active (required by the mini-CartLib).
-ROML (cartridge ROM at `$8000–$9FFF`) remains accessible because LORAM=1 in both `$35` and `$37`.
-
-**RL_NMI_REDIRECT (`$0368`, 3 bytes):** `JMP ($0318)` — installed at RAM `$FFFA/$FFFB` by
-`RL_INSTALL`. Under `$01=$35`, NMI vector reads hit RAM at `$FFFA/$FFFB` → this redirect →
-`$0318` → TransferHandler. This ensures NMI-driven transfers work correctly inside the hook
-without ever switching back to `$01=$37` (which would hide the handler).
-
-### 5.3 RL_HANDLER — Main Hook Handler (`$E800`, ~400 bytes)
-
-The resident handler is physically stored in `EASYLOAD.PRG` and copied to `$E800` RAM by
-`RL_INSTALL`. Writes to this region always go to the underlying RAM regardless of the `$01`
-banking register (C64/6502: writes always reach RAM).
-
-**Data areas inside the handler image:**
-
-| Address    | Symbol            | Size   | Purpose                              |
-|------------|-------------------|--------|--------------------------------------|
-| `$E800`    | `RL_HANDLER`      | —      | Entry point                          |
-| `$E840`    | `RL_DIR_PATH`     | 64 B   | Game directory path (chdir safety)   |
-| `$E880`    | `RL_FNAME_BUF`    | 36 B   | Assembled filename (name + `.PRG`)   |
-| `$E8A4`    | `RL_FILEINFO_BUF` | 32 B   | FAT directory entry buffer           |
-| `$E8C4`    | `RL_HDR_BUF`      | 256 B  | First-page read buffer               |
-
-**Handler execution flow:**
-
-```
-RL_HANDLER (entry):
-  LDA KERNAL_DEVICE_NUMBER
-  CMP #8                     → if ≠ 8: JMP (RL_ORIG_VEC)  [pass-through to Kernal]
-
-rl_chdir_to_game:
-  Save $B7/$BB/$BC
-  RL_SetName(RL_DIR_PATH)
-  COMMAND_GOTO_PATH           ; navigate Arduino to game directory
-  Restore $B7/$BB/$BC
-
-rl_main:
-  JSR RL_StartTalking         ; wake Arduino
-
-  Build filename:
-    copy KERNAL_FILENAME_LENGTH bytes from (KERNAL_FILENAME_LOW) → RL_FNAME_BUF
-    if last 4 bytes ≠ ".PRG": append ".PRG\0"
-
-  Determine load target:
-    LDA KERNAL_SECONDARY_ADDRESS
-    BNE rl_use_header_addr
-    ; SA=0: target = RL_SAVED_X/Y (X/Y saved by RL_STUB = MEMUSS address)
-    rl_use_header_addr:
-    ; SA=1: target = first 2 bytes of PRG file (header address)
-
-  Open file, get 32-bit size, read first 256 bytes → RL_HDR_BUF:
-    bytes 0-1  = PRG load address
-    bytes 2-255 = first 254 data bytes
-
-  Copy first 254 data bytes to load target
-    if file_size ≤ 255: copy (size-2) bytes only
-    if file_size ≥ 256: copy 254 bytes,
-      then RL_LoadFileBySize (target=load_addr+254, SKIP=$100)
-
-  Compute end address: X=end_lo, Y=end_hi
-
-  RL_CloseFile
-  RL_EndTalking               ; NO banking switch; $01 restored by RL_STUB
-  CLC                         ; Kernal convention: C=0 success
-  RTS                         ; → RL_STUB restores $01/$X/$Y, returns to game
-```
-
-**Kernal return convention:** carry=0, X=end_lo, Y=end_hi. BASIC and other callers update
-their own page-end pointers (`$2D/$2E`) from X/Y.
-
-### 5.4 RL_MINI_CARTLIB (embedded, follows RL_HANDLER code)
-
-A self-contained copy of all CartLib routines needed by the handler, embedded inside the
-handler image itself. **No `#SETBANK` calls anywhere** — the banking state (`$01=$35`) is
-maintained throughout the entire handler execution.
-
-Routines included: `RL_WasteCertainTime`, `RL_WasteTooMuchTime`, `RL_ReceiveFragmentNoCallback`,
-`RL_EndTalking`, `RL_WaitProcessing`, `RL_StartTalking`, `RL_Send`, `RL_SendBit`, `RL_SetName`,
-`RL_SendFileName`, `RL_OpenFile`, `RL_CloseFile`, `RL_GetInfoForFile`, `RL_ReadFileNoCallback`,
-`RL_SeekFile`, `RL_LoadFileBySize`.
-
-**Why embedded:** Many multi-load games load parts to `$C000+`, which would overwrite the
-CartLib routines in the main plugin code. The mini-CartLib lives at `$E800+` (Kernal ROM area)
-where games never load data, making it immune to overwrite.
-
-### 5.5 RL_INSTALL / RL_UNINSTALL
-
-`RL_INSTALL` is called once by `EASYLOAD.PRG` MAIN before jumping to the game.
-`RL_UNINSTALL` is called on the error exit path before returning to the EasySD menu.
-
-```
-RL_INSTALL:
-  1. Copy RL_STUB_IMAGE  → $033C     (52 bytes)
-  2. Copy RL_HANDLER+RL_MINI_CARTLIB → $E800  (RL_HANDLER_IMAGE_SIZE bytes, multi-page)
-  3. Write RL_NMI_REDIRECT ($0368) address → RAM $FFFA/$FFFB
-  4. Backup $0330/$0331 → RL_ORIG_VEC ($036B)
-  5. Patch $0330/$0331 → RL_STUB ($033C)
-  Registers preserved (A/X/Y pushed/popped).
-
-RL_UNINSTALL:
-  1. Restore $0330/$0331 ← RL_ORIG_VEC ($036B)
-  Registers preserved (A pushed/popped).
-  Note: $FFFA/$FFFB RAM is left as-is; with $01=$37 the CPU reads the NMI
-  vector from Kernal ROM ($FE43), so the RAM values are irrelevant.
-```
-
-**Why RL_UNINSTALL is required:** Without it, any failed EASYLOAD.PRG launch leaves
-`$0330/$0331` pointing to `RL_STUB`. Every subsequent `JSR $FFD5` (LOAD) goes through the
-stub, which has no valid game context and causes PRG loading to fail until power cycle.
-
----
-
-## 6. Memory Layout
-
-### 5.1 ResidentLoader Area (during game execution)
-
-| Address        | Symbol            | Content                                         |
-|----------------|-------------------|-------------------------------------------------|
-| `$0330/$0331`  | —                 | Kernal LOAD vector → patched to `$033C`         |
-| `$033C–$0367`  | `RL_STUB`         | 52-byte trampoline (saves A/X/Y/$01, banks $35, calls $E800) |
-| `$0368–$036A`  | `RL_NMI_REDIRECT` | `JMP ($0318)` — also written to `$FFFA/$FFFB`   |
-| `$036B–$036C`  | `RL_ORIG_VEC`     | Backup of original `$0330/$0331`                |
-| `$036D`        | `RL_SAVED_01`     | Saved `$01` during LOAD hook                    |
-| `$036E`        | `RL_SAVED_X`      | Saved X at LOAD call time (SA=0 MEMUSS lo)      |
-| `$036F`        | `RL_SAVED_Y`      | Saved Y at LOAD call time (SA=0 MEMUSS hi)      |
-| `$FFFA/$FFFB`  | —                 | RAM NMI vector → `RL_NMI_REDIRECT` (written by RL_INSTALL) |
-| `$E800–$E8C3`  | `RL_HANDLER`      | Handler code + data area headers                |
-| `$E840`        | `RL_DIR_PATH`     | 64-byte game directory path                     |
-| `$E880`        | `RL_FNAME_BUF`    | 36-byte filename buffer                         |
-| `$E8A4`        | `RL_FILEINFO_BUF` | 32-byte FAT entry buffer                        |
-| `$E8C4`        | `RL_HDR_BUF`      | 256-byte first-page read buffer                 |
-| `$E8C4–$EBxx`  | `RL_MINI_CARTLIB` | Embedded CartLib (no `#SETBANK`, ~700 bytes)    |
-
-**Note:** `$033C–$036F` overlaps with `FILE_PATH_BUF` used by the menu/plugins. The two uses
-are mutually exclusive (game execution vs. menu navigation) and therefore safe.
-
-### 5.2 EASYLOAD.PRG Plugin Code (`$C000+`)
-
-| Address Range     | Content                                                  |
-|-------------------|----------------------------------------------------------|
-| `$C000`           | `JMP MAIN`                                               |
-| `$C003–$C014`     | Config block (version, len, name — patched per game)     |
-| `$C015+`          | MAIN, ML_SAVESTATE/RESTORESTATE                          |
-| `$C0xx`           | ML_FILEINFO_BUF (32 B), ML_HDRBUF (256 B)                |
-| `$C1xx–$Cxxx`     | RL_STUB image, RL_HANDLER+mini-CartLib image, RL_INSTALL |
-| `$Cxxx–$Dxxx`     | CartLibStream chain (for MAIN's IRQ_StartTalking/GetPath) |
-
-Overflow guard: `.if * > $DF00 .error "overflow" .endif`
-
----
-
-## 7. EASYLOAD.PRG Boot Flow
-
-```
-User navigates to /MULTILOAD/TURRICAN/ in EasySD menu
-  └─ Selects EASYLOAD.PRG
-       ↓
-Menu loads EASYLOAD.PRG to $C000, JMPs to $C000
-
-EASYLOAD.PRG (MAIN at $C015):
-  1. JSR ML_SAVESTATE             save VIC/$01 for error-path cleanup
-  2. JSR RL_INSTALL               copy stub+handler, patch $0330, write $FFFA/$FFFB
-  3. JSR IRQ_StartTalking         wake Arduino (already in game directory)
-  4. COMMAND_GET_PATH             Arduino sends 64-byte path → stored at $E840 (RL_DIR_PATH)
-  5. IRQ_SetName (ML_FIRST_PART_NAME from config block)
-     IRQ_OpenFile
-  6. IRQ_GetInfoForFile            32-bit file size
-  7. IRQ_ReadFileNoCallback        first 256 bytes → ML_HDRBUF
-  8. Copy first 254 data bytes to PRG load address
-     LoadFileBySize (remainder) if file_size ≥ 256
-  9. IRQ_CloseFile / IRQ_EndTalking
-  10. JMP (load_address)           ← game starts; resident hook active; never returns
-
-If any step fails:
-  IRQ_EndTalking → ML_RESTORESTATE → IRQ_ExitToMenu
-```
-
-**After step 10:** The resident hook at `$033C` intercepts all `JSR $FFD5` calls targeting
-device 8. Before each file access, the hook navigates the Arduino back to the game directory
-via `COMMAND_GOTO_PATH` — ensuring correct operation even if the Arduino's working directory
-has drifted.
-
----
-
-## 8. NMI Transfer Under $01=$35
-
-The NMI-driven transfer protocol requires the CPU to read the NMI vector at `$FFFA/$FFFB`.
-
-- **With `$01=$37`** (normal): `$FFFA/$FFFB` reads from Kernal ROM (`$FE43`) → JMP `$0318`
-- **With `$01=$35`** (handler): `$FFFA/$FFFB` reads from RAM → must contain a valid vector
-
-`RL_INSTALL` writes `$68,$03` (= address `$0368`) to RAM `$FFFA/$FFFB`. This address contains
-`RL_NMI_REDIRECT` = `JMP ($0318)`. On NMI under `$01=$35`:
-
-```
-CPU reads $FFFA/$FFFB → $0368 → JMP ($0318) → TransferHandler ($80AF)
-```
-
-This eliminates any need to switch back to `$01=$37` during transfers.
-
-ROML (cartridge ROM at `$8000–$9FFF`) is accessible in both `$01=$35` and `$01=$37` because
-LORAM=1 in both cases. TransferHandler at `$80AF` is therefore always reachable.
-
----
-
-## 9. SA=0 (MEMUSS) Support
-
-When a game uses `SETLFS #1,#8,#0` + `JSR $FFD5` (secondary address 0), the Kernal ignores
-the PRG header address and loads to the address held in X/Y registers (`MEMUSS` low/high).
-
-**V2 handling:**
-1. `RL_STUB` saves X and Y to `RL_SAVED_X` / `RL_SAVED_Y` before modifying registers
-2. `RL_HANDLER` checks `KERNAL_SECONDARY_ADDRESS` (`$B9`):
-   - SA=0 → load target = `RL_SAVED_X` / `RL_SAVED_Y`
-   - SA≠0 → load target = first 2 bytes of PRG file (standard PRG header address)
-3. In both cases the PRG file has a 2-byte header on disk (`SKIP=$100` is always used)
-
----
-
-## 10. create_multiload.py (V3)
-
-### Modes
+Preview the contents of one or more disk images:
 
 ```bash
-# --- D64/D81 disk image mode (V3) ---
-
-# Preview: list all files from one or more disk images
 python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...] --list-only
-
-# Generate ZIP (first file on first disk = first part)
-python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...]
-
-# Override which file is the first part
-python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...] --first-part "LOADER"
-
-# --- Autoswap list mode (V3) ---
-python Tools/create_multiload.py --from-autoswap autoswap.lst [--first-part NAME]
-
-# --- Legacy positional mode (V2, still works) ---
-python Tools/create_multiload.py FIRST_PART_NAME
 ```
 
-### Output
+Generate a ready-to-extract ZIP:
 
-- **ZIP:** `EasySD/build/multiload/GAMENAME.ZIP`
-  - `GAMENAME` = parent folder name of the first disk image (uppercased)
-  - ZIP contents mirror the SD card layout:
-    ```
-    MULTILOAD/GAMENAME/EASYLOAD.PRG
-    MULTILOAD/GAMENAME/FIRSTPART.PRG
-    MULTILOAD/GAMENAME/FILE2.PRG
-    ...
-    ```
-- **Multi-disk deduplication:** if the same filename appears on multiple disks, the first occurrence (lowest disk number) is used.
-- **Legacy mode output:** `EasySD/build/multiload/EASYLOAD.PRG` (single file, no ZIP)
+```bash
+python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...]
+```
 
-### What it patches in bootplugin.prg
+Override the first part if the auto-selected file is not the correct boot file:
 
-Reads `EasySD/build/plugins/bootplugin.prg` (raw binary, `$C000` base), patches the config
-block, packages as ZIP.
+```bash
+python Tools/create_multiload.py --from-disk DISK1.d64 [DISK2.d64 ...] --first-part "LOADER"
+```
 
-| File offset | Field              | Value                         |
-|-------------|-------------------|-------------------------------|
-| 3           | ML_CONFIG_VERSION  | unchanged (must be 2)         |
-| 4           | ML_FIRST_PART_LEN  | `len(FIRST_PART_NAME)`        |
-| 5–20        | ML_FIRST_PART_NAME | name bytes + zero padding     |
+Autoswap lists are also supported:
 
-**Verification checks:**
-- ML_CONFIG_VERSION must be `2`
-- Name length must be 1–16 characters
+```bash
+python Tools/create_multiload.py --from-autoswap autoswap.lst
+```
 
----
+The output ZIP contains this layout:
 
-## 11. Build System Integration
+```text
+MULTILOAD/GAMENAME/
+  EASYLOAD.PRG
+  FIRSTPART.PRG
+  FILE2.PRG
+  FILE3.PRG
+```
 
-| Command | Output | Notes |
-|---------|--------|-------|
-| `python Tools/build.py multiload` | `EasySD/build/plugins/bootplugin.prg` | Build template only |
-| `python Tools/create_multiload.py NAME` | `EasySD/build/multiload/EASYLOAD.PRG` | Patch for specific game |
-| `python Tools/build.py plugins` | all `.prg` in `EasySD/build/plugins/` | All plugins |
-| `python Tools/build.py release` | all artifacts | Full build |
+Extract the ZIP to the SD card root, browse to `MULTILOAD/GAMENAME/`, and launch `EASYLOAD.PRG` from the EasySD menu.
 
-`bootplugin` is defined in `PLUGIN_MATRIX` in `Tools/build.py`.
+## Repository Assets
 
----
+The disk images in the top-level `multiload/` folder are source assets for rebuilding MultiLoad packages. They are intentionally kept in Commodore disk format so new ZIPs can be regenerated after template or resident-loader changes.
 
-## 12. Known Limitations
+Generated ZIPs are disposable outputs. The disk images are the important long-term inputs.
 
-| Limitation | Detail |
-|------------|--------|
-| Game loads to `$033C–$036F` | Overwrites RL_STUB → hook stops working. Very rare. |
-| Game loads to `$E800–$EBxx` | Overwrites handler + mini-CartLib. Extremely rare (Kernal ROM area). |
-| Direct `JSR $E16F` (bypass `$0330`) | Cannot be intercepted without a dedicated expansion port cartridge. Not used by typical games. |
-| `LOAD` with device ≠ 8 | Passed through to original Kernal LOAD vector; works normally. |
-| ZIP folder naming | `create_multiload.py` derives the game folder name from: (1) **filename stem** of the first D64 file (e.g. `BARBARIAN.D64` → `BARBARIAN`), then (2) internal disk label, then (3) parent folder as last resort. The old parent-folder-first behaviour caused `NEW/game.d64` → `MULTILOAD/NEW/`. Fixed 2026-04-06. |
-| PETSCII filename conversion | `RL_STUB` passes raw PETSCII bytes to the Arduino — no conversion. The FAT filename on the SD card must be byte-identical to what the game sends in its `LOAD` call. Rule implemented in `petscii_to_fat()` in `create_multiload.py`: printable ASCII `$21–$7E` that is not FAT-illegal is preserved verbatim (e.g. `+` stays `+`). FAT-illegal chars (`*?/:<>\|"`) and high PETSCII graphics (`$80+`) become `_`. PETSCII uppercase `$C1–$DA` → ASCII `A–Z`. Fixed 2026-04-06 (`+` was incorrectly mapped to `_`). |
+## What `create_multiload.py` Does
 
----
+`Tools/create_multiload.py` reads PRG files from supported disk images: D64, D71, D81, and T64.
 
-## 13. Key Source Files
+Its current behavior is:
+
+- It merges PRG files from all input disks into one file set.
+- If the same PRG name appears on multiple disks, the first occurrence wins and later duplicates are reported as warnings.
+- The game folder name is derived from the first disk image filename, then the internal disk label, and finally the parent folder if needed.
+- It builds `EASYLOAD.PRG` by patching the MultiLoad template and prepending a normal PRG load header for `$C000`.
+- It writes all extracted PRGs into a ZIP under `MULTILOAD/GAMENAME/`.
+
+By default, the first merged PRG becomes the first part. If that is wrong for a given game, use `--first-part NAME`.
+
+## Filename Rules
+
+The resident loader ultimately looks for FAT filenames on the SD card.
+
+- The first part name is stored in `EASYLOAD.PRG` including the `.PRG` suffix.
+- Later game loads may call `LOAD "LEVEL1",8,x` or `LOAD "LEVEL1.PRG",8,x`.
+- If the requested name does not already end with uppercase `.PRG`, the resident loader appends `.PRG` before opening the SD file.
+- The first-part config field is 20 bytes wide, which matches the C64 maximum 16-character filename plus `.PRG`.
+
+`create_multiload.py` converts disk-directory names to FAT-safe uppercase names. Printable ASCII that is valid on FAT is preserved; illegal FAT characters and unsupported high PETSCII characters are replaced with `_`.
+
+## Runtime Flow
+
+### 1. Menu Launch
+
+The menu loads `EASYLOAD.PRG` to `$C000` and jumps to it.
+
+### 2. Install Resident Loader
+
+`EASYLOAD.PRG`:
+
+- saves minimal state for clean error return,
+- installs the resident LOAD stub at `$033C`,
+- copies the resident handler and mini CartLib into RAM under the Kernal ROM area,
+- patches `$0330/$0331` to point to the resident stub,
+- writes the RAM NMI redirect used during transfers under `$01=$35`.
+
+### 3. Capture Game Directory
+
+Before loading the first file, `EASYLOAD.PRG` asks the Arduino for the current directory path with `COMMAND_GET_PATH` and stores it in resident RAM. This makes later loads robust even if the Arduino working directory drifts.
+
+### 4. Load First Part
+
+The first-part filename comes from the patched config block in `EASYLOAD.PRG`.
+
+The launcher:
+
+- opens that file,
+- reads its size,
+- reads the first 256 bytes,
+- copies the payload to the PRG load address,
+- streams the remainder if needed,
+- closes the file,
+- ends the EasySD session,
+- jumps to the loaded program.
+
+### 5. Intercept Later LOAD Calls
+
+Once the game is running, any later `LOAD` that goes through the standard Kernal LOAD dispatch and uses device 8 reaches the resident handler.
+
+The resident handler:
+
+- passes non-device-8 loads through to the original Kernal vector,
+- changes the Arduino back to the stored game directory with `COMMAND_GOTO_PATH`,
+- reconstructs the requested filename,
+- appends `.PRG` if needed,
+- opens the file from SD,
+- loads it either to the PRG header address or to the saved X/Y target when SA=0,
+- returns with the normal Kernal convention: carry clear on success and X/Y set to the end address.
+
+## Config Block
+
+`EASYLOAD.PRG` starts with a fixed config block immediately after `JMP MAIN`:
+
+| Address | Symbol | Meaning |
+|---------|--------|---------|
+| `$C003` | `ML_CONFIG_VERSION` | Must be `3` |
+| `$C004` | `ML_FIRST_PART_LEN` | Length of first filename including `.PRG` |
+| `$C005-$C018` | `ML_FIRST_PART_NAME` | First filename including `.PRG`, null-padded, 20 bytes |
+
+Template layout in `bootplugin.prg`:
+
+| File Offset | Meaning |
+|-------------|---------|
+| `3` | `ML_CONFIG_VERSION` |
+| `4` | `ML_FIRST_PART_LEN` |
+| `5-24` | `ML_FIRST_PART_NAME` |
+
+Generated `EASYLOAD.PRG` adds a 2-byte PRG header in front of that raw template, so the config data appears at file offsets `5`, `6`, and `7-26` in the final SD-card file.
+
+## Memory Areas Used at Runtime
+
+The important resident locations are:
+
+| Address | Purpose |
+|---------|---------|
+| `$0330/$0331` | Patched Kernal LOAD vector |
+| `$033C-$036F` | Resident LOAD stub and saved metadata |
+| `$0368-$036A` | `RL_NMI_REDIRECT` = `JMP ($0318)` |
+| `$E800+` | Resident handler and embedded mini CartLib |
+| `$E840` | Stored game directory path |
+| `$E880` | Runtime filename buffer |
+| `$E8A4` | File info buffer |
+| `$E8C4` | First-page read buffer |
+
+The plugin itself still lives at `$C000+`, but later game parts may overwrite that area. That is why the active resident code is copied elsewhere before the game starts.
+
+## Limits and Compatibility
+
+MultiLoad is a good fit when the game uses normal sequential `LOAD` calls between stages or scenes.
+
+Known limits:
+
+- Direct calls that bypass the Kernal LOAD vector, such as `JSR $E16F`, cannot be intercepted.
+- Custom fast loaders, raw sector loaders, and non-Kernal APIs are not supported.
+- Loads to addresses overlapping `$033C-$036F` would destroy the resident stub.
+- Loads to the resident handler area under `$E800+` would also break the hook, although this is rare.
+- The first-part filename, including `.PRG`, must fit in 20 bytes.
+- The resident code checks only uppercase `.PRG` when deciding whether to append the extension.
+
+Practical rule: if a crack already works with SD2IEC using normal Kernal loading, it is usually a good MultiLoad candidate.
+
+## Build and Debug Notes
+
+Build the template only:
+
+```bash
+python Tools/build.py multiload
+```
+
+Optional border-color debug markers can be enabled through the build system with `--ml-debug-borders`. These are intended for real hardware hang diagnosis and are not part of normal use.
+
+## Key Source Files
 
 | File | Purpose |
 |------|---------|
-| `EasySD/Loader/ResidentLoader.s` | RL_STUB + RL_NMI_REDIRECT + RL_HANDLER + RL_MINI_CARTLIB images; RL_INSTALL |
-| `EasySD/Loader/Bridges/MultiLoad/MultiLoad.s` | EASYLOAD.PRG plugin (config block, MAIN, first-part loader) |
-| `EasySD/Loader/Common/System.inc` | All `RL_*` address constants |
-| `EasySD/Loader/CartZpMap.inc` | `$033C–$036F` dual-use annotation; `$8B–$8E` handler scratch |
-| `Tools/create_multiload.py` | Per-game config block patcher |
-| `Arduino/EasySD/CartApi.cpp` | `COMMAND_GOTO_PATH` handler |
-| `Arduino/EasySD/DirFunction.cpp` | `NavigateToPath()` — parses absolute path, chdirs segment by segment |
+| `EasySD/Loader/Bridges/MultiLoad/MultiLoad.s` | `EASYLOAD.PRG` launcher, first-part load, error path |
+| `EasySD/Loader/ResidentLoader.s` | Resident stub, handler, embedded mini CartLib, install/uninstall logic |
+| `EasySD/Loader/Common/System.inc` | Canonical resident-loader addresses |
+| `Tools/create_multiload.py` | Disk-image merge, template patching, ZIP generation |
+| `Tools/build.py` | `multiload` build target |
+| `Arduino/EasySD/CartApi.cpp` | Commands used by the launcher and resident loader |
+
+## Summary
+
+The current MultiLoad design is simple:
+
+- build one generic launcher template,
+- patch in the correct first-part filename,
+- package all PRGs under one game folder,
+- install a resident hook before the game starts,
+- keep serving later Kernal LOAD calls from the same SD directory.
+
+That is the current source-of-truth behavior.

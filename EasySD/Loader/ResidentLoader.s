@@ -16,10 +16,16 @@
 ;      Games loading to $C000+ no longer break the hook.
 ;   5. chdir safety: rl_chdir_to_game sends COMMAND_GOTO_PATH before each LOAD.
 ;
+; V2.1 FIX:
+;   6. Early stub passthrough: device != 8 check moved from handler ($E800)
+;      to stub ($033C), BEFORE $01 banking switch.  Non-device-8 LOADs now
+;      pass through with original $01, registers, and stack intact.
+;
 ; COMPONENTS:
-;   A) RL_STUB_IMAGE — 52-byte trampoline copied to $033C.
+;   A) RL_STUB_IMAGE — trampoline copied to $033C (up to 44 bytes).
 ;      Patches $0330/$0331 so every JSR $FFD5 arrives here.
-;      Saves X, Y, $01; switches to $35; calls handler; restores all.
+;      Early device check: non-8 LOADs pass through immediately (no banking change).
+;      Device 8: saves X, Y, $01; switches to $35; calls handler; restores all.
 ;   B) RL_HANDLER_IMAGE — handler+mini-CartLib copied to $E800-$EBFF.
 ;      Runs entirely with $01=$35 (Kernal RAM visible, ROML accessible).
 ;      Calls only RL_MINI_CARTLIB routines (at $EA00+) — never $C000+ CartLib.
@@ -27,8 +33,7 @@
 ;
 ; MEMORY LAYOUT (constants in Common/System.inc):
 ;   $0330/$0331   Kernal LOAD vector       → patched to $033C (RL_STUB)
-;   $033C-$035B   RL_STUB code (32 bytes)
-;   $035C-$0367   padding (zero-filled, 12 bytes)
+;   $033C-$0367   RL_STUB code (38 bytes) + padding to $0368
 ;   $0368-$036A   RL_NMI_REDIRECT: JMP ($0318) — written to $FFFA/$FFFB
 ;   $036B-$036C   RL_ORIG_VEC (2 bytes)     backup of original $0330/$0331
 ;   $036D         RL_SAVED_01 (1 byte)      game's $01 during hook
@@ -55,16 +60,26 @@
 ; Physical bytes sit here in the BOOT.PRG binary; RL_INSTALL copies them.
 ;
 ; Entry: A = secondary address on entry (same as Kernal LOAD convention).
-; The stub saves X (MEMUSS lo for SA=0), Y (MEMUSS hi for SA=0), and $01,
-; switches banking to $35 (Kernal RAM visible), calls RL_HANDLER, then
-; restores everything before RTS back to the game.
+; Early device check: if device ($BA) != 8, passes through to original
+; Kernal LOAD immediately — no banking change, no register modification.
+; Device 8: saves X, Y, $01; switches to $35; calls RL_HANDLER; restores all.
 ;================================================================================
 
 RL_STUB_IMAGE:
 .logical $033C
 
 RL_STUB_ENTRY:
+	;--- Early passthrough: device != 8 goes to original Kernal LOAD immediately ---
+	; No banking switch, no register modification — original environment preserved.
 	PHA                         ; save A (secondary address from Kernal call)
+	LDA KERNAL_DEVICE_NUMBER    ; $BA — current device number
+	CMP #8
+	BEQ rl_stub_dev8
+	PLA                         ; restore A — original X/Y/$01/stack intact
+	JMP (RL_ORIG_VEC)           ; forward to original Kernal LOAD ($036B)
+
+rl_stub_dev8:
+	;--- Device 8: enter resident loader ---
 	STX RL_SAVED_X              ; save X (= MEMUSS lo if SA=0)
 	STY RL_SAVED_Y              ; save Y (= MEMUSS hi if SA=0)
 	LDA PROCESSOR_PORT
@@ -78,13 +93,14 @@ RL_STUB_ENTRY:
 	PLA                         ; restore A; carry flag preserved from handler
 	RTS                         ; X/Y = end address from RL_HANDLER
 
-; Ensure stub code ends by $035B (32 bytes max from $033C)
-.if * > $035C
-	.error "RL_STUB code exceeds $035B — reduce stub size"
+; Ensure stub code ends before RL_NMI_REDIRECT ($0368)
+; Stub now uses $033C-$0367 range (44 bytes max, was 32)
+.if * > $0368
+	.error "RL_STUB code exceeds $0367 — reduce stub size"
 .endif
 
-; --- padding to $035C ---
-.fill $035C - *, $00
+; --- padding to $0368 ---
+.fill $0368 - *, $00
 
 ; --- RL_NMI_REDIRECT at $0368 ---
 ; JMP ($0318): on NMI with $01=$35, CPU reads $FFFA/$FFFB from RAM (written
@@ -128,11 +144,7 @@ RL_HANDLER_IMAGE:
 ; Called by RL_STUB with $01=$35 already active.
 ;----------------------------------------------
 RL_HANDLER:
-	LDA KERNAL_DEVICE_NUMBER    ; $BA
-	CMP #8
-	BEQ rl_dev8_ok
-	JMP rl_passthru             ; not device 8 — forward to original Kernal LOAD
-rl_dev8_ok:
+	; Device check already done by RL_STUB — only device 8 reaches here.
 	JMP rl_main
 
 ;----------------------------------------------
@@ -384,10 +396,6 @@ rl_error_talking:
 rl_error_pre_talking:
 	SEC
 	RTS
-
-;--- Pass-through: device != 8 — jump to original Kernal LOAD ---
-rl_passthru:
-	JMP (RL_ORIG_VEC)           ; indirect jump through $036B
 
 ;----------------------------------------------
 ; rl_chdir_to_game
