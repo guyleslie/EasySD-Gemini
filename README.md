@@ -22,8 +22,26 @@ EasySD is a cartridge for the Commodore 64 that combines an Arduino-based SD car
 
 - **Browse files** on an SD card directly on your C64 — folder navigation with cursor keys
 - **Load programs** (`.PRG`) — BASIC and machine code, including programs that use KERNAL file I/O
-- **Use file-type plugins** for graphics, audio, and video playback from the SD card
-- **Convert supported tape images** (`.TAP`) into launchable content without a separate TAP plugin
+- **Use file-type plugins** for graphics, audio, and video playback from the SD card (see status below)
+
+---
+
+## Hardware verification status (v0.3)
+
+Verified on real Commodore 64 hardware with the EasySD v3 PCB:
+
+| Feature | Status |
+|---------|--------|
+| C64 boots to BASIC with cartridge inserted | ✅ Verified |
+| SEL button press loads EasySD menu | ✅ Verified |
+| File browser: directory listing | ✅ Verified |
+| File browser: folder navigation | ✅ Verified |
+| PRG file loading | ✅ Verified |
+| WavPlayer (`.WAV`) | ⚠️ Not yet tested on real HW |
+| KoalaDisplayer (`.KOA`) | ⚠️ Not yet tested on real HW |
+| MusPlayer (`.MUS`) | ⚠️ Not yet tested on real HW |
+| PetsciiDisplayer (`.PET`) | ⚠️ Not yet tested on real HW |
+| CvdPlayer (`.CVD`) | ⚠️ Not yet tested on real HW |
 
 ---
 
@@ -35,6 +53,8 @@ The cartridge has two parts working together:
 - A **512 Kbit (64 KB) cartridge ROML chip** holds the cartridge menu and transfer handler used by the C64 side
 
 When you select a file, the menu loads the matching plugin from the SD card's `/PLUGINS/` folder, which handles playback or display. This keeps the ROM small and lets new file types be added without reprogramming the cartridge ROML chip.
+
+**Boot sequence:** The Arduino holds the C64 in reset while initialising the SD card. Once ready, the C64 is released and boots normally to BASIC. Press the SEL button to open the EasySD menu at any time.
 
 ---
 
@@ -139,7 +159,7 @@ The build produces `EasySD/build/IRQLoaderRom.bin` — this is the image for the
 
 ## Status LED
 
-The LED is connected directly to the PCB 5V rail and is **always lit when the cartridge is powered** — it is a power indicator, not an Arduino-controlled signal. The Arduino drives pin A7 (NC on the current PCB) with boot-status blink patterns in firmware, but these are not visible on the current hardware.
+The LED is connected directly to the PCB 5V rail and is **always lit when the cartridge is powered** — it is a power indicator only. The Arduino does not control the LED; D13 is shared with SPI SCK and must not be driven as output.
 
 ---
 

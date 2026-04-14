@@ -1,7 +1,7 @@
 # EasySD - Unified Changelog
 
-> **Last updated:** 2026-03-09
-> **Current version:** v3.1.3
+> **Last updated:** 2026-04-14
+> **Current version:** v0.3 (public) / v3.1.3 (internal)
 > **Project:** EasySD Gemini - C64 Cartridge-based SD card reader
 
 ---
@@ -16,6 +16,7 @@ This document contains all significant changes to the EasySD project in chronolo
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
+| **v0.3** | 2026-04-14 | First public release: BASIC-first boot, PRG load, folder nav verified on real hardware | ✅ Real HW verified |
 | **v3.1.3** | 2026-03-09 | P2TK Phase 3: full-range PRG load up to $FFFF, 3 bug fixes | ✅ Complete |
 | **v3.1.2** | 2026-03-08 | WavPlayer EXROM fix, VICE audio test, EasySD rename | ✅ Complete |
 | **v3.1.1** | 2026-02-28 | GOBACK depth-2 crash fix, VICE test suite fixes, test 10 | ✅ Complete |
@@ -55,6 +56,37 @@ This document contains all significant changes to the EasySD project in chronolo
 ---
 
 ## Chronological Changes
+
+### [v0.3] - 2026-04-14
+**First Public Release — Real Hardware Verified**
+
+This tag marks the first publicly released version of EasySD Gemini, validated on real Commodore 64 hardware with the EasySD v3 PCB.
+
+#### Verified on Real Hardware
+
+| Feature | Status |
+|---------|--------|
+| C64 boots to BASIC with cartridge inserted | ✅ Verified |
+| SEL button press loads EasySD menu | ✅ Verified |
+| File browser displays SD card contents | ✅ Verified |
+| Directory navigation (enter folder, go back) | ✅ Verified |
+| PRG file loading (BASIC and machine code) | ✅ Verified |
+
+#### Not Yet Tested on Real Hardware
+
+Plugins other than the built-in PRG loader have not been tested on real hardware in this release. VICE-only validation applies to: WavPlayer, KoalaDisplayer, MusPlayer, PetsciiDisplayer, CvdPlayer.
+
+#### Recent Changes Included (since v3.1.3)
+
+- **BASIC-first boot model** (`EasySD.ino`): cartridge releases `/RESET` after SD card init; C64 boots to BASIC normally. Menu only loads when the SEL button is pressed — no forced menu on cold boot.
+- **Arduino hold `/RESET` during boot** (`CartInterface.cpp`): Arduino drives `/RESET` LOW during SD card initialization, preventing the C64 from starting before the Arduino is ready.
+- **`COMMAND_CHANGE_DIR_INDEX` (33)** (`CartApi.cpp`): new command to change directory by visible page+row index, used by the file browser for robust navigation.
+- **`PRINTASCIIFILENAME` screen code fix** (`EasySDMenu.s`): uppercase ASCII characters now map to the correct PETSCII screen codes.
+- **Directory scan speed fix**: reverted to 32-byte FAT records and eliminated redundant scans that made large directories slow.
+- **LED code removed** (`EasySD.ino`): D13 is shared with SPI SCK — driving it as output interfered with SD SPI. `STATUS_LED` pin is NC on the EasySD v3 PCB.
+- **ISP upload non-ASCII path fix** (`build.py`): `avrdude` invoked via `subprocess` with explicit `cwd` to avoid failures when the workspace path contains non-ASCII characters.
+
+---
 
 ### [v3.1.3] - 2026-03-09
 **P2TK Phase 3: Full-Range PRG Loading to $FFFF + Three Critical Bug Fixes**
