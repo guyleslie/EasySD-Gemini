@@ -141,10 +141,9 @@ void printHelp() {
 #endif // EASYSD_DEBUG_SERIAL
 
 void setup() {
-  cartInterface.Init();   // IOSetup: EXROM=HIGH, C64 held in /RESET LOW
-  // The C64 is held in reset from this point. It cannot run (no CBM80 check,
-  // no BASIC boot). We take as long as we need for SD init, then TransferMenu()
-  // sets EXROM LOW and releases /RESET — the C64's first boot sees CBM80.
+  cartInterface.Init();   // IOSetup: EXROM=HIGH, /RESET not driven — C64 boots to BASIC
+  // BASIC-first boot: C64 is NOT held in reset. It boots normally to BASIC.
+  // The menu is loaded on demand when the user presses SEL (short press).
   ledInit();
 
   LOG_BEGIN(57600);
@@ -168,13 +167,8 @@ void setup() {
   // cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
   cartApi.Init();
 
-  // No PHI2 wait needed on cold boot: the C64 is held in /RESET, so there is
-  // no PHI2 clock to observe. TransferMenu() will release /RESET (via
-  // ResetC64's LOW→HIGH sequence) and the C64 starts with EXROM already LOW.
-  // A short settle delay ensures SD/SPI state is fully quiescent.
-  delay(200);
-
-  cartApi.TransferMenu();
+  // C64 is booting to BASIC on its own. Suppress buttons for 2s to let it
+  // settle and to debounce any power-on SEL noise.
   suppressButtonsFor(BUTTON_ENABLE_DELAY_MS);
 }
 

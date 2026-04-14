@@ -1281,10 +1281,10 @@ void CartApi::TransferMenu() {
   // ATmega output sinks 40 mA vs chip source 4 mA, so any non-tristate Arduino
   // output overrides the chip and the CBM80 check fails even with it installed.
   cartInterface.EnableExromOnly();
-  // ResetC64() = ResetLow(1ms) + ResetHigh(). On cold boot the C64 is already
-  // held in /RESET by IOSetup(), so this LOW→HIGH sequence simply releases it.
-  // On warm reload (SEL button, COMMAND_EXIT_TO_MENU) it acts as a normal
-  // reset pulse. Both paths end with /RESET HIGH → C64 starts → CBM80 found.
+  // ResetC64() = ResetLow(1ms) + ResetHigh(). This is always a warm reset:
+  // on first call the C64 was running BASIC; on subsequent calls it was running
+  // the menu or a loaded program. Both paths end with /RESET HIGH → C64
+  // starts → ROML chip presents CBM80 → NMI vector installed.
   cartInterface.ResetC64();
 
   delay(300);  // CBM80 window: cartridge ROML chip drives bus, sets $0318 NMI vector

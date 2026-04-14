@@ -201,19 +201,17 @@ uint16_t CartInterface::Read() {
 }
 
 void CartInterface::IOSetup() {
-  // FIRST: hold C64 in reset immediately so it cannot run before we are ready.
-  // During ATmega power-on reset (~1-5ms) all pins are tri-state; the C64's
-  // internal pull-up keeps /RESET HIGH so the C64 starts briefly. Once we reach
-  // this code we pull /RESET LOW — the C64 halts within a few thousand cycles
-  // (well before KERNAL init completes). TransferMenu() later releases /RESET
-  // with EXROM already LOW, so the CBM80 check succeeds on the C64's very
-  // first boot attempt.
+  // BASIC-first boot: do NOT pull /RESET LOW. The C64 boots normally to BASIC.
+  // EXROM stays HIGH (cartridge hidden). Data bus stays INPUT (tristate).
+  // The menu is loaded later when the user presses SEL, which calls
+  // TransferMenu() — that does EnableExromOnly() + ResetC64() to warm-reset
+  // the C64 into the cartridge menu.
   #ifdef OPENCOLLECTORSTYLE
-    ResetLow();
+    ResetHigh();
     NmiHigh();
   #else
     pinMode(RESET, OUTPUT);
-    digitalWrite(RESET, LOW);
+    digitalWrite(RESET, HIGH);
 
     pinMode(NMI, OUTPUT);
     digitalWrite(NMI, HIGH);
@@ -222,8 +220,6 @@ void CartInterface::IOSetup() {
   pinMode(IO2, INPUT);
   pinMode(PHI2, INPUT);
   // Set EXROM HIGH before enabling output — avoids a ~1-2µs LOW glitch.
-  // While /RESET is held LOW this doesn't matter (C64 CPU is halted), but
-  // we keep the safe sequence for consistency with warm-reset paths.
   PORTD |= _BV(PD2);   // latch HIGH first
   DDRD  |= _BV(PD2);   // then enable output — pin starts HIGH, no glitch
   // SEL is on A6 (analog-only): no pinMode/pullup needed, external 10k pullup used
@@ -269,8 +265,8 @@ void CartInterface::SoftEndListening() {
 
 void CartInterface::Init() {
   IOSetup();
-  // IOSetup() now holds C64 in /RESET LOW. Data bus pins start as INPUT
-  // (tristate) — EnableCartridge()/EnableDataBus() switches to OUTPUT later.
+  // IOSetup() leaves /RESET HIGH (not driven) and EXROM HIGH (cartridge hidden).
+  // C64 boots normally to BASIC. Data bus pins start as INPUT (tristate).
   // SetAddressPinsOutput() must NOT be called here to avoid bus contention.
   StartListening();
 }
