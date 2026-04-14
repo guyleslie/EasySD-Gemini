@@ -15,7 +15,7 @@
 #define RESET 9        // D9 → C64 cartridge port /RESET (OUTPUT)
 #define SEL A6         // A6 — analog-only local MENU button input; 10k pull-up to +5V, switch to GND
 #define PHI2 A4        // A4 ← C64 PHI2 clock (INPUT, used to detect C64 activity)
-#define STATUS_LED 21  // A7 — NC on PCB (LED is hardware-driven from cartridge 5V rail, not Arduino)
+// A7 (pin 21): NC on PCB — not driven by firmware
 // A5 = IRQ input from C64 cartridge port (future use — not yet read in firmware)
 
 // A6 is analog-only: no digitalRead/INPUT_PULLUP support.

@@ -1,6 +1,5 @@
 #include "EasySD.h"
 #include "CartInterface.h"
-#include "StatusLed.h"
 #include "CartApi.h"
 #include "EasySDLog.h"
 #include <Arduino.h>
@@ -104,13 +103,11 @@ bool recoverSD() {
     delay(200);
     if (!sd.begin(chipSelect, SPI_HALF_SPEED)) {
       LOGE(SD, "SD recover FAIL");
-      ledSdFail();
       return false;
     }
   }
   dirFunc.ForceReset();
   LOGI(SD, "Recovered");
-  ledSdRecovered();
   return true;
 }
 
@@ -142,9 +139,6 @@ void printHelp() {
 
 void setup() {
   cartInterface.Init();   // IOSetup: EXROM=HIGH, /RESET not driven — C64 boots to BASIC
-  // BASIC-first boot: C64 is NOT held in reset. It boots normally to BASIC.
-  // The menu is loaded on demand when the user presses SEL (short press).
-  ledInit();
 
   LOG_BEGIN(57600);
   printStartupBanner();
@@ -159,8 +153,6 @@ void setup() {
   delay(300);
 
   bool sdSuccess = initSD();
-  if (sdSuccess) { ledBootOk(); } else { ledBootFail(); }
-
   printSDStatus(sdSuccess);
 
 
