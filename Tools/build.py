@@ -796,6 +796,7 @@ def find_bootloader_hex(ctx: Context) -> Path:
 def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = False,
                        burn_bootloader: bool = False) -> None:
     """Compile and upload Arduino sketch via ISP programmer (USBTinyISP)"""
+    import tempfile
     output_dir = ctx.arduino_root / "build" / "arduino.avr.nano"
     size = arduino_compile(ctx, debug_mode=debug_mode, output_dir=output_dir)
 
@@ -804,6 +805,14 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
     hex_file = output_dir / "EasySD.ino.hex"
     if not hex_file.exists():
         raise SystemExit(f"ERROR: HEX file not found: {hex_file}")
+
+    # avrdude cannot handle non-ASCII characters in the HEX file path (e.g. 'é' in
+    # "Asztali gép"). Copy the HEX to a plain ASCII temp directory as a workaround.
+    _tmp_dir = tempfile.mkdtemp(prefix="easysd_isp_")
+    hex_file_ascii = Path(_tmp_dir) / "EasySD.ino.hex"
+    shutil.copyfile(hex_file, hex_file_ascii)
+    hex_file = hex_file_ascii
+    print(f"  HEX (temp): {hex_file}")
 
     print("\n" + "="*70)
     print("UPLOADING VIA ISP (USBTinyISP)")
