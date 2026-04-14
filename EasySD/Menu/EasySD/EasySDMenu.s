@@ -1057,12 +1057,15 @@ GETCURRENTROW	; Input : None, Output : X (current row)
 ; ------------------------------------------------------------
 ; PRINTASCIIFILENAME - ASCII to screen code filename printer
 ; ------------------------------------------------------------
-; Converts ASCII filenames to uppercase screen codes for the
-; lowercase/uppercase charset mode.
+; Converts ASCII filenames to screen codes. Both uppercase and
+; lowercase letters map to screen codes $01-$1A (A-Z), so the
+; display is always uppercase regardless of the LFN case on SD.
+; The original case is preserved in the dir buffer for sd.chdir().
 ;
-; ASCII $20-$3F (numbers/symbols) → screen code as-is
-; ASCII $41-$5A (uppercase A-Z)   → screen code $41-$5A (uppercase in lc/uc)
-; ASCII $61-$7A (lowercase a-z)   → screen code $41-$5A (forced uppercase)
+; ASCII $20-$40 (space/symbols/digits/@)  → screen code as-is
+; ASCII $41-$5A (uppercase A-Z)           → screen code $01-$1A (subtract $40)
+; ASCII $5B-$5F ([ \ ] ^ _)              → screen code $1B-$1F (subtract $40)
+; ASCII $61-$7A (lowercase a-z)           → screen code $01-$1A (subtract $60)
 ;
 ; Input:  NAMELOW/HIGH = pointer to ASCII filename
 ;         COLLOW/HIGH = pointer to screen memory position
@@ -1077,18 +1080,18 @@ FILENAMEPRINT_A
 	LDA #$20            ; Replace null with space
 	JMP WRITECHAR_A
 NOTEND_A
-	CMP #$5B            ; >= '['?
-	BCC WRITECHAR_A     ; No → $20-$5A: space, punctuation, digits, A-Z, as-is
-	CMP #$60            ; < '`' ? ($5B-$5F: [, \, ], ^, _)
-	BCC _paf_bracket    ; yes → subtract $40 to get SC $1B-$1F
+	CMP #$41            ; >= 'A'?
+	BCC WRITECHAR_A     ; No → $20-$40: space, punctuation, digits, @, as-is
+	CMP #$60            ; < '`'? ($41-$5F: A-Z, [, \, ], ^, _)
+	BCC _paf_upper      ; yes → subtract $40
 	CMP #$7B            ; >= '{' ?
 	BCS WRITECHAR_A     ; yes (backtick $60 or above 'z') → as-is
 	SEC
-	SBC #$60            ; Lowercase $61-$7A → C64 screen codes $01-$1A (A-Z)
+	SBC #$60            ; Lowercase $61-$7A → screen codes $01-$1A (A-Z)
 	JMP WRITECHAR_A
-_paf_bracket
+_paf_upper
 	SEC
-	SBC #$40            ; $5B→$1B ([), $5C→$1C (£), $5D→$1D (]), $5E→$1E (↑), $5F→$1F (↓)
+	SBC #$40            ; $41-$5A→$01-$1A (A-Z), $5B-$5F→$1B-$1F ([£]↑↓)
 WRITECHAR_A
 	STA (COLLOW), Y     ; Write to screen memory
 	INY
