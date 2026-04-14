@@ -8,6 +8,7 @@ class DirFunction {
   protected:
     File m_dirFile;
     bool ResyncDirFromCwd();
+    void CountEntries();
 
   public:
     char currentPath[64];

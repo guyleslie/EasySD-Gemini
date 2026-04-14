@@ -99,6 +99,7 @@ void DirFunction::ToRoot() {
     LOGE(DIR, "ResyncDirFromCwd FAIL at root");
     return;
   }
+  CountEntries();
 
   LOGI(DIR, "Changed to ROOT");
 }
@@ -180,36 +181,38 @@ bool DirFunction::ChangeDirectory(char * directory) {
     return false;
   }
 
-  // Success - update depth
+  // Success - update depth and count entries in one scan
   InSubDir = 1;
   pathDepth++;
+  CountEntries();
   LOGI(DIR, "Entered: ");
   LOG_PRINTLN(currentPath);
   return true;
 }
 
-void DirFunction::Prepare() {
-  File   file;
+void DirFunction::CountEntries() {
   count = 0;
   currentIndex = 0;
+  m_dirFile.rewind();
+  if (InSubDir == 1) count++;
+  File file;
+  while (file.openNext(&m_dirFile)) {
+    if (!file.isHidden()) count++;
+    file.close();
+  }
+  m_dirFile.rewind();
+}
 
-  // currentPath is for UI/debug only; CWD is the single source of truth.
+void DirFunction::Prepare() {
+  // Resync from CWD, then count. Used by Init/TransferMenu/GotoPath/ForceReset.
+  // After ChangeDirectory/ToRoot, CountEntries() is already called internally
+  // so callers in HandleChangeDirectory do not need to call Prepare().
   if (!ResyncDirFromCwd()) {
     LOGE(DIR, "Prepare ResyncDirFromCwd FAIL at ");
     LOG_PRINTLN(currentPath);
     return;
   }
-
-  if (InSubDir == 1) count++;
-
-  while (file.openNext(&m_dirFile)) {
-    if (!file.isHidden()) {
-      count++;
-    }
-    file.close();
-  }
-
-  m_dirFile.rewind();
+  CountEntries();
 }
 
 int DirFunction::Iterate() {

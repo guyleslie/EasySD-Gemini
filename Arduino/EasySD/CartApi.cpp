@@ -359,14 +359,15 @@ void CartApi::HandleReadDirectory() {
     //Send initial state of directories.
     while (curItemIndex<numberOfEntries && dirFunc.Iterate() && !dirFunc.IsFinished) {  
       if (!dirFunc.IsHidden) {  
-        if (actualTransferredBytes + 64 <maxBytesToTransfer) {
-          // Send up to 63 chars of the LFN preview, then the type flag.
+        if (actualTransferredBytes + 32 <maxBytesToTransfer) {
+          // Send up to 31 chars of the LFN preview, then the type flag.
+          // No tolower() — send original LFN so chdir() matches exactly.
           uint8_t flen = (uint8_t)strlen(dirFunc.currentFileName);
-          if (flen > 63) flen = 63;
+          if (flen > 31) flen = 31;
           for (uint8_t i = 0; i < flen; i++) {
-            cartInterface.TransmitByteFast(tolower((uint8_t)dirFunc.currentFileName[i]));
+            cartInterface.TransmitByteFast((uint8_t)dirFunc.currentFileName[i]);
           }
-          for (uint8_t i = flen; i < 63; i++) {
+          for (uint8_t i = flen; i < 31; i++) {
             cartInterface.TransmitByteFast(0x00);
           }
 
@@ -376,7 +377,7 @@ void CartApi::HandleReadDirectory() {
             cartInterface.TransmitByteFast(0x00);
           }
 
-          actualTransferredBytes = actualTransferredBytes +64;        
+          actualTransferredBytes = actualTransferredBytes +32;        
           
           curItemIndex++;
         } else {
@@ -426,7 +427,7 @@ void CartApi::HandleChangeDirectory() {
   }
 
   if (success) {
-    dirFunc.Prepare();
+    // No Prepare() needed — ChangeDirectory/GoBack already counted entries.
     HandleResponse(SUCCESSFUL, 1);
   } else {
     LOGE(DIR, "CD FAILED");

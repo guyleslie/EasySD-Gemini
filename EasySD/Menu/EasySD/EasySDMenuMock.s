@@ -282,9 +282,9 @@ _mpe_copy
 ; Wire format (must match Arduino CartApi.cpp exactly):
 ;   Byte 0:    CURPAGEITEMS (number of entries on this page)
 ;   Byte 1:    PAGECOUNT (total pages, always 1 here)
-;   Byte 2+:   64-byte entries:
-;              Bytes 0-62:  ASCII filename, null-padded
-;              Byte 63:     $04 = directory, $00 = file
+;   Byte 2+:   32-byte entries:
+;              Bytes 0-30:  ASCII filename, null-padded
+;              Byte 31:     $04 = directory, $00 = file
 ;
 ; Directory flag trick: .enc "screen" + .TEXT "D" = $04
 ; Filenames are ASCII (.TEXT default), converted to screen
@@ -329,22 +329,22 @@ MOCK_DIR1
 	.BYTE 1             ; PAGECOUNT
 	;-- entry 0: "games" (directory) --
 	.TEXT "games"
-	.FILL 58, 0
+	.FILL 26, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 1: "giana.prg" (PRG file) --
 	.TEXT "giana.prg"
-	.FILL 55, 0         ; byte 63 = $00 = file
+	.FILL 23, 0         ; byte 31 = $00 = file
 	;-- entry 2: "wizball.prg" (PRG file) --
 	.TEXT "wizball.prg"
-	.FILL 53, 0
+	.FILL 21, 0
 	;-- entry 3: "sunset.koa" (Koala image) --
 	.TEXT "sunset.koa"
-	.FILL 54, 0
+	.FILL 22, 0
 	;-- entry 4: "logo.petg" (PETSCII art) --
 	.TEXT "logo.petg"
-	.FILL 55, 0
+	.FILL 23, 0
 
 ; --- /games/ (DIRLEVEL=1) — 6 entries -----------------------
 MOCK_DIR2
@@ -352,31 +352,31 @@ MOCK_DIR2
 	.BYTE 1             ; PAGECOUNT
 	;-- entry 0: ".." (parent directory) --
 	.TEXT ".."
-	.FILL 61, 0
+	.FILL 29, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 1: "demos" (directory) --
 	.TEXT "demos"
-	.FILL 58, 0
+	.FILL 26, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 2: "music" (directory) --
 	.TEXT "music"
-	.FILL 58, 0
+	.FILL 26, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 3: "bubble.prg" (PRG file) --
 	.TEXT "bubble.prg"
-	.FILL 54, 0
+	.FILL 22, 0
 	;-- entry 4: "ocean.koa" (Koala image) --
 	.TEXT "ocean.koa"
-	.FILL 55, 0
+	.FILL 23, 0
 	;-- entry 5: "intro.petg" (PETSCII art) --
 	.TEXT "intro.petg"
-	.FILL 54, 0
+	.FILL 22, 0
 
 ; --- /games/demos/ (DIRLEVEL=2) — 6 entries -----------------
 MOCK_DIR3
@@ -384,28 +384,28 @@ MOCK_DIR3
 	.BYTE 1             ; PAGECOUNT
 	;-- entry 0: ".." (parent directory) --
 	.TEXT ".."
-	.FILL 61, 0
+	.FILL 29, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 1: "tools" (directory) --
 	.TEXT "tools"
-	.FILL 58, 0
+	.FILL 26, 0
 .enc "screen"
 	.TEXT "D"           ; $04 = directory
 .enc "none"
 	;-- entry 2: "matrix.prg" (PRG file) --
 	.TEXT "matrix.prg"
-	.FILL 54, 0
+	.FILL 22, 0
 	;-- entry 3: "space.koa" (Koala image) --
 	.TEXT "space.koa"
-	.FILL 55, 0
+	.FILL 23, 0
 	;-- entry 4: "ascii.petg" (PETSCII art) --
 	.TEXT "ascii.petg"
-	.FILL 54, 0
+	.FILL 22, 0
 	;-- entry 5: "coder.wav" (WAV audio) --
 	.TEXT "coder.wav"
-	.FILL 55, 0
+	.FILL 23, 0
 
 MOCK_DIR3_END
 

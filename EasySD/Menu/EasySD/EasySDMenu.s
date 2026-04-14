@@ -14,7 +14,7 @@ COMMANDNEXTPAGE  = $40
 COMMANDPREVPAGE  = $41
 PATH_MAX         = 96
 PATHBUF_SIZE     = 160
-DIRLOAD_PAGES    = 6
+DIRLOAD_PAGES    = 3
 DIRLOAD_TOTAL_BYTES = DIRLOAD_PAGES * 256
 
 ; --- Menu Zero Page Variables (User range $FB-$FE) ---
@@ -905,7 +905,7 @@ ISDIRECTORY
 	STA NAMELOW
 	LDA NAMESHI, X
 	STA NAMEHIGH
-	LDY #63			; byte 63 = type flag (0x04=dir, 0x00=file)
+	LDY #31			; byte 31 = type flag (0x04=dir, 0x00=file)
 	LDA (NAMELOW), Y
 	CMP #$04
 	RTS
@@ -1240,7 +1240,7 @@ SETCOL
 	BEQ FINISH	
 	LDA NAMELOW
 	CLC
-	ADC #$40		; advance by 64 (MAXFILENAMELENGTH)
+	ADC #$20		; advance by 32 (MAXFILENAMELENGTH)
 	STA NAMELOW
 	BCC NEXTFILE
 	INC NAMEHIGH
@@ -1753,7 +1753,7 @@ COLS
 ;	.WORD $0594, $05BC, $05E4, $060C, $0634, $065C, $0684, $06AC, $06D4, $06FC
 ;	.WORD $0724, $074C, $0774, $079C, $07C4
 	
-MAXFILENAMELENGTH = 64
+MAXFILENAMELENGTH = 32
 MAXDIRITEMS = 21
 -       = GAMELIST + range(0, MAXDIRITEMS * MAXFILENAMELENGTH, MAXFILENAMELENGTH)
 NAMESLO   .byte <(-)
@@ -1857,9 +1857,9 @@ COLORDATA
 ; Wire format (must match Arduino CartApi.cpp exactly):
 ;   Byte 0:    CURPAGEITEMS (number of entries on this page)
 ;   Byte 1:    PAGECOUNT (total pages, always 1 here)
-;   Byte 2+:   64-byte entries:
-;              Bytes 0-62:  ASCII filename, null-padded
-;              Byte 63:     $04 = directory, $00 = file
+;   Byte 2+:   32-byte entries:
+;              Bytes 0-30:  ASCII filename, null-padded
+;              Byte 31:     $04 = directory, $00 = file
 ;
 ; Directory flag trick: .enc "screen" + .TEXT "D" = $04
 ; Filenames are ASCII (.TEXT default), converted to screen
