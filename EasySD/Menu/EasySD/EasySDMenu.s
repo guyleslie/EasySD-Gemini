@@ -347,12 +347,10 @@ _eld_done
 
 ENTERDIR
 .if DEBUG = 0
-	; Set filename: NAMELOW/NAMEHIGH point to selected dir's record (set by ISDIRECTORY)
-	; Record format: bytes 0-62 = null-terminated ASCII dirname, byte 63 = type
-	LDX NAMELOW
-	LDY NAMEHIGH
-	JSR PROT_SetNameZ		; sets KERNAL_FILENAME_LOW/LENGTH from null-terminated name
-	JSR PROT_ChangeDirectory
+	; Menu path changes use page + row index so Arduino can resolve the full
+	; LFN from the current listing instead of relying on the 31-char preview.
+	LDA CURPAGEINDEX
+	JSR PROT_ChangeDirectoryIndex
 	BCS CHANGEDIRFAIL
 .else
 	JSR MOCK_EnterDir

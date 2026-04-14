@@ -30,6 +30,7 @@ class DirFunction {
     int Iterate();
 
     bool ChangeDirectoryBasename(const char* basename);
+    bool ChangeDirectoryByVisibleIndex(uint16_t visibleIndex, char* scratchName, size_t scratchSize);
     bool NavigateToPath(const char* absPath);
     const char* GetCurrentPath() const;
     void ForceReset();

@@ -29,6 +29,7 @@ COMMAND_NI_STREAM 	  = 26
 COMMAND_END_TALKING  	  = 30
 COMMAND_EXIT_TO_MENU  	  = 31
 COMMAND_HWTEST            = 32
+COMMAND_CHANGE_DIR_INDEX  = 33   ; Menu-only directory change by page + row index
 
 ; Other EasySD constants
 SOURCE_TYPE_SD  	  = 1

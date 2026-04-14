@@ -435,6 +435,39 @@ void CartApi::HandleChangeDirectory() {
   }
 }
 
+void CartApi::HandleChangeDirectoryIndex() {
+  GetArgumentsStatic(2);
+
+  const uint8_t pageIndex = Arguments[0];
+  const uint8_t rowIndex = Arguments[1];
+
+  if (rowIndex >= 21) {
+    HandleResponse(INVALID_ARGUMENT, 1);
+    return;
+  }
+
+  // Compute the absolute C64-listing-visible index from page + row.
+  // DirFunction::ChangeDirectoryByVisibleIndex adjusts internally for the
+  // synthetic ".." row that exists in subdirectories.
+  const uint16_t visibleIndex = static_cast<uint16_t>(pageIndex) * 21u + rowIndex;
+
+  // Reuse Arguments from index 2 as scratch for the full LFN name.
+  // Arguments[0..1] are already copied to local variables above.
+  // Available space: MAX_ARGUMENTS_LENGTH bytes (safe for any FAT LFN).
+  char* selectedName = reinterpret_cast<char*>(&Arguments[2]);
+  const size_t selectedNameSize = MAX_ARGUMENTS_LENGTH;
+
+  const bool success = dirFunc.ChangeDirectoryByVisibleIndex(
+      visibleIndex, selectedName, selectedNameSize);
+
+  if (success) {
+    HandleResponse(SUCCESSFUL, 1);
+  } else {
+    LOGE(DIR, "CD INDEX FAILED");
+    HandleResponse(DIR_NOT_FOUND, 1);
+  }
+}
+
 void CartApi::HandleDeleteDirectory() {
   GetArgumentsDynamic(1);
   // Arguments[0] = flags (reserved, sent by protocol but not currently used)
@@ -1178,6 +1211,7 @@ void CartApi::HandleApi() {
           case COMMAND_GOTO_PATH : HandleGotoPath(); break;
           case COMMAND_READ_DIR : HandleReadDirectory(); break;
           case COMMAND_CHANGE_DIR : HandleChangeDirectory(); break;
+          case COMMAND_CHANGE_DIR_INDEX : HandleChangeDirectoryIndex(); break;
           case COMMAND_DELETE_DIR : HandleDeleteDirectory(); break;
           case COMMAND_CREATE_DIR : HandleCreateDirectory(); break;      
           case COMMAND_READ_EEPROM : HandleReadEeprom(); break;

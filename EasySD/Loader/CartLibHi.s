@@ -404,6 +404,22 @@ PROT_ChangeDirectory
 	PROT_ProcessFileCommand	
 	RTS
 
+;-----------------------------------------
+; Registers In : A (page index), X (row index on current page)
+; Registers Used : A, X
+; Registers Out : A (Status of operation)
+;-----------------------------------------
+PROT_ChangeDirectoryIndex
+	PHA
+	LDA #COMMAND_CHANGE_DIR_INDEX
+	JSR PROT_Send
+	PLA
+	JSR PROT_Send
+	TXA
+	JSR PROT_Send
+	JSR PROT_WaitProcessing
+	RTS
+
 PROT_DeleteDirectory
 	LDA #COMMAND_DELETE_DIR
 	JSR PROT_Send

@@ -133,8 +133,23 @@ bool DirFunction::GoBack() {
 
   LOGI(DIR, "GoBack to: "); LOG_PRINTLN(parentPath);
 
-  // Navigate segment-by-segment from root — consistent with NavigateToPath().
-  // sd.chdir(absolutePath) with LFN names is unreliable in SdFat 2.x.
+  // Prefer a direct relative step up. This avoids rescanning every ancestor
+  // directory on the hot path while keeping the absolute-path fallback.
+  if (sd.chdir("..")) {
+    if (!ResyncDirFromCwd()) {
+      LOGE(DIR, "GoBack ResyncDirFromCwd FAIL");
+      return false;
+    }
+
+    strcpy(currentPath, parentPath);
+    pathDepth--;
+    InSubDir = (pathDepth > 0) ? 1 : 0;
+    CountEntries();
+    return true;
+  }
+
+  // Fallback for cards/filesystems where relative parent navigation is not
+  // accepted even though segment-by-segment navigation works reliably.
   if (!NavigateToPath(parentPath)) {
     LOGE(DIR, "GoBack FAIL");
     return false;
@@ -291,6 +306,59 @@ bool DirFunction::ChangeDirectoryBasename(const char* basename) {
 
   // Use existing ChangeDirectory method
   return ChangeDirectory((char*)basename);
+}
+
+bool DirFunction::ChangeDirectoryByVisibleIndex(uint16_t visibleIndex,
+                                               char* scratchName,
+                                               size_t scratchSize) {
+  if (!scratchName || scratchSize < 13) {
+    return false;
+  }
+
+  // The C64 listing includes a synthetic ".." entry at visible index 0 when
+  // in a subdirectory (injected by Iterate(), not present in openNext output).
+  // Subtract 1 to map the C64 row index to the real filesystem entry index.
+  // ENTERDIR is never reached for the ".." row (handled by GOBACK), so
+  // visibleIndex == 0 with InSubDir == 1 is a logic error; return false.
+  if (InSubDir) {
+    if (visibleIndex == 0) {
+      return false;
+    }
+    visibleIndex--;  // Adjust for the virtual ".." row at C64 listing position 0
+  }
+
+  Rewind();
+
+  uint16_t currentVisibleIndex = 0;
+  File file;
+  while (file.openNext(&m_dirFile)) {
+    if (file.isHidden()) {
+      file.close();
+      continue;
+    }
+
+    const bool isDirectory = file.isDir();
+    if (currentVisibleIndex == visibleIndex) {
+      if (!isDirectory) {
+        file.close();
+        Rewind();
+        return false;
+      }
+      if (!file.getName(scratchName, scratchSize)) {
+        file.close();
+        Rewind();
+        return false;
+      }
+      file.close();
+      return ChangeDirectoryBasename(scratchName);
+    }
+
+    currentVisibleIndex++;
+    file.close();
+  }
+
+  Rewind();
+  return false;
 }
 
 const char* DirFunction::GetCurrentPath() const {

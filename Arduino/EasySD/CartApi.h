@@ -64,6 +64,7 @@
 #define COMMAND_END_TALKING         30
 #define COMMAND_EXIT_TO_MENU        31
 #define COMMAND_HWTEST              32
+#define COMMAND_CHANGE_DIR_INDEX    33  // menu-only: change directory by visible entry index
 
 // ============================================================================
 // Seek direction constants
@@ -106,6 +107,7 @@ class CartApi {
   void HandleGotoPath();
   void HandleReadDirectory();
   void HandleChangeDirectory();
+  void HandleChangeDirectoryIndex();
   void HandleDeleteDirectory();
   void HandleCreateDirectory();
   void HandleReadEeprom();
