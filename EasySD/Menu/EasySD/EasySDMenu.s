@@ -261,6 +261,9 @@ ENTER
 	JSR MOCK_GoBack
 .endif
 	JSR GOBACK
+	; Reset page index after navigating to parent directory.
+	LDA #0
+	STA CURPAGEINDEX
 	;JMP NEWCONTENT
 	JMP DOREADDIRECTORY
 
@@ -355,8 +358,12 @@ ENTERDIR
 .else
 	JSR MOCK_EnterDir
 .endif
-
-	
+	; Reset page index — new directory always starts at page 0.
+	; Without this, a stale CURPAGEINDEX causes startingIndex > count on
+	; the Arduino, producing a uint8_t underflow → C64 gets CURPAGEITEMS=245
+	; → PRINTPAGE loops 245 times → stack corruption → grey screen.
+	LDA #0
+	STA CURPAGEINDEX
 	DELAYFRAMES 2
 	; Read directory
 DOREADDIRECTORY	

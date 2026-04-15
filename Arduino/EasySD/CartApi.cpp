@@ -341,7 +341,17 @@ void CartApi::HandleReadDirectory() {
 
 
     
-    uint8_t currentItemsCount = dirFunc.GetCount()>startingIndex + numberOfEntries ? numberOfEntries : dirFunc.GetCount() - startingIndex;
+    // Guard against uint8_t underflow: if startingIndex >= count (stale page
+    // index from C64), return 0 items instead of wrapping to ~245 which would
+    // cause PRINTPAGE to loop hundreds of times and corrupt the C64 stack.
+    uint8_t currentItemsCount;
+    if (startingIndex >= (uint16_t)dirFunc.GetCount()) {
+      currentItemsCount = 0;
+    } else if ((uint16_t)dirFunc.GetCount() >= startingIndex + numberOfEntries) {
+      currentItemsCount = numberOfEntries;
+    } else {
+      currentItemsCount = (uint8_t)(dirFunc.GetCount() - startingIndex);
+    }
     uint8_t pagePadValue = (dirFunc.GetCount() % numberOfEntries) > 0 ? 1 : 0;
     uint8_t pageCount = (byte)(dirFunc.GetCount()/numberOfEntries + pagePadValue);  
   
