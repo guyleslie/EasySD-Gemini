@@ -1517,14 +1517,22 @@ _pdh_subdir
 _pdh_copy
 	LDA (NAMELOW), Y
 	BEQ _pdh_done_copy
-	; ASCII → uppercase screen code
-	CMP #$61
-	BCC _pdh_noconv
-	CMP #$7B
-	BCS _pdh_noconv
+	; ASCII → screen code, same mapping as PRINTASCIIFILENAME.
+	CMP #$41		; >= 'A'?
+	BCC _pdh_noconv		; No → $20-$40: space, punctuation, digits, @, as-is
+	CMP #$60		; < '`'? ($41-$5F: A-Z, [, \, ], ^, _)
+	BCC _pdh_upper		; yes → subtract $40
+	CMP #$7B		; >= '{' ?
+	BCS _pdh_noconv		; yes (backtick $60 or above 'z') → as-is
 	SEC
 	SBC #$60		; lowercase $61-$7A → screen code $01-$1A
+	JMP _pdh_reverse
+_pdh_upper
+	SEC
+	SBC #$40		; uppercase $41-$5A → screen code $01-$1A
 _pdh_noconv
+	; Reverse-video directory name inside the header bar.
+_pdh_reverse
 	ORA #$80		; reverse video
 	STA $042D, Y		; col 5+Y
 	INY
