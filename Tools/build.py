@@ -354,7 +354,7 @@ def stage_upload_bundle(ctx: Context, compile_dir: Path, mode_label: str) -> Pat
     return upload_root
 
 
-def stage_release_bundle(ctx: Context, preferred_menu_name: str, mode_label: str) -> Path:
+def stage_release_bundle(ctx: Context, preferred_menu_name: str, mode_label: str, include_upload: bool = True) -> Path:
     release_root = ctx.build_dir / "release"
     reset_dir(release_root)
 
@@ -389,7 +389,7 @@ def stage_release_bundle(ctx: Context, preferred_menu_name: str, mode_label: str
             shutil.copyfile(src, listing_dir / src.name)
 
     upload_root = ctx.build_dir / "upload"
-    if upload_root.exists():
+    if include_upload and upload_root.exists():
         for src in sorted(upload_root.rglob("*")):
             if src.is_file():
                 rel = src.relative_to(upload_root)
@@ -1268,8 +1268,12 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if args.target == "sd-deploy":
-        drive = args.port or "D:"
-        plugins_dir = Path(drive) / "PLUGINS"
+        drive = (args.port or "D:").strip()
+        if re.fullmatch(r"[A-Za-z]:", drive):
+            drive_root = Path(f"{drive}\\")
+        else:
+            drive_root = Path(drive)
+        plugins_dir = drive_root / "PLUGINS"
         if not plugins_dir.exists():
             print(f"ERROR: {plugins_dir} not found — is the SD card mounted as {drive}?")
             return 1
@@ -1281,7 +1285,7 @@ def main(argv: Sequence[str]) -> int:
         # EASYSD.PRG → SD root (required: TransferMenu() loads menu from SD)
         menu_src = (sd_bundle_root / "EASYSD.PRG") if use_bundle else (ctx.build_dir / "easysd.prg")
         if menu_src.exists():
-            dst = Path(drive) / "EASYSD.PRG"
+            dst = drive_root / "EASYSD.PRG"
             shutil.copyfile(menu_src, dst)
             print(f"[SD-DEPLOY] {menu_src.name} -> {dst}")
             copied += 1
@@ -1377,17 +1381,24 @@ def main(argv: Sequence[str]) -> int:
             build_vice_tests(ctx)
         stage_sd_content_bundle(ctx, preferred_menu_name=menu_prg_name)
         if args.target == "release":
-            compile_dir = default_arduino_compile_dir(ctx)
-            arduino_compile(ctx, debug_mode=False, output_dir=compile_dir, release_log=args.release_log)
             upload_mode = "RELEASE_LOG" if args.release_log else "RELEASE"
-            stage_upload_bundle(ctx, compile_dir, mode_label=upload_mode)
-            stage_release_bundle(ctx, preferred_menu_name=menu_prg_name, mode_label=upload_mode)
+            if not args.skip_arduino:
+                compile_dir = default_arduino_compile_dir(ctx)
+                arduino_compile(ctx, debug_mode=False, output_dir=compile_dir, release_log=args.release_log)
+                stage_upload_bundle(ctx, compile_dir, mode_label=upload_mode)
+            stage_release_bundle(
+                ctx,
+                preferred_menu_name=menu_prg_name,
+                mode_label=("C64_ONLY" if args.skip_arduino else upload_mode),
+                include_upload=(not args.skip_arduino),
+            )
         print("==============================================================")
         print(f"BUILD SUCCESSFUL ({args.target.upper()})")
         print(f"Output: {ctx.build_dir / menu_prg_name}")
         print(f"SD bundle: {ctx.build_dir / 'sd-content'}")
         if args.target == "release":
-            print(f"Upload bundle: {ctx.build_dir / 'upload'}")
+            if not args.skip_arduino:
+                print(f"Upload bundle: {ctx.build_dir / 'upload'}")
             print(f"Release bundle: {ctx.build_dir / 'release'}")
         print("==============================================================")
         return 0
@@ -1412,26 +1423,37 @@ def main(argv: Sequence[str]) -> int:
         build_core(ctx, debug=c64_debug, debug_break=debug_break, build_arduino=True, arduino_debug=arduino_debug_all, menu_prg_name=menu_name, release_log=args.release_log)
         build_plugins(ctx, debug=c64_debug, debug_break=debug_break, ensure_core_prereq=False)
 
-        # Build Arduino
-        print("\n")
-        compile_dir = default_arduino_compile_dir(ctx)
-        arduino_compile(ctx, debug_mode=args.debug, output_dir=compile_dir, release_log=args.release_log)
         upload_mode = "DEBUG" if args.debug else ("RELEASE_LOG" if args.release_log else "RELEASE")
-        stage_upload_bundle(ctx, compile_dir, mode_label=upload_mode)
+
+        # Build Arduino (optional via --skip-arduino)
+        if not args.skip_arduino:
+            print("\n")
+            compile_dir = default_arduino_compile_dir(ctx)
+            arduino_compile(ctx, debug_mode=args.debug, output_dir=compile_dir, release_log=args.release_log)
+            stage_upload_bundle(ctx, compile_dir, mode_label=upload_mode)
         stage_sd_content_bundle(ctx, preferred_menu_name=menu_name)
         if not args.debug:
-            stage_release_bundle(ctx, preferred_menu_name=menu_name, mode_label=upload_mode)
+            stage_release_bundle(
+                ctx,
+                preferred_menu_name=menu_name,
+                mode_label=("C64_ONLY" if args.skip_arduino else upload_mode),
+                include_upload=(not args.skip_arduino),
+            )
 
         print("\n" + "="*70)
         print("ALL BUILD COMPLETE!")
         print("="*70)
         print(f"  C64 output: {ctx.build_dir / menu_name}")
-        print(f"  Arduino upload bundle: {ctx.build_dir / 'upload'}")
+        if not args.skip_arduino:
+            print(f"  Arduino upload bundle: {ctx.build_dir / 'upload'}")
         print(f"  SD content bundle: {ctx.build_dir / 'sd-content'}")
         if not args.debug:
             print(f"  Release bundle: {ctx.build_dir / 'release'}")
         print("\nNext steps:")
-        print(f"  python build.py arduino-upload COM4  # Upload firmware")
+        if not args.skip_arduino:
+            print(f"  python build.py arduino-upload COM4  # Upload firmware")
+        else:
+            print("  --skip-arduino was used; Arduino build/upload steps were skipped.")
         print("="*70)
         return 0
 
