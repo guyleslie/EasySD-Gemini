@@ -793,11 +793,11 @@ def find_bootloader_hex(ctx: Context) -> Path:
 
 
 def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = False,
-                       burn_bootloader: bool = False) -> None:
+                       burn_bootloader: bool = False, release_log: bool = False) -> None:
     """Compile and upload Arduino sketch via ISP programmer (USBTinyISP)"""
     import tempfile
     output_dir = ctx.arduino_root / "build" / "arduino.avr.nano"
-    size = arduino_compile(ctx, debug_mode=debug_mode, output_dir=output_dir)
+    size = arduino_compile(ctx, debug_mode=debug_mode, output_dir=output_dir, release_log=release_log)
 
     avrdude_exe, avrdude_conf = find_avrdude(ctx)
 
@@ -1045,7 +1045,7 @@ def main(argv: Sequence[str]) -> int:
             print("\nERROR: Use either --optiboot or --no-bootloader, not both")
             return 1
         arduino_upload_isp(ctx, sck_period=args.isp_sck, debug_mode=args.debug,
-                           burn_bootloader=args.optiboot)
+                           burn_bootloader=args.optiboot, release_log=args.release_log)
         return 0
 
     if args.target == "arduino-monitor":

@@ -149,11 +149,58 @@ python Tools/build.py arduino-upload-isp --optiboot
 
 > After flashing, the Arduino firmware is complete. Next, program the C64-side ROM image into the cartridge ROML chip using a TL866 or similar programmer — see **Flash the Cartridge ROML Chip** below.
 
+### Release logging (field diagnosis)
+
+Add `--release-log` to any Arduino build or upload command to enable lightweight serial logging in the firmware. Only DIR, SYS, SD and ERR log categories are compiled in — FILE, PRG, and PROTO stay compiled out to keep flash usage under control (~1–2 KB overhead vs. silent release).
+
+```bash
+# Compile with release logging
+python Tools/build.py arduino-compile --release-log
+
+# Upload via USB with release logging
+python Tools/build.py arduino-upload COM4 --release-log
+
+# Upload via ISP with release logging
+python Tools/build.py arduino-upload-isp --release-log
+
+# Full release build (C64 + Arduino) with release logging
+python Tools/build.py release --release-log
+
+# Monitor serial output (57600 baud)
+python Tools/build.py arduino-monitor COM4
+```
+
+Typical log output during a directory change:
+
+```
+[INFO][DIR] CDI pg=0 row=2 cnt=5 sub=0
+[INFO][DIR] CDVI found: GAMES
+[INFO][DIR] Entered: /GAMES
+[INFO][DIR] CDI OK: /GAMES
+[INFO][DIR] RD pg=0 cnt=4 sub=1 items=4 pages=1
+```
+
+When done debugging, rebuild without `--release-log` to restore the silent release build (zero serial overhead).
+
 ### Flash the Cartridge ROML Chip
 
 The build produces `EasySD/build/IRQLoaderRom.bin` — this is the image for the cartridge ROML chip. Write it to the AT27C512R-45PU or M27C512 with a suitable programmer.
 
 `EasySD/build/easysd.prg` is the C64 menu program that `TransferMenu()` prefers to load from the SD card root as `EASYSD.PRG` when present.
+
+---
+
+## When to update each component
+
+EasySD has three separately updatable parts. Not every change requires updating all three.
+
+| Component | How to update | When to update |
+|-----------|---------------|----------------|
+| **Arduino firmware** | `arduino-upload` or `arduino-upload-isp` | Any change to `Arduino/EasySD/` source files (command handling, directory logic, protocol, SD card code). This is the most frequently updated component. |
+| **SD card files** | Copy `EASYSD.PRG` and `PLUGINS/*.prg` to the SD card | Any change to C64 assembly source files (`EasySD/Menu/`, `EasySD/Loader/`, `EasySD/Plugins/`). The menu and all plugins are loaded from the SD card at runtime — the cartridge ROML chip does not need to change. |
+| **Cartridge ROML chip** | Reprogram with TL866 or similar EPROM programmer | Only when `EasySD/build/IRQLoaderRom.bin` changes — this happens if the NMI transfer handler, boot stub, or the resident loader code changes. Plugin and menu changes do **not** require reprogramming the ROML chip. |
+
+> **Tip:** Most development only touches Arduino firmware and/or C64 menu/plugin code. You can go a long time without needing to reprogram the ROML chip — only changes to `EasySD/Loader/CartLib.s`, `CartLibCommon.s`, or the EPROM build artifacts require it.
 
 ---
 
