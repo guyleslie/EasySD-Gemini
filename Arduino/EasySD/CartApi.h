@@ -89,9 +89,12 @@ class CartApi {
   File    workingFile;
   uint8_t Arguments[MAX_ARGUMENTS_LENGTH + 2];
   int     eepromIndex;
+  bool    m_argsOk;   // false after GetArguments* timeout — handler should bail
+
+  static constexpr uint16_t ARGS_TIMEOUT_MS = 500;  // per-byte timeout
 
   int16_t GetByte();
-  int16_t AwaitByte(int16_t maxTryCount);
+  int16_t AwaitByte(uint16_t timeoutMs);
   void GetArgumentsDynamic(int16_t argumentsLength);
   void GetArgumentsStatic(int16_t argumentsLength);
 

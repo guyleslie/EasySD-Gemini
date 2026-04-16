@@ -2,6 +2,7 @@
 #include <ByteQueue.h>
 #include "CartInterface.h"
 #include "EasySD.h"
+#include "EasySDLog.h"
 
 volatile ByteQueue readQueue;
 volatile uint8_t bitState = BIT_STARTED;
@@ -12,6 +13,13 @@ volatile uint8_t bitMask = 1;
 volatile unsigned long lastInterruptTime = 0;
 volatile unsigned long timeDifference = 0;
 volatile unsigned long interruptTime = 0;
+
+// Stale identifier timeout: if the C64 sends 1-2 identifier bytes then
+// stops (crash, bus glitch), the receive state machine stays in
+// IDENTIFIER_1_OK or IDENTIFIER_2_OK forever, blocking new sessions.
+// Track when the state last changed; reset to IDLE if stuck too long.
+static unsigned long identifierStateChangeMs = 0;
+static constexpr unsigned long IDENTIFIER_STALE_TIMEOUT_MS = 200;
 //volatile uint8_t toggle = 1;
 
 namespace {
@@ -108,6 +116,21 @@ uint8_t CartInterface::ReceiveHandler() {
     if (receiveState == IN_TRANSMISSION) {
         return receiveState;
     }
+
+    // Guard: if stuck in partial identifier match for too long, the C64
+    // likely crashed or aborted mid-handshake. Reset to IDLE so a fresh
+    // PROT_StartTalking can succeed without power-cycling.
+    if (receiveState > IDLE && receiveState < IN_TRANSMISSION) {
+      if ((unsigned long)(millis() - identifierStateChangeMs) > IDENTIFIER_STALE_TIMEOUT_MS) {
+        LOGE(SYS, "Stale ident reset");
+        bitState = BIT_STARTED;
+        bitMask = 1;
+        currentByte = 0;
+        receiveState = IDLE;
+        return receiveState;
+      }
+    }
+
     if (bitState < BIT_ZERO_END) {
       return receiveState;
     }
@@ -125,18 +148,24 @@ uint8_t CartInterface::ReceiveHandler() {
         case IDLE : 
         if (currentByte == IDENTIFIER_1) {
           receiveState = IDENTIFIER_1_OK;
+          identifierStateChangeMs = millis();
         }
         break;
         
         case IDENTIFIER_1_OK : 
         if (currentByte == IDENTIFIER_2) {
           receiveState = IDENTIFIER_2_OK;
+          identifierStateChangeMs = millis();
+        } else {
+          receiveState = IDLE;  // wrong byte — restart
         }
         break;
 
         case IDENTIFIER_2_OK :
         if (currentByte == IDENTIFIER_3) {
           receiveState = IDENTIFIER_3_OK;
+        } else {
+          receiveState = IDLE;  // wrong byte — restart
         }
         break;
         
@@ -306,7 +335,7 @@ void CartInterface::ResetC64() {
 void CartInterface::TransmitByteSlow(unsigned char val) {
   SetPage(val);
   NmiLow();
-  delayMicroseconds(10); //Wait for interrupt to trigger
+  delayMicroseconds(10);  //Wait for interrupt to trigger
   NmiHigh();    
   delayMicroseconds(75);  //Wait for interrupt to finish it's job 
 }
@@ -314,7 +343,7 @@ void CartInterface::TransmitByteSlow(unsigned char val) {
 void CartInterface::TransmitByteBlockEnd(unsigned char val) {
   SetPage(val);
   NmiLow();
-  delayMicroseconds(6); //Wait for interrupt to trigger
+  delayMicroseconds(6);    //Wait for interrupt to trigger
   NmiHigh(); 
   delayMicroseconds(100);  //Wait for interrupt to finish it's job
 }
@@ -332,7 +361,7 @@ void CartInterface::EnableCartridge() {
   syncBusChangeToPhi2Low();
   DDRD |= 0xF0;          // D4-D7: OUTPUT (drive data bus)
   DDRC |= 0x0F;          // A0-A3: OUTPUT (drive data bus)
-  PORTD &= ~_BV (PD2);  // EXROM LOW — cartridge visible to C64
+  PORTD &= ~_BV (PD2);   // EXROM LOW — cartridge visible to C64
 }
 
 void CartInterface::EnableExromOnly() {
@@ -359,7 +388,7 @@ void CartInterface::EnableDataBus() {
 
 void CartInterface::DisableCartridge() {
   syncBusChangeToPhi2Low();
-  PORTD |= _BV (PD2);   // EXROM HIGH — cartridge hidden from C64
+  PORTD |= _BV (PD2);    // EXROM HIGH — cartridge hidden from C64
   DDRD &= ~0xF0;         // D4-D7: INPUT (tristate — stop driving data bus)
   DDRC &= ~0x0F;         // A0-A3: INPUT (tristate — stop driving data bus)
 }
@@ -367,7 +396,7 @@ void CartInterface::DisableCartridge() {
 void CartInterface::ResetLow() {
   #ifdef OPENCOLLECTORSTYLE
    PORTB &= ~_BV(PB1); // turn off internal resistor 
-   DDRB |= _BV(PB1); // set to output       
+   DDRB |= _BV(PB1);   // set to output       
   #else
     PORTB &= ~_BV (PB1);
   #endif  
@@ -385,7 +414,7 @@ void CartInterface::ResetHigh() {
 void CartInterface::NmiLow() {
   #ifdef OPENCOLLECTORSTYLE
    PORTB &= ~_BV(PB0); // turn off internal resistor 
-   DDRB |= _BV(PB0); // set to output       
+   DDRB |= _BV(PB0);   // set to output       
   #else
     PORTB &= ~_BV (PB0);
   #endif
@@ -407,14 +436,14 @@ void CartInterface::TransmitByteFast(unsigned char val)
       NmiLow();
       delayMicroseconds(10); // FIX: Increased from 7µs (hardware detection minimum)
       NmiHigh();
-      delayMicroseconds(80);  // Wait for interrupt to finish its job
+      delayMicroseconds(80); // Wait for interrupt to finish its job
       transferIndex = 0;
       blockIndex++;
    } else {
       NmiLow();
       delayMicroseconds(10); // FIX: Increased from 6µs (was too short!)
       NmiHigh();
-      delayMicroseconds(50);  // FIX: Increased from 31µs (handler execution time)
+      delayMicroseconds(50); // FIX: Increased from 31µs (handler execution time)
       transferIndex++;
    }
 }
@@ -427,14 +456,14 @@ void CartInterface::TransmitByteFastStd(unsigned char val)
       NmiLow();
       delayMicroseconds(10); // FIX: Increased from 7µs (hardware detection minimum)
       NmiHigh();
-      delayMicroseconds(80);  // Wait for interrupt to finish its job
+      delayMicroseconds(80); // Wait for interrupt to finish its job
       transferIndex = 0;
       blockIndex++;
    } else {
       NmiLow();
       delayMicroseconds(10); // FIX: Increased from 7µs
       NmiHigh();
-      delayMicroseconds(50);  // FIX: Increased from 40µs (safer handler execution time)
+      delayMicroseconds(50); // FIX: Increased from 40µs (safer handler execution time)
       transferIndex++;
    }
 }
@@ -449,14 +478,14 @@ void CartInterface::TransmitByteFastMK3(unsigned char val)
       NmiLow();
       delayMicroseconds(10);
       NmiHigh();
-      delayMicroseconds(80);  // block-end: extra margin at 256-byte boundary
+      delayMicroseconds(80); // block-end: extra margin at 256-byte boundary
       transferIndex = 0;
       blockIndex++;
    } else {
       NmiLow();
       delayMicroseconds(10);
       NmiHigh();
-      delayMicroseconds(35);  // 35µs → 45µs/byte → 22222 Hz (avg 22133 Hz with block-end)
+      delayMicroseconds(35); // 35µs → 45µs/byte → 22222 Hz (avg 22133 Hz with block-end)
       transferIndex++;
    }
 }

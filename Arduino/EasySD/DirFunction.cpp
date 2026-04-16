@@ -238,34 +238,31 @@ int DirFunction::Iterate() {
   if (InSubDir == 1 && currentIndex == 0) {
     strcpy(currentFileName, "..");
     IsDirectory = 1;
-    IsHidden = 0;
     currentIndex++;
     return 1;
   }
 
-  if (currentIndex < count) {
-    if (file.openNext(&m_dirFile)) {
-      if (!file.isHidden()) {
-        CaptureFileNamePreview(file, currentFileName, sizeof(currentFileName));
-        currentIndex++;
-        IsDirectory = file.isSubDir();
-        IsHidden = 0;
-        file.close();
-        return 1;
-      } else {
-        IsHidden = 1;
-        IsDirectory = file.isSubDir();
-        file.close();
-        return 1;
-      }
-    } else {
+  // Skip hidden files internally — they are never shown in the C64 menu
+  // and excluding them here keeps currentIndex consistent with count
+  // (which also excludes hidden files in CountEntries).
+  while (currentIndex < count) {
+    if (!file.openNext(&m_dirFile)) {
       IsFinished = 1;
       return 0;
     }
-  } else {
-    IsFinished = 1;
-    return 0;
+    if (file.isHidden()) {
+      file.close();
+      continue;  // skip hidden, do NOT increment currentIndex
+    }
+    CaptureFileNamePreview(file, currentFileName, sizeof(currentFileName));
+    IsDirectory = file.isSubDir();
+    currentIndex++;
+    file.close();
+    return 1;
   }
+
+  IsFinished = 1;
+  return 0;
 }
 
 unsigned int DirFunction::GetCount() {
@@ -276,7 +273,6 @@ void DirFunction::Rewind() {
   m_dirFile.rewind();
   currentIndex = 0;
   IsDirectory = 0;
-  IsHidden = 0;
   IsFinished = 0;
 }
 
@@ -312,19 +308,19 @@ bool DirFunction::ChangeDirectoryByVisibleIndex(uint16_t visibleIndex,
                                                char* scratchName,
                                                size_t scratchSize) {
   if (!scratchName || scratchSize < 13) {
+    LOGE(DIR, "CDVI: bad scratch");
     return false;
   }
 
   // The C64 listing includes a synthetic ".." entry at visible index 0 when
   // in a subdirectory (injected by Iterate(), not present in openNext output).
   // Subtract 1 to map the C64 row index to the real filesystem entry index.
-  // ENTERDIR is never reached for the ".." row (handled by GOBACK), so
-  // visibleIndex == 0 with InSubDir == 1 is a logic error; return false.
   if (InSubDir) {
     if (visibleIndex == 0) {
+      LOGE(DIR, "CDVI: vis=0 in subdir");
       return false;
     }
-    visibleIndex--;  // Adjust for the virtual ".." row at C64 listing position 0
+    visibleIndex--;
   }
 
   Rewind();
@@ -340,16 +336,20 @@ bool DirFunction::ChangeDirectoryByVisibleIndex(uint16_t visibleIndex,
     const bool isDirectory = file.isDir();
     if (currentVisibleIndex == visibleIndex) {
       if (!isDirectory) {
+        LOGE(DIR, "CDVI: not a dir");
         file.close();
         Rewind();
         return false;
       }
       if (!file.getName(scratchName, scratchSize)) {
+        LOGE(DIR, "CDVI: getName fail");
         file.close();
         Rewind();
         return false;
       }
       file.close();
+      LOGI(DIR, "CDVI found: ");
+      LOG_PRINTLN(scratchName);
       return ChangeDirectoryBasename(scratchName);
     }
 
@@ -357,6 +357,8 @@ bool DirFunction::ChangeDirectoryByVisibleIndex(uint16_t visibleIndex,
     file.close();
   }
 
+  LOGE(DIR, "CDVI: index not found");
+  LOG_PRINT_F(" vis="); LOG_PRINTLN(visibleIndex);
   Rewind();
   return false;
 }

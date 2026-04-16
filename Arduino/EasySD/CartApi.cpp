@@ -31,14 +31,12 @@ volatile static unsigned long lastStreamRequestTime = 0;
 
 void CartApi::Init() {
   eepromIndex = 0;
-  /* Not talking at the moment */
-  //TalkStatus = 0;
+  m_argsOk = true;
   cartInterface.SetPage(0);
 
+  // ReInit() → ToRoot() already does sd.chdir("/") + ResyncDirFromCwd() +
+  // CountEntries(). No separate Prepare() needed.
   dirFunc.ReInit();
-  // Always start from root on boot/menu init. Restoring the last directory adds
-  // extra SD/path state during startup and is not required for current behavior.
-  dirFunc.Prepare();
 }
 
 inline void HandleResponse(unsigned char response, uint16_t waitAfterResponse) {
@@ -318,21 +316,25 @@ void CartApi::HandleGotoPath() {
 
 void CartApi::HandleReadDirectory() {
   GetArgumentsStatic(3);
-  uint8_t numberOfEntries = Arguments[0]; //Max number of directory entries to retrieve
-  uint8_t dataLength = Arguments[1]; //Max number of pages of data to retrieve (each page is 256 byte)
+  uint8_t numberOfEntries = Arguments[0];
+  uint8_t dataLength = Arguments[1];
+  uint8_t startPage = Arguments[2];
 
-  uint8_t startPage = Arguments[2]; //Starting page
- 
+  LOGI(DIR, "RD");
+  LOG_PRINT_F(" pg="); LOG_PRINT(startPage);
+  LOG_PRINT_F(" cnt="); LOG_PRINT(dirFunc.GetCount());
+  LOG_PRINT_F(" sub="); LOG_PRINTLN(dirFunc.InSubDir);
+
   if (numberOfEntries == 0 || dataLength == 0) {
     HandleResponse(INVALID_ARGUMENT, 1);
   } else {
-    HandleResponse(SUCCESSFUL, 1);    
+    HandleResponse(SUCCESSFUL, 1);
     uint16_t actualTransferredBytes = 0;
     uint16_t maxBytesToTransfer = dataLength * 256;
 
     uint16_t itemIndex = 0;
     uint16_t startingIndex = numberOfEntries * startPage;
-    
+
     dirFunc.Rewind();
 
     while (itemIndex<startingIndex && dirFunc.Iterate() && !dirFunc.IsFinished) {
@@ -340,7 +342,6 @@ void CartApi::HandleReadDirectory() {
     }
 
 
-    
     // Guard against uint8_t underflow: if startingIndex >= count (stale page
     // index from C64), return 0 items instead of wrapping to ~245 which would
     // cause PRINTPAGE to loop hundreds of times and corrupt the C64 stack.
@@ -355,6 +356,9 @@ void CartApi::HandleReadDirectory() {
     uint8_t pagePadValue = (dirFunc.GetCount() % numberOfEntries) > 0 ? 1 : 0;
     uint8_t pageCount = (byte)(dirFunc.GetCount()/numberOfEntries + pagePadValue);  
   
+    LOG_PRINT_F(" items="); LOG_PRINT(currentItemsCount);
+    LOG_PRINT_F(" pages="); LOG_PRINTLN(pageCount);
+
     cartInterface.ResetIndex();
     #ifndef TEST_TERMINAL_MODE  
     noInterrupts();
@@ -365,34 +369,24 @@ void CartApi::HandleReadDirectory() {
   
     actualTransferredBytes = 2;
      
-    uint8_t curItemIndex = 0;    
-    //Send initial state of directories.
-    while (curItemIndex<numberOfEntries && dirFunc.Iterate() && !dirFunc.IsFinished) {  
-      if (!dirFunc.IsHidden) {  
-        if (actualTransferredBytes + 32 <maxBytesToTransfer) {
-          // Send up to 31 chars of the LFN preview, then the type flag.
-          // No tolower() — send original LFN so chdir() matches exactly.
-          uint8_t flen = (uint8_t)strlen(dirFunc.currentFileName);
-          if (flen > 31) flen = 31;
-          for (uint8_t i = 0; i < flen; i++) {
-            cartInterface.TransmitByteFast((uint8_t)dirFunc.currentFileName[i]);
-          }
-          for (uint8_t i = flen; i < 31; i++) {
-            cartInterface.TransmitByteFast(0x00);
-          }
-
-          if (dirFunc.IsDirectory) {
-            cartInterface.TransmitByteFast(0x04);
-          } else {
-            cartInterface.TransmitByteFast(0x00);
-          }
-
-          actualTransferredBytes = actualTransferredBytes +32;        
-          
-          curItemIndex++;
-        } else {
-          break; 
+    uint8_t curItemIndex = 0;
+    // Iterate() now skips hidden files internally, so every returned
+    // entry is visible and ready to transmit.
+    while (curItemIndex < numberOfEntries && dirFunc.Iterate() && !dirFunc.IsFinished) {
+      if (actualTransferredBytes + 32 < maxBytesToTransfer) {
+        uint8_t flen = (uint8_t)strlen(dirFunc.currentFileName);
+        if (flen > 31) flen = 31;
+        for (uint8_t i = 0; i < flen; i++) {
+          cartInterface.TransmitByteFast((uint8_t)dirFunc.currentFileName[i]);
         }
+        for (uint8_t i = flen; i < 31; i++) {
+          cartInterface.TransmitByteFast(0x00);
+        }
+        cartInterface.TransmitByteFast(dirFunc.IsDirectory ? 0x04 : 0x00);
+        actualTransferredBytes += 32;
+        curItemIndex++;
+      } else {
+        break;
       }
     }   
   
@@ -413,19 +407,21 @@ void CartApi::HandleChangeDirectory() {
   unsigned int fileNameLength = Arguments[0];
 
   if (fileNameLength == 0) {
-    LOGE(DIR, "DIR: Empty directory name");
+    LOGE(DIR, "CD: empty name");
     HandleResponse(INVALID_ARGUMENT, 1);
     return;
   }
 
   char * fileName = (char *) &Arguments[1];
 
-  // Ensure null termination
   if (fileNameLength < MAX_ARGUMENTS_LENGTH) {
     fileName[fileNameLength] = '\0';
   } else {
     fileName[MAX_ARGUMENTS_LENGTH - 1] = '\0';
   }
+
+  LOGI(DIR, "CD: ");
+  LOG_PRINTLN(fileName);
 
   bool success = dirFunc.ChangeDirectoryBasename(fileName);
   if (!success) {
@@ -437,10 +433,12 @@ void CartApi::HandleChangeDirectory() {
   }
 
   if (success) {
-    // No Prepare() needed — ChangeDirectory/GoBack already counted entries.
+    LOGI(DIR, "CD OK: ");
+    LOG_PRINT(dirFunc.currentPath);
+    LOG_PRINT_F(" cnt="); LOG_PRINTLN(dirFunc.GetCount());
     HandleResponse(SUCCESSFUL, 1);
   } else {
-    LOGE(DIR, "CD FAILED");
+    LOGE(DIR, "CD FAIL");
     HandleResponse(DIR_NOT_FOUND, 1);
   }
 }
@@ -451,19 +449,20 @@ void CartApi::HandleChangeDirectoryIndex() {
   const uint8_t pageIndex = Arguments[0];
   const uint8_t rowIndex = Arguments[1];
 
+  LOGI(DIR, "CDI");
+  LOG_PRINT_F(" pg="); LOG_PRINT(pageIndex);
+  LOG_PRINT_F(" row="); LOG_PRINT(rowIndex);
+  LOG_PRINT_F(" cnt="); LOG_PRINT(dirFunc.GetCount());
+  LOG_PRINT_F(" sub="); LOG_PRINTLN(dirFunc.InSubDir);
+
   if (rowIndex >= 21) {
+    LOGE(DIR, "CDI row>=21");
     HandleResponse(INVALID_ARGUMENT, 1);
     return;
   }
 
-  // Compute the absolute C64-listing-visible index from page + row.
-  // DirFunction::ChangeDirectoryByVisibleIndex adjusts internally for the
-  // synthetic ".." row that exists in subdirectories.
   const uint16_t visibleIndex = static_cast<uint16_t>(pageIndex) * 21u + rowIndex;
 
-  // Reuse Arguments from index 2 as scratch for the full LFN name.
-  // Arguments[0..1] are already copied to local variables above.
-  // Available space: MAX_ARGUMENTS_LENGTH bytes (safe for any FAT LFN).
   char* selectedName = reinterpret_cast<char*>(&Arguments[2]);
   const size_t selectedNameSize = MAX_ARGUMENTS_LENGTH;
 
@@ -471,9 +470,12 @@ void CartApi::HandleChangeDirectoryIndex() {
       visibleIndex, selectedName, selectedNameSize);
 
   if (success) {
+    LOGI(DIR, "CDI OK: ");
+    LOG_PRINTLN(dirFunc.currentPath);
     HandleResponse(SUCCESSFUL, 1);
   } else {
-    LOGE(DIR, "CD INDEX FAILED");
+    LOGE(DIR, "CDI FAIL");
+    LOG_PRINT_F(" vis="); LOG_PRINTLN(visibleIndex);
     HandleResponse(DIR_NOT_FOUND, 1);
   }
 }
@@ -1146,21 +1148,16 @@ ni_out:
 
 
 
-int16_t CartApi::AwaitByte(int16_t maxTryCount) {
-  int16_t value = -1;
-  for (uint8_t x = 0;x<100;x++) {
-    for (int16_t i = 0;i<maxTryCount;i++) {
-        value = cartInterface.Read();
-        if (value>=0) {
-          return value;
-        }
-    }
-  }
+int16_t CartApi::AwaitByte(uint16_t timeoutMs) {
+  unsigned long startMs = millis();
+  int16_t value;
+  do {
+    value = cartInterface.Read();
+    if (value >= 0) return value;
+  } while ((unsigned long)(millis() - startMs) < timeoutMs);
 
-  LOGE(SYS, "AW Fail");
-  
-
-  return value;  
+  LOGE(SYS, "AW timeout");
+  return -1;
 }
 
 
@@ -1168,31 +1165,44 @@ int16_t CartApi::GetByte() {
   return cartInterface.Read();
 }
 
-// Argument length is known priorhand
-void CartApi::GetArgumentsStatic(int16_t argumentsLength) {  
-  for (int16_t i = 0;i<argumentsLength;) {
-    int16_t value = AwaitByte(32000);
-    if (value>=0) {
-      Arguments[i] = value;        
-      i++;
+// Argument length is known beforehand. Sets m_argsOk = false on timeout.
+void CartApi::GetArgumentsStatic(int16_t argumentsLength) {
+  m_argsOk = true;
+  for (int16_t i = 0; i < argumentsLength; i++) {
+    int16_t value = AwaitByte(ARGS_TIMEOUT_MS);
+    if (value >= 0) {
+      Arguments[i] = value;
+    } else {
+      // Timeout: zero-fill remaining args and flag error
+      for (; i < argumentsLength; i++) Arguments[i] = 0;
+      m_argsOk = false;
+      return;
     }
-  }   
+  }
 }
 
-//Only initial N argument count is known. Size of the remaining arguments is specified by length next to the known arguments.
+// Initial N argument count is known. Remaining length is sent in-band.
+// Sets m_argsOk = false on timeout at any stage.
 void CartApi::GetArgumentsDynamic(int16_t argumentsLength) {
   GetArgumentsStatic(argumentsLength);
-  int16_t dynamicLength = AwaitByte(32000);
-  // FIX: Use logical OR (||) instead of bitwise OR (|)
-  if (dynamicLength == -1 || dynamicLength>(MAX_ARGUMENTS_LENGTH-1)) return;
-  
+  if (!m_argsOk) return;
+
+  int16_t dynamicLength = AwaitByte(ARGS_TIMEOUT_MS);
+  if (dynamicLength == -1 || dynamicLength > (MAX_ARGUMENTS_LENGTH - 1)) {
+    m_argsOk = false;
+    return;
+  }
+
   Arguments[argumentsLength] = dynamicLength;
-  
-  for (int16_t i = 1;i<=dynamicLength;i++) {
-    int16_t value = AwaitByte(32000);
-    if (value==-1) return;    
-    Arguments[i + argumentsLength] = value;  
-  }   
+
+  for (int16_t i = 1; i <= dynamicLength; i++) {
+    int16_t value = AwaitByte(ARGS_TIMEOUT_MS);
+    if (value == -1) {
+      m_argsOk = false;
+      return;
+    }
+    Arguments[i + argumentsLength] = value;
+  }
 }
 
 
@@ -1202,11 +1212,8 @@ void CartApi::HandleApi() {
   if (state == IN_TRANSMISSION) {    
       int16_t command = GetByte();
       if (command>=0) {
+        m_argsOk = true;  // assume OK; GetArguments* will clear on timeout
         cartInterface.SetPage(0);
-
-        //LOG_PRINT_F("Free RAM: ");
-        //LOG_PRINTLN(FreeRam());
-        //LOG_PRINT_F("FreeStack: "); LOG_PRINTLN(FreeStack());
 
         switch(command) {
           case COMMAND_READ_FILE : HandleReadFile(); break;
@@ -1236,7 +1243,13 @@ void CartApi::HandleApi() {
           case COMMAND_EXIT_TO_MENU : TransferMenu();break;            
         }
 
-        //LOGD(PROTO, "Port clear!");
+        // If a handler timed out reading arguments, the C64 is likely dead
+        // or sent a partial command. Reset receive state so the next
+        // PROT_StartTalking can re-establish a session cleanly.
+        if (!m_argsOk) {
+          LOGE(SYS, "Cmd timeout, reset recv");
+          cartInterface.ResetReceive();
+        }
 
         cartInterface.SetPage(0);
       }
@@ -1305,8 +1318,10 @@ void CartApi::TransferMenu() {
 
   cartInterface.EndListening();  
    
+  // ReInit() → ToRoot() already does sd.chdir("/") + ResyncDirFromCwd() +
+  // CountEntries(). No need for the extra Prepare() call that was duplicating
+  // the same ResyncDirFromCwd + CountEntries work.
   dirFunc.ReInit();
-  dirFunc.Prepare();
   
   unsigned char readFromFile = 0;  
   

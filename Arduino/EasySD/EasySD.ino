@@ -182,8 +182,10 @@ void loop() {
       state = stateReleased;
       elapsed = millis()/100 - pressTime;
       if (elapsed > 5) {
+        LOGI(SYS, "SEL long press -> reset");
         cartApi.ResetNoCartridge();
       } else {
+        LOGI(SYS, "SEL press -> menu");
         cartApi.TransferMenu();
       }
       suppressButtonsFor(BUTTON_ENABLE_DELAY_MS);
@@ -273,12 +275,10 @@ void testListDirectory() {
   Serial.println(dirFunc.currentPath);
   int ic = 0, dc = 0;
   while (dirFunc.Iterate()) {
-    if (!dirFunc.IsHidden) {
-      ic++;
-      Serial.print(dirFunc.IsDirectory ? F("[D] ") : F("[ ] "));
-      Serial.println(dirFunc.currentFileName);
-      if (dirFunc.IsDirectory) dc++;
-    }
+    ic++;
+    Serial.print(dirFunc.IsDirectory ? F("[D] ") : F("[ ] "));
+    Serial.println(dirFunc.currentFileName);
+    if (dirFunc.IsDirectory) dc++;
   }
   Serial.print(ic); Serial.print(F(" items (")); Serial.print(dc); Serial.println(F(" dirs)"));
 }

@@ -47,7 +47,6 @@ class DirFunction {
     char currentFileName[64];
     int IsDirectory;
     int IsFinished;
-    int IsHidden;
     int InSubDir;
 };
 
