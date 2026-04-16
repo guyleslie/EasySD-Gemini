@@ -91,7 +91,9 @@ class CartApi {
   int     eepromIndex;
   bool    m_argsOk;   // false after GetArguments* timeout — handler should bail
 
-  static constexpr uint16_t ARGS_TIMEOUT_MS = 500;  // per-byte timeout
+  // Keep per-byte command argument timeout short so line noise / partial frames
+  // cannot stall the main loop for long periods (SEL button responsiveness).
+  static constexpr uint16_t ARGS_TIMEOUT_MS = 120;
 
   int16_t GetByte();
   int16_t AwaitByte(uint16_t timeoutMs);

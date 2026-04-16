@@ -925,7 +925,8 @@ void CartApi::HandleWriteEeprom() {
 }
 
 void CartApi::HandleEndTalking() {
-  //cartInterface.EndListening();
+  // End session cleanly: hide cartridge and reset receiver state.
+  cartInterface.DisableCartridge();
   cartInterface.ResetReceive();
 }
 
@@ -1215,11 +1216,17 @@ void CartApi::GetArgumentsDynamic(int16_t argumentsLength) {
 
 
 void CartApi::HandleApi() {  
+  static unsigned long lastSessionActivityMs = 0;
   uint8_t state = cartInterface.ReceiveHandler();
 
   if (state == IN_TRANSMISSION) {    
+      if (lastSessionActivityMs == 0) {
+        lastSessionActivityMs = millis();
+      }
+
       int16_t command = GetByte();
       if (command>=0) {
+        lastSessionActivityMs = millis();
         m_argsOk = true;  // assume OK; GetArguments* will clear on timeout
         cartInterface.SetPage(0);
 
@@ -1249,6 +1256,14 @@ void CartApi::HandleApi() {
           case COMMAND_READ_NEXT_CHUNK : HandleReadNextChunk(); break;
           case COMMAND_HWTEST : HandleHwTest(); break;
           case COMMAND_EXIT_TO_MENU : TransferMenu();break;            
+          default:
+            // False-positive handshake or line noise can inject random command
+            // bytes. Drop session immediately so we don't block the main loop.
+            LOGE(SYS, "Unknown cmd");
+            cartInterface.DisableCartridge();
+            cartInterface.ResetReceive();
+            lastSessionActivityMs = 0;
+            return;
         }
 
         // If a handler timed out reading arguments, the C64 is likely dead
@@ -1256,11 +1271,25 @@ void CartApi::HandleApi() {
         // PROT_StartTalking can re-establish a session cleanly.
         if (!m_argsOk) {
           LOGE(SYS, "Cmd timeout, reset recv");
+          cartInterface.DisableCartridge();
           cartInterface.ResetReceive();
+          lastSessionActivityMs = 0;
+          return;
         }
 
         cartInterface.SetPage(0);
+      } else {
+        // Session watchdog: if we stay in IN_TRANSMISSION without any command
+        // bytes for too long, recover to IDLE (noise / aborted session).
+        if ((unsigned long)(millis() - lastSessionActivityMs) > 1000UL) {
+          LOGE(SYS, "Session idle reset");
+          cartInterface.DisableCartridge();
+          cartInterface.ResetReceive();
+          lastSessionActivityMs = 0;
+        }
       }
+   } else {
+      lastSessionActivityMs = 0;
    }
 }  
 

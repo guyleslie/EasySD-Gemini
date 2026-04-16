@@ -248,6 +248,18 @@ def default_arduino_compile_dir(ctx: Context) -> Path:
     return ctx.build_dir / "_arduino-compile"
 
 
+def prepare_arduino_cli_paths(ctx: Context, profile: str) -> tuple[Path, Path]:
+    """
+    Use ASCII-only temp paths for Arduino CLI build output.
+    AVR binutils may fail on non-ASCII working paths (e.g. "Asztali gép").
+    """
+    import tempfile
+    temp_root = Path(tempfile.gettempdir()) / "easysd_arduino_cli"
+    build_path = temp_root / profile
+    reset_dir(build_path)
+    return build_path, temp_root
+
+
 def _resolve_menu_artifact(ctx: Context, preferred_menu_name: str) -> Path:
     preferred = ctx.build_dir / preferred_menu_name
     release_default = ctx.build_dir / "easysd.prg"
@@ -891,6 +903,7 @@ def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: 
 def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, protocol_test: bool = False, release_log: bool = False) -> dict | None:
     """Compile Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
+    build_path, _ = prepare_arduino_cli_paths(ctx, "compile")
 
     # Generate BuildConfig.h first
     arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test, release_log=release_log)
@@ -908,6 +921,7 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
         "compile",
         "--fqbn", ARDUINO_FQBN,
         "--verbose",
+        "--build-path", str(build_path),
     ]
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
@@ -928,6 +942,7 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
 def arduino_upload(ctx: Context, port: str, debug_mode: bool = False, protocol_test: bool = False, release_log: bool = False) -> None:
     """Compile and upload Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
+    build_path, _ = prepare_arduino_cli_paths(ctx, "upload")
 
     # Generate BuildConfig.h first
     arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test, release_log=release_log)
@@ -948,6 +963,7 @@ def arduino_upload(ctx: Context, port: str, debug_mode: bool = False, protocol_t
         "--fqbn", ARDUINO_FQBN,
         "--port", port,
         "--verbose",
+        "--build-path", str(build_path),
         str(ctx.arduino_root)
     ])
 
@@ -989,7 +1005,8 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
                        burn_bootloader: bool = False, release_log: bool = False) -> None:
     """Compile and upload Arduino sketch via ISP programmer (USBTinyISP)"""
     import tempfile
-    output_dir = ctx.arduino_root / "build" / "arduino.avr.nano"
+    output_dir = Path(tempfile.gettempdir()) / "easysd_isp_output"
+    reset_dir(output_dir)
     size = arduino_compile(ctx, debug_mode=debug_mode, output_dir=output_dir, release_log=release_log)
 
     avrdude_exe, avrdude_conf = find_avrdude(ctx)
@@ -997,14 +1014,6 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
     hex_file = output_dir / "EasySD.ino.hex"
     if not hex_file.exists():
         raise SystemExit(f"ERROR: HEX file not found: {hex_file}")
-
-    # avrdude cannot handle non-ASCII characters in the HEX file path (e.g. 'é' in
-    # "Asztali gép"). Copy the HEX to a plain ASCII temp directory as a workaround.
-    _tmp_dir = tempfile.mkdtemp(prefix="easysd_isp_")
-    hex_file_ascii = Path(_tmp_dir) / "EasySD.ino.hex"
-    shutil.copyfile(hex_file, hex_file_ascii)
-    hex_file = hex_file_ascii
-    print(f"  HEX (temp): {hex_file}")
 
     print("\n" + "="*70)
     print("UPLOADING VIA ISP (USBTinyISP)")

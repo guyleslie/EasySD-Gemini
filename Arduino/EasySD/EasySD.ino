@@ -168,8 +168,6 @@ void setup() {
 
 
 void loop() {
-  cartApi.HandleApi();
-
   if ((long)(millis() - buttonEnableAtMs) < 0) {
     state = stateNone;
     pressTimeMs = 0;
@@ -198,6 +196,10 @@ void loop() {
       }
     }
   }
+
+  // Handle API after button processing so SEL remains responsive even when
+  // command parsing is under noise/partial-frame stress.
+  cartApi.HandleApi();
 
   #ifdef EASYSD_DEBUG_SERIAL
   // Serial monitor commands (DEBUG mode only)
