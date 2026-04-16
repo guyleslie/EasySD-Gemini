@@ -837,6 +837,7 @@ NEWCONTENT
 	LDA #0
 	STA CURSOR_GOTO_LAST
 	LDX CURPAGEITEMS
+	BEQ _nc_first		; guard: 0 items → cursor to row 0, avoid DEX underflow
 	DEX			; last item index
 	JMP _nc_setcursor
 _nc_first
@@ -1235,6 +1236,10 @@ PRINTPAGE	; Input : None, Changed : A, X, Y
 	STA NAMEHIGH
 
 	LDX #$00
+	; Guard: skip print loop entirely when CURPAGEITEMS=0
+	; Without this, the do-while loop executes 256 times (X wraps 1..255..0)
+	CPX CURPAGEITEMS
+	BEQ FINISH
 SETCOL
 	JSR SETCURRENTROW
 
@@ -1242,10 +1247,10 @@ SETCOL
 	; Works for both DEBUG (mock data) and release (SD card data) modes
 	; because both use ASCII encoding (.TEXT directive in 64tass)
 	JSR PRINTASCIIFILENAME
-	
+
 	INX
 	CPX CURPAGEITEMS
-	BEQ FINISH	
+	BEQ FINISH
 	LDA NAMELOW
 	CLC
 	ADC #$20		; advance by 32 (MAXFILENAMELENGTH)
@@ -1253,7 +1258,7 @@ SETCOL
 	BCC NEXTFILE
 	INC NAMEHIGH
 NEXTFILE
-	JMP SETCOL	
+	JMP SETCOL
 FINISH
 	CPX #$15		; 21 = MAXDIRITEMS
 	BEQ ACTUALFINISH
