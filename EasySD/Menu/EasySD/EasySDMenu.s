@@ -113,8 +113,10 @@ CART_ROM_RESTORE .macro
 	LDY #>MSG_SD_READ_ERR
 	JSR STATUS_LINE
 _dir_ok
+	JSR REFRESH_PATHBUFFER
 .else
 	JSR MOCK_InitReadDirectory
+	JSR REFRESH_PATHBUFFER
 .endif
 
 ;Start of main loop
@@ -384,8 +386,10 @@ DOREADDIRECTORY
 	LDY #>MSG_SD_READ_ERR
 	JSR STATUS_LINE
 _dirNC_ok
+	JSR REFRESH_PATHBUFFER
 .else
 	JSR MOCK_ReadDirectory
+	JSR REFRESH_PATHBUFFER
 .endif
 	
 	JMP NEWCONTENT
@@ -1492,10 +1496,8 @@ PRINTDIRHEADER
 	STA $042C
 
 .if DEBUG = 0
-	; Ask Arduino for current path → PATHBUFFER[0..63]
-	JSR PROT_GetCurrentPath
-.else
-	JSR MOCK_GetCurrentPath
+	; PATHBUFFER is refreshed after each directory read/change in
+	; REFRESH_PATHBUFFER. Keep rendering side-effect free here.
 .endif
 	; Check if at root: PATHBUFFER[1] == 0 means path is just "/"
 	LDA PATHBUFFER+1
@@ -1571,6 +1573,27 @@ _pdh_col
 	CPY #$26		; 38 chars
 	BNE _pdh_col
 	RTS
+
+; ------------------------------------------------------------
+; REFRESH_PATHBUFFER
+;   Keep PATHBUFFER synchronized with Arduino currentPath at safe points
+;   (after directory reads/changes), not during header rendering.
+;   On communication error, fallback to "/".
+; ------------------------------------------------------------
+REFRESH_PATHBUFFER
+.if DEBUG = 0
+	JSR PROT_GetCurrentPath
+	BCC _rpb_ok
+	LDA #$2F		; '/'
+	STA PATHBUFFER
+	LDA #$00
+	STA PATHBUFFER+1
+_rpb_ok
+	RTS
+.else
+	JSR MOCK_GetCurrentPath
+	RTS
+.endif
 
 ; ------------------------------------------------------------
 ; PrepareFileNameParameter

@@ -1084,8 +1084,12 @@ void CartApi::HandleNonInterruptedStream() {
   uint16_t bufferIndex = 0;
   uint16_t bufferLength;
   uint8_t currentBuffer = 0; // 0 for buffer1, 1 for buffer2
+  // Busy-loop guard while global interrupts are disabled. If IO2 gets stuck
+  // high/low (noise or aborted transfer), we must escape instead of wedging.
+  const uint16_t IO2_EDGE_TIMEOUT_LOOPS = 0xFFFF;
   
   GetArgumentsStatic(1);
+  if (!m_argsOk) return;
   uint8_t countOf8Bytes = Arguments[0];  
 
   if (countOf8Bytes > DOUBLE_BUFFER_SIZE / 8) {
@@ -1119,11 +1123,17 @@ void CartApi::HandleNonInterruptedStream() {
             // Note: We don't use millis() inside the inner loop for speed, 
             // but we need a way to detect timeout or reset.
             // A simple cycle counter could work, but selRead() is safer.
+            uint16_t waitLoops = 0;
 
             while (PIND & 0x08) {
                if (!selRead()) goto ni_out; // Exit on C64 Reset
+               if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) goto ni_out;
             }
-            while ((PIND & 0x08) == 0);  // Wait for rising edge
+            waitLoops = 0;
+            while ((PIND & 0x08) == 0) {
+              if (!selRead()) goto ni_out;
+              if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) goto ni_out;
+            }  // Wait for rising edge
             
             uint8_t val = activeBuffer[bufferIndex];
             PORTD = portDVal | (val & 0xF0);
@@ -1150,6 +1160,7 @@ void CartApi::HandleNonInterruptedStream() {
 ni_out:
       interrupts();
       TIMSK2 = 0x02; // Enable timer 2 interrupts
+      cartInterface.DisableCartridge(); // Always return to BASIC-safe bus state
       cartInterface.StartListening();
   }
 }
