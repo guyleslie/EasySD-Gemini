@@ -414,7 +414,7 @@ def clean(ctx: Context) -> None:
     print("[CLEAN] Done.")
 
 
-def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: bool, arduino_debug: int, menu_prg_name: str) -> None:
+def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: bool, arduino_debug: int, menu_prg_name: str, release_log: bool = False) -> None:
     ensure_dirs(ctx)
     prebuild_checks(ctx)
 
@@ -508,13 +508,7 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
             print(f"[CORE] Copied to: Arduino/EasySD/FlashLib.h")
 
             # Generate BuildConfig.h based on target
-            buildconfig_h = ctx.arduino_root / "BuildConfig.h"
-            if arduino_debug:
-                buildconfig_content = "#define EASYSD_DEBUG_SERIAL\n"
-            else:
-                buildconfig_content = "// EASYSD_DEBUG_SERIAL disabled (release build)\n"
-            buildconfig_h.write_text(buildconfig_content, encoding="utf-8")
-            print(f"[CORE] Generated BuildConfig.h (EASYSD_DEBUG_SERIAL={'ON' if arduino_debug else 'OFF'})")
+            arduino_generate_buildconfig(ctx, debug_mode=bool(arduino_debug), release_log=release_log)
         else:
             print(f"WARNING: Arduino target dir not found: {ctx.arduino_root}")
 
@@ -674,7 +668,7 @@ def arduino_setup(ctx: Context) -> None:
     print("\nNext: python build.py arduino-compile")
 
 
-def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: bool = False) -> None:
+def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: bool = False, release_log: bool = False) -> None:
     """Generate BuildConfig.h for Arduino sketch"""
     buildconfig_h = ctx.arduino_root / "BuildConfig.h"
     if protocol_test:
@@ -690,6 +684,9 @@ def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: 
     elif debug_mode:
         buildconfig_content = "#define EASYSD_DEBUG_SERIAL\n"
         mode_str = "ON"
+    elif release_log:
+        buildconfig_content = "#define EASYSD_RELEASE_LOG\n"
+        mode_str = "RELEASE_LOG"
     else:
         buildconfig_content = "// EASYSD_DEBUG_SERIAL disabled (release build)\n"
         mode_str = "OFF"
@@ -698,19 +695,20 @@ def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: 
     print(f"[ARDUINO] Generated BuildConfig.h (EASYSD_DEBUG_SERIAL={mode_str})")
 
 
-def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, protocol_test: bool = False) -> None:
+def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, protocol_test: bool = False, release_log: bool = False) -> None:
     """Compile Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
 
     # Generate BuildConfig.h first
-    arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test)
+    arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test, release_log=release_log)
 
+    mode_label = 'PROTOCOL_TEST' if protocol_test else ('ON' if debug_mode else ('RELEASE_LOG' if release_log else 'OFF'))
     print("\n" + "="*70)
     print("BUILDING ARDUINO SKETCH")
     print("="*70)
     print(f"  Sketch: {ctx.arduino_root}")
     print(f"  Board: {ARDUINO_FQBN}")
-    print(f"  DEBUG_SERIAL: {'PROTOCOL_TEST' if protocol_test else ('ON' if debug_mode else 'OFF')}")
+    print(f"  DEBUG_SERIAL: {mode_label}")
     print("="*70)
 
     compile_args = [
@@ -734,20 +732,21 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
     return size
 
 
-def arduino_upload(ctx: Context, port: str, debug_mode: bool = False, protocol_test: bool = False) -> None:
+def arduino_upload(ctx: Context, port: str, debug_mode: bool = False, protocol_test: bool = False, release_log: bool = False) -> None:
     """Compile and upload Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
 
     # Generate BuildConfig.h first
-    arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test)
+    arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test, release_log=release_log)
 
+    mode_label = 'PROTOCOL_TEST' if protocol_test else ('ON' if debug_mode else ('RELEASE_LOG' if release_log else 'OFF'))
     print("\n" + "="*70)
     print("UPLOADING TO ARDUINO")
     print("="*70)
     print(f"  Sketch: {ctx.arduino_root}")
     print(f"  Board: {ARDUINO_FQBN}")
     print(f"  Port: {port}")
-    print(f"  DEBUG_SERIAL: {'PROTOCOL_TEST' if protocol_test else ('ON' if debug_mode else 'OFF')}")
+    print(f"  DEBUG_SERIAL: {mode_label}")
     print("="*70)
 
     run_arduino_cli(cli_exe, [
@@ -1001,6 +1000,8 @@ Examples:
     p.add_argument("--baudrate", type=int, default=57600, help="Baudrate for serial monitor (default: 57600)")
     p.add_argument("--isp-sck", type=int, default=2, metavar="USEC",
                    help="ISP SCK period in µs for arduino-upload-isp (default: 2 = 500kHz, use 100 for blank/bricked chips)")
+    p.add_argument("--release-log", action="store_true",
+                   help="Enable lightweight serial logging in release builds (DIR/SYS/SD/ERR categories only)")
     p.add_argument("--optiboot", action="store_true",
                    help="After ISP upload, also burn the Optiboot bootloader so USB serial upload works again")
     p.add_argument("--no-bootloader", action="store_true",
@@ -1026,7 +1027,7 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if args.target == "arduino-compile":
-        arduino_compile(ctx, debug_mode=args.debug)
+        arduino_compile(ctx, debug_mode=args.debug, release_log=args.release_log)
         return 0
 
     if args.target == "arduino-upload":
@@ -1036,7 +1037,7 @@ def main(argv: Sequence[str]) -> int:
             print("\nUsage: python build.py arduino-upload COM4")
             print("       python build.py arduino-upload COM4 --debug  (for debug mode)")
             return 1
-        arduino_upload(ctx, args.port, debug_mode=args.debug)
+        arduino_upload(ctx, args.port, debug_mode=args.debug, release_log=args.release_log)
         return 0
 
     if args.target == "arduino-upload-isp":
@@ -1146,7 +1147,7 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if args.target == "core":
-        build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=build_arduino, arduino_debug=arduino_debug, menu_prg_name=menu_prg_name)
+        build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=build_arduino, arduino_debug=arduino_debug, menu_prg_name=menu_prg_name, release_log=args.release_log)
         return 0
 
     if args.target == "plugins":
@@ -1160,7 +1161,7 @@ def main(argv: Sequence[str]) -> int:
 
     if args.target in ("release", "debug-vice", "debug-arduino"):
         clean(ctx)
-        build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=build_arduino, arduino_debug=arduino_debug, menu_prg_name=menu_prg_name)
+        build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=build_arduino, arduino_debug=arduino_debug, menu_prg_name=menu_prg_name, release_log=args.release_log)
         build_plugins(ctx, debug=debug, debug_break=debug_break, ensure_core_prereq=False)
         if args.target == "debug-vice":
             build_vice_tests(ctx)
@@ -1187,7 +1188,7 @@ def main(argv: Sequence[str]) -> int:
 
         # Clean + Build C64 + Plugins
         clean(ctx)
-        build_core(ctx, debug=c64_debug, debug_break=debug_break, build_arduino=True, arduino_debug=arduino_debug_all, menu_prg_name=menu_name)
+        build_core(ctx, debug=c64_debug, debug_break=debug_break, build_arduino=True, arduino_debug=arduino_debug_all, menu_prg_name=menu_name, release_log=args.release_log)
         build_plugins(ctx, debug=c64_debug, debug_break=debug_break, ensure_core_prereq=False)
 
         # Build Arduino

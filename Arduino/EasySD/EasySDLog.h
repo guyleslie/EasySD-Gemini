@@ -147,9 +147,43 @@
   #define LOG_DEC(x)            Serial.print(x, DEC)
   #define LOG_NEWLINE()         Serial.println()
 
+#elif defined(EASYSD_RELEASE_LOG)
+  //----------------------------------------------------------------------------
+  // RELEASE LOG BUILD — lightweight serial for field diagnosis
+  // Only DIR, SYS, SD, ERR categories active. ~1-2KB flash cost.
+  //----------------------------------------------------------------------------
+  #define LOG_BEGIN(baud)       Serial.begin(baud)
+
+  // Release-log category selection (DIR/SYS/SD/ERR only)
+  #define LOGE_SYS_IMPL(msg)   Serial.println(F("[ERR ][SYS] " msg))
+  #define LOGE_SD_IMPL(msg)    Serial.println(F("[ERR ][SD] " msg))
+  #define LOGE_DIR_IMPL(msg)   Serial.println(F("[ERR ][DIR] " msg))
+  #define LOGE_FILE_IMPL(msg)  ((void)0)
+  #define LOGE_PRG_IMPL(msg)   ((void)0)
+  #define LOGE_PROTO_IMPL(msg) ((void)0)
+  #define LOGE_ERR_IMPL(msg)   Serial.println(F("[ERR ][ERR] " msg))
+  #define LOGE(cat, msg)       LOGE_##cat##_IMPL(msg)
+
+  #define LOGI_SYS_IMPL(msg)   Serial.println(F("[INFO][SYS] " msg))
+  #define LOGI_SD_IMPL(msg)    Serial.println(F("[INFO][SD] " msg))
+  #define LOGI_DIR_IMPL(msg)   Serial.println(F("[INFO][DIR] " msg))
+  #define LOGI_FILE_IMPL(msg)  ((void)0)
+  #define LOGI_PRG_IMPL(msg)   ((void)0)
+  #define LOGI_PROTO_IMPL(msg) ((void)0)
+  #define LOGI_ERR_IMPL(msg)   ((void)0)
+  #define LOGI(cat, msg)       LOGI_##cat##_IMPL(msg)
+
+  #define LOG_PRINT(x)         Serial.print(x)
+  #define LOG_PRINTLN(x)       Serial.println(x)
+  #define LOG_PRINT_F(msg)     Serial.print(F(msg))
+  #define LOG_PRINTLN_F(msg)   Serial.println(F(msg))
+  #define LOG_HEX(x)           Serial.print(x, HEX)
+  #define LOG_DEC(x)           Serial.print(x, DEC)
+  #define LOG_NEWLINE()        Serial.println()
+
 #else
   //----------------------------------------------------------------------------
-  // RELEASE BUILD — zero overhead
+  // RELEASE BUILD (silent) — zero overhead
   //----------------------------------------------------------------------------
   #define LOG_BEGIN(baud)       ((void)0)
   #define LOGE(cat, msg)        ((void)0)
