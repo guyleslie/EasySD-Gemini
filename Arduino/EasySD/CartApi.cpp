@@ -463,11 +463,19 @@ void CartApi::HandleChangeDirectoryIndex() {
 
   const uint16_t visibleIndex = static_cast<uint16_t>(pageIndex) * 21u + rowIndex;
 
+  // Two-step process to avoid stack overflow: FindDirectoryNameByVisibleIndex
+  // has a local File object (~32B); calling ChangeDirectoryBasename from within
+  // it would keep that object on the stack during the deep ChangeDirectory →
+  // sd.chdir → ResyncDirFromCwd → CountEntries chain (~280B total).  By
+  // splitting, the File is released before the chdir chain starts.
   char* selectedName = reinterpret_cast<char*>(&Arguments[2]);
   const size_t selectedNameSize = MAX_ARGUMENTS_LENGTH;
 
-  const bool success = dirFunc.ChangeDirectoryByVisibleIndex(
+  bool success = dirFunc.FindDirectoryNameByVisibleIndex(
       visibleIndex, selectedName, selectedNameSize);
+  if (success) {
+    success = dirFunc.ChangeDirectoryBasename(selectedName);
+  }
 
   if (success) {
     LOGI(DIR, "CDI OK: ");

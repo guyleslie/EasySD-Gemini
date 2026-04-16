@@ -304,10 +304,10 @@ bool DirFunction::ChangeDirectoryBasename(const char* basename) {
   return ChangeDirectory((char*)basename);
 }
 
-bool DirFunction::ChangeDirectoryByVisibleIndex(uint16_t visibleIndex,
-                                               char* scratchName,
-                                               size_t scratchSize) {
-  if (!scratchName || scratchSize < 13) {
+bool DirFunction::FindDirectoryNameByVisibleIndex(uint16_t visibleIndex,
+                                                   char* outName,
+                                                   size_t outSize) {
+  if (!outName || outSize < 13) {
     LOGE(DIR, "CDVI: bad scratch");
     return false;
   }
@@ -341,7 +341,7 @@ bool DirFunction::ChangeDirectoryByVisibleIndex(uint16_t visibleIndex,
         Rewind();
         return false;
       }
-      if (!file.getName(scratchName, scratchSize)) {
+      if (!file.getName(outName, outSize)) {
         LOGE(DIR, "CDVI: getName fail");
         file.close();
         Rewind();
@@ -349,8 +349,9 @@ bool DirFunction::ChangeDirectoryByVisibleIndex(uint16_t visibleIndex,
       }
       file.close();
       LOGI(DIR, "CDVI found: ");
-      LOG_PRINTLN(scratchName);
-      return ChangeDirectoryBasename(scratchName);
+      LOG_PRINTLN(outName);
+      Rewind();
+      return true;
     }
 
     currentVisibleIndex++;
