@@ -122,12 +122,20 @@ python Tools/build.py arduino-setup
 ### Build
 
 ```bash
-# Build everything: C64 ROM + Arduino firmware
+# Build everything: C64 + plugins + Arduino + staged bundles
 python Tools/build.py release
 
 # Build only the C64 side (no Arduino needed)
 python Tools/build.py release --skip-arduino
+
+# Rebuild SD content package only (from current build artifacts)
+python Tools/build.py sd-content
 ```
+
+`release` now stages reproducible outputs under:
+- `EasySD/build/sd-content/` (`EASYSD.PRG` + `PLUGINS/*.PRG`)
+- `EasySD/build/upload/` (Arduino upload files)
+- `EasySD/build/release/` (full release package)
 
 ### Flash the Arduino
 
@@ -148,6 +156,16 @@ python Tools/build.py arduino-upload-isp --optiboot
 > Important: when writing the Arduino over ISP for EasySD, Optiboot should normally be omitted. The default `arduino-upload-isp` flow now keeps the chip in application-start mode (`BOOTRST=1`), avoiding bootloader delay. Use `--optiboot` only when you intentionally want to restore USB bootloader uploads.
 
 > After flashing, the Arduino firmware is complete. Next, program the C64-side ROM image into the cartridge ROML chip using a TL866 or similar programmer — see **Flash the Cartridge ROML Chip** below.
+
+### Prepare/deploy SD content
+
+```bash
+# Create SD-ready content in EasySD/build/sd-content
+python Tools/build.py sd-content
+
+# Copy staged SD content to mounted SD card
+python Tools/build.py sd-deploy D:
+```
 
 ### Release logging (field diagnosis)
 
@@ -197,7 +215,7 @@ EasySD has three separately updatable parts. Not every change requires updating 
 | Component | How to update | When to update |
 |-----------|---------------|----------------|
 | **Arduino firmware** | `arduino-upload` or `arduino-upload-isp` | Any change to `Arduino/EasySD/` source files (command handling, directory logic, protocol, SD card code). This is the most frequently updated component. |
-| **SD card files** | Copy `EASYSD.PRG` and `PLUGINS/*.prg` to the SD card | Any change to C64 assembly source files (`EasySD/Menu/`, `EasySD/Loader/`, `EasySD/Plugins/`). The menu and all plugins are loaded from the SD card at runtime — the cartridge ROML chip does not need to change. |
+| **SD card files** | Build `sd-content` and copy/deploy `EASYSD.PRG` + `PLUGINS/*.PRG` | Any change to C64 assembly source files (`EasySD/Menu/`, `EasySD/Loader/`, `EasySD/Plugins/`). The menu and all plugins are loaded from the SD card at runtime — the cartridge ROML chip does not need to change. |
 | **Cartridge ROML chip** | Reprogram with TL866 or similar EPROM programmer | Only when `EasySD/build/IRQLoaderRom.bin` changes — this happens if the NMI transfer handler, boot stub, or the resident loader code changes. Plugin and menu changes do **not** require reprogramming the ROML chip. |
 
 > **Tip:** Most development only touches Arduino firmware and/or C64 menu/plugin code. You can go a long time without needing to reprogram the ROML chip — only changes to `EasySD/Loader/CartLib.s`, `CartLibCommon.s`, or the EPROM build artifacts require it.
@@ -241,8 +259,11 @@ See [docs/architecture/CARTRIDGE_PROTOCOL.md](docs/architecture/CARTRIDGE_PROTOC
 
 **Build targets:**
 ```bash
+python Tools/build.py release           # Full release bundles (release/upload/sd-content)
 python Tools/build.py debug-vice        # C64 only, VICE emulator, mock data
 python Tools/build.py debug-arduino     # Full debug with Arduino serial logging
+python Tools/build.py arduino-compile   # Arduino compile + staged upload bundle
+python Tools/build.py sd-content        # Rebuild staged SD package only
 python Tools/build.py plugins           # Rebuild plugins only
 python Tools/build.py clean             # Remove all build artifacts
 python Tools/test_vice_menu.py --build --verbose   # Automated VICE test suite

@@ -8,9 +8,10 @@ Supports C64 and Arduino builds from a single command-line interface.
 
 Usage Examples:
   # C64 builds
-  python build.py release              # C64 release + Arduino BuildConfig (serial OFF)
+  python build.py release              # Full release bundles (release/upload/sd-content)
   python build.py debug-vice           # C64 VICE debug + Arduino BuildConfig (serial OFF)
   python build.py debug-arduino        # C64 debug + Arduino BuildConfig (serial ON)
+  python build.py sd-content           # Rebuild SD content bundle from current artifacts
 
   # Arduino operations
   python build.py arduino-setup        # One-time Arduino-CLI setup
@@ -38,6 +39,7 @@ import shutil
 import subprocess
 import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -221,6 +223,197 @@ def ensure_dirs(ctx: Context) -> None:
     ctx.sym_dir.mkdir(exist_ok=True)
     ctx.lst_dir.mkdir(exist_ok=True)
     ctx.plugins_out_dir.mkdir(exist_ok=True)
+
+
+def reset_dir(path: Path) -> None:
+    if path.exists():
+        try:
+            shutil.rmtree(path)
+        except PermissionError:
+            for root, dirs, files in os.walk(path, topdown=False):
+                for f in files:
+                    try:
+                        os.remove(os.path.join(root, f))
+                    except OSError:
+                        pass
+                for d in dirs:
+                    try:
+                        os.rmdir(os.path.join(root, d))
+                    except OSError:
+                        pass
+    path.mkdir(parents=True, exist_ok=True)
+
+
+def default_arduino_compile_dir(ctx: Context) -> Path:
+    return ctx.build_dir / "_arduino-compile"
+
+
+def _resolve_menu_artifact(ctx: Context, preferred_menu_name: str) -> Path:
+    preferred = ctx.build_dir / preferred_menu_name
+    release_default = ctx.build_dir / "easysd.prg"
+    debug_default = ctx.build_dir / "easysd-debug.prg"
+    if preferred.exists():
+        return preferred
+    if release_default.exists():
+        return release_default
+    if debug_default.exists():
+        return debug_default
+    raise SystemExit(
+        "ERROR: Missing menu PRG artifact. Build core first.\n"
+        "Expected one of: build/easysd.prg, build/easysd-debug.prg"
+    )
+
+
+def _collect_plugin_artifacts(ctx: Context) -> list[Path]:
+    return sorted(ctx.plugins_out_dir.glob("*.prg"))
+
+
+def stage_sd_content_bundle(ctx: Context, preferred_menu_name: str, dst_root: Path | None = None, clean: bool = True) -> Path:
+    target_root = dst_root or (ctx.build_dir / "sd-content")
+    if clean:
+        reset_dir(target_root)
+    else:
+        target_root.mkdir(parents=True, exist_ok=True)
+
+    plugins_dst = target_root / "PLUGINS"
+    plugins_dst.mkdir(parents=True, exist_ok=True)
+
+    menu_src = _resolve_menu_artifact(ctx, preferred_menu_name)
+    menu_dst = target_root / "EASYSD.PRG"
+    shutil.copyfile(menu_src, menu_dst)
+    print(f"[STAGE:SD] {menu_src.name} -> {menu_dst}")
+
+    plugin_files = _collect_plugin_artifacts(ctx)
+    if not plugin_files:
+        raise SystemExit("ERROR: No plugin PRG files found in build/plugins. Run a plugin build first.")
+
+    for src in plugin_files:
+        dst = plugins_dst / src.name.upper()
+        shutil.copyfile(src, dst)
+        print(f"[STAGE:SD] {src.name} -> {dst.name}")
+
+    manifest = target_root / "manifest.txt"
+    manifest.write_text(
+        "\n".join(
+            [
+                "kind=sd-content",
+                f"generated_utc={datetime.now(timezone.utc).isoformat()}",
+                f"menu={menu_src.name}",
+                f"plugin_count={len(plugin_files)}",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+    )
+    print(f"[STAGE:SD] Ready: {target_root}")
+    return target_root
+
+
+def stage_upload_bundle(ctx: Context, compile_dir: Path, mode_label: str) -> Path:
+    upload_root = ctx.build_dir / "upload"
+    reset_dir(upload_root)
+    arduino_dst = upload_root / "arduino"
+    arduino_dst.mkdir(parents=True, exist_ok=True)
+
+    if not compile_dir.exists():
+        raise SystemExit(f"ERROR: Arduino compile output directory not found: {compile_dir}")
+
+    copied = 0
+    for src in sorted(compile_dir.glob("EasySD.ino.*")):
+        if src.is_file():
+            shutil.copyfile(src, arduino_dst / src.name)
+            copied += 1
+
+    if copied == 0:
+        raise SystemExit(
+            f"ERROR: No Arduino output files found in {compile_dir}.\n"
+            "Expected files like EasySD.ino.hex / .elf / .eep"
+        )
+
+    buildconfig_h = ctx.arduino_root / "BuildConfig.h"
+    if buildconfig_h.exists():
+        shutil.copyfile(buildconfig_h, upload_root / "BuildConfig.h")
+
+    flashlib_h = ctx.arduino_root / "FlashLib.h"
+    if flashlib_h.exists():
+        shutil.copyfile(flashlib_h, upload_root / "FlashLib.h")
+
+    manifest = upload_root / "manifest.txt"
+    manifest.write_text(
+        "\n".join(
+            [
+                "kind=upload",
+                f"generated_utc={datetime.now(timezone.utc).isoformat()}",
+                f"mode={mode_label}",
+                f"source_dir={compile_dir}",
+                f"arduino_file_count={copied}",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+    )
+    print(f"[STAGE:UPLOAD] Ready: {upload_root}")
+    return upload_root
+
+
+def stage_release_bundle(ctx: Context, preferred_menu_name: str, mode_label: str) -> Path:
+    release_root = ctx.build_dir / "release"
+    reset_dir(release_root)
+
+    c64_dir = release_root / "c64"
+    plugins_dir = release_root / "plugins"
+    arduino_dir = release_root / "arduino"
+    symbol_dir = release_root / "symbol"
+    listing_dir = release_root / "listing"
+    for d in (c64_dir, plugins_dir, arduino_dir, symbol_dir, listing_dir):
+        d.mkdir(parents=True, exist_ok=True)
+
+    menu_src = _resolve_menu_artifact(ctx, preferred_menu_name)
+    shutil.copyfile(menu_src, c64_dir / menu_src.name)
+
+    core_optional = ["keybooter.prg", "warning.prg", "IRQLoaderRom.bin", "FlashLib.h", "defaultmenu.h", "LoaderStub.h"]
+    for name in core_optional:
+        src = ctx.build_dir / name
+        if src.exists():
+            shutil.copyfile(src, c64_dir / src.name)
+
+    plugin_files = _collect_plugin_artifacts(ctx)
+    if not plugin_files:
+        raise SystemExit("ERROR: No plugin PRG files found in build/plugins. Cannot package release.")
+    for src in plugin_files:
+        shutil.copyfile(src, plugins_dir / src.name)
+
+    for src in sorted(ctx.sym_dir.glob("*")):
+        if src.is_file():
+            shutil.copyfile(src, symbol_dir / src.name)
+    for src in sorted(ctx.lst_dir.glob("*")):
+        if src.is_file():
+            shutil.copyfile(src, listing_dir / src.name)
+
+    upload_root = ctx.build_dir / "upload"
+    if upload_root.exists():
+        for src in sorted(upload_root.rglob("*")):
+            if src.is_file():
+                rel = src.relative_to(upload_root)
+                dst = arduino_dir / rel
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(src, dst)
+
+    stage_sd_content_bundle(ctx, preferred_menu_name, dst_root=release_root / "sd-content", clean=False)
+
+    manifest = release_root / "manifest.txt"
+    manifest.write_text(
+        "\n".join(
+            [
+                "kind=release",
+                f"generated_utc={datetime.now(timezone.utc).isoformat()}",
+                f"mode={mode_label}",
+                f"menu={menu_src.name}",
+                f"plugin_count={len(plugin_files)}",
+            ]
+        ) + "\n",
+        encoding="utf-8",
+    )
+    print(f"[STAGE:RELEASE] Ready: {release_root}")
+    return release_root
 
 
 def convert_petmate_asm(src: Path, dst: Path) -> None:
@@ -695,7 +888,7 @@ def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: 
     print(f"[ARDUINO] Generated BuildConfig.h (EASYSD_DEBUG_SERIAL={mode_str})")
 
 
-def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, protocol_test: bool = False, release_log: bool = False) -> None:
+def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, protocol_test: bool = False, release_log: bool = False) -> dict | None:
     """Compile Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
 
@@ -946,14 +1139,15 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         epilog="""
 Examples:
   # C64 builds
-  python build.py release              # C64 release + Arduino BuildConfig (serial OFF)
+  python build.py release              # Full release bundles (release/upload/sd-content)
   python build.py debug-vice           # C64 VICE debug (mock data)
   python build.py debug-arduino        # C64 debug + Arduino BuildConfig (serial ON)
+  python build.py sd-content           # Build/sync SD content bundle in build/sd-content
   python build.py multiload            # Build BOOT.PRG (multi-load launcher) only
 
   # Arduino operations
   python build.py arduino-setup        # One-time setup
-  python build.py arduino-compile      # Compile (release mode)
+  python build.py arduino-compile      # Compile + upload bundle in build/upload
   python build.py arduino-compile --debug  # Compile (debug mode - SERIAL ON)
     python build.py arduino-upload COM4               # Compile + Upload (USB)
     python build.py arduino-upload-isp                # Compile + Upload (ISP/USBTinyISP, no Optiboot)
@@ -981,7 +1175,7 @@ Examples:
             # Protocol echo test (Arduino-only, debug serial + protocol test flags)
             "protocol-test",
             # SD card deploy
-            "sd-deploy",
+            "sd-deploy", "sd-content",
             # Combined
             "all"
         ],
@@ -1027,7 +1221,10 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if args.target == "arduino-compile":
-        arduino_compile(ctx, debug_mode=args.debug, release_log=args.release_log)
+        compile_dir = default_arduino_compile_dir(ctx)
+        arduino_compile(ctx, debug_mode=args.debug, output_dir=compile_dir, release_log=args.release_log)
+        mode_label = "DEBUG" if args.debug else ("RELEASE_LOG" if args.release_log else "RELEASE")
+        stage_upload_bundle(ctx, compile_dir, mode_label=mode_label)
         return 0
 
     if args.target == "arduino-upload":
@@ -1065,17 +1262,24 @@ def main(argv: Sequence[str]) -> int:
         arduino_clean(ctx)
         return 0
 
+    if args.target == "sd-content":
+        preferred_menu = "easysd-debug.prg" if args.debug else "easysd.prg"
+        stage_sd_content_bundle(ctx, preferred_menu_name=preferred_menu)
+        return 0
+
     if args.target == "sd-deploy":
         drive = args.port or "D:"
-        sd_root = Path(drive) / ""
         plugins_dir = Path(drive) / "PLUGINS"
         if not plugins_dir.exists():
             print(f"ERROR: {plugins_dir} not found — is the SD card mounted as {drive}?")
             return 1
         copied = 0
 
-        # easysd.prg → SD root (required: TransferMenu() loads menu from SD)
-        menu_src = ctx.build_dir / "easysd.prg"
+        sd_bundle_root = ctx.build_dir / "sd-content"
+        use_bundle = sd_bundle_root.exists() and (sd_bundle_root / "EASYSD.PRG").exists()
+
+        # EASYSD.PRG → SD root (required: TransferMenu() loads menu from SD)
+        menu_src = (sd_bundle_root / "EASYSD.PRG") if use_bundle else (ctx.build_dir / "easysd.prg")
         if menu_src.exists():
             dst = Path(drive) / "EASYSD.PRG"
             shutil.copyfile(menu_src, dst)
@@ -1084,13 +1288,19 @@ def main(argv: Sequence[str]) -> int:
         else:
             print(f"WARNING: {menu_src} not found — run 'python build.py release' first")
 
-        # build/plugins/*.prg → D:/PLUGINS/*.PRG
-        src_dir = ctx.plugins_out_dir
-        if not any(src_dir.glob("*.prg")):
-            print(f"ERROR: No plugin PRG files in {src_dir} — run 'python build.py plugins' first")
+        # Plugin PRGs → D:/PLUGINS/*.PRG
+        if use_bundle:
+            src_dir = sd_bundle_root / "PLUGINS"
+            src_plugins = sorted(src_dir.glob("*.PRG"))
+        else:
+            src_dir = ctx.plugins_out_dir
+            src_plugins = sorted(src_dir.glob("*.prg"))
+
+        if not src_plugins:
+            print(f"ERROR: No plugin PRG files in {src_dir} — run 'python build.py release' or 'python build.py plugins' first")
             return 1
         print(f"[SD-DEPLOY] {src_dir} -> {plugins_dir}")
-        for src in sorted(src_dir.glob("*.prg")):
+        for src in src_plugins:
             dst = plugins_dir / src.name.upper()
             shutil.copyfile(src, dst)
             print(f"  {src.name} -> {dst.name}")
@@ -1165,9 +1375,20 @@ def main(argv: Sequence[str]) -> int:
         build_plugins(ctx, debug=debug, debug_break=debug_break, ensure_core_prereq=False)
         if args.target == "debug-vice":
             build_vice_tests(ctx)
+        stage_sd_content_bundle(ctx, preferred_menu_name=menu_prg_name)
+        if args.target == "release":
+            compile_dir = default_arduino_compile_dir(ctx)
+            arduino_compile(ctx, debug_mode=False, output_dir=compile_dir, release_log=args.release_log)
+            upload_mode = "RELEASE_LOG" if args.release_log else "RELEASE"
+            stage_upload_bundle(ctx, compile_dir, mode_label=upload_mode)
+            stage_release_bundle(ctx, preferred_menu_name=menu_prg_name, mode_label=upload_mode)
         print("==============================================================")
         print(f"BUILD SUCCESSFUL ({args.target.upper()})")
         print(f"Output: {ctx.build_dir / menu_prg_name}")
+        print(f"SD bundle: {ctx.build_dir / 'sd-content'}")
+        if args.target == "release":
+            print(f"Upload bundle: {ctx.build_dir / 'upload'}")
+            print(f"Release bundle: {ctx.build_dir / 'release'}")
         print("==============================================================")
         return 0
 
@@ -1193,13 +1414,22 @@ def main(argv: Sequence[str]) -> int:
 
         # Build Arduino
         print("\n")
-        arduino_compile(ctx, debug_mode=args.debug)
+        compile_dir = default_arduino_compile_dir(ctx)
+        arduino_compile(ctx, debug_mode=args.debug, output_dir=compile_dir, release_log=args.release_log)
+        upload_mode = "DEBUG" if args.debug else ("RELEASE_LOG" if args.release_log else "RELEASE")
+        stage_upload_bundle(ctx, compile_dir, mode_label=upload_mode)
+        stage_sd_content_bundle(ctx, preferred_menu_name=menu_name)
+        if not args.debug:
+            stage_release_bundle(ctx, preferred_menu_name=menu_name, mode_label=upload_mode)
 
         print("\n" + "="*70)
         print("ALL BUILD COMPLETE!")
         print("="*70)
         print(f"  C64 output: {ctx.build_dir / menu_name}")
-        print(f"  Arduino: compiled (ready to upload)")
+        print(f"  Arduino upload bundle: {ctx.build_dir / 'upload'}")
+        print(f"  SD content bundle: {ctx.build_dir / 'sd-content'}")
+        if not args.debug:
+            print(f"  Release bundle: {ctx.build_dir / 'release'}")
         print("\nNext steps:")
         print(f"  python build.py arduino-upload COM4  # Upload firmware")
         print("="*70)

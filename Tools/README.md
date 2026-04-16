@@ -6,7 +6,7 @@ This folder contains the build and deployment tools for the EasySD project.
 
 ## Main Tools
 
-### `build.py` - Main Build Script (v3.0.0)
+### `build.py` - Main Build Script
 
 **C64 code + Arduino artifact generation**
 
@@ -14,7 +14,7 @@ This folder contains the build and deployment tools for the EasySD project.
 # Debug build for Arduino
 python Tools/build.py debug-arduino
 
-# Release build
+# Release build (builds C64 + Arduino and stages release bundles)
 python Tools/build.py release
 
 # Debug build for VICE emulator
@@ -32,6 +32,9 @@ python Tools/build.py arduino-compile
 python Tools/build.py arduino-upload COM4
 python Tools/build.py arduino-upload-isp [--isp-sck USEC]
 python Tools/build.py arduino-monitor COM4
+
+# Build SD card bundle only from current artifacts
+python Tools/build.py sd-content
 
 # Skip Arduino artifact generation
 python Tools/build.py release --skip-arduino
@@ -55,10 +58,13 @@ python Tools/build.py arduino-setup
 2. Converts PETMATE frame export (`petmate frame.asm` → `menu.bin`)
 3. Generates Arduino header files (`FlashLib.h`, `BuildConfig.h`)
 4. Compiles plugins
+5. Stages reproducible output bundles under `EasySD/build/`
 
 **Output:**
-- `EasySD/build/easysd-debug.prg` - C64 program
-- `EasySD/build/plugins/` - Plugin binaries
+- `EasySD/build/sd-content/` - SD-ready package (`EASYSD.PRG` + `PLUGINS/*.PRG`)
+- `EasySD/build/upload/` - Arduino upload artifacts (`EasySD.ino.hex/.elf/...`)
+- `EasySD/build/release/` - Full release package (C64 + plugins + Arduino + symbols/listings + sd-content)
+- `EasySD/build/plugins/` - Plugin binaries (working build output)
 - `Arduino/EasySD/FlashLib.h` - Arduino header (generated)
 - `Arduino/EasySD/BuildConfig.h` - Debug flag (generated)
 
@@ -69,8 +75,8 @@ python Tools/build.py arduino-setup
 ### Standard Build (with Arduino IDE):
 
 ```bash
-# 1. C64 + Arduino artifacts build
-python Tools/build.py debug-arduino
+# 1. Build C64 artifacts + generated headers
+python Tools/build.py release --skip-arduino
 
 # 2. Open Arduino IDE
 # File → Open → Arduino/EasySD/EasySD.ino
@@ -84,11 +90,14 @@ python Tools/build.py debug-arduino
 # One-time setup
 python Tools/build.py arduino-setup
 
-# 1. C64 build + Arduino artifacts
-python Tools/build.py debug-arduino
+# 1. Full release build + staging
+python Tools/build.py release
 
-# 2. Arduino build + upload
+# 2. Upload firmware
 python Tools/build.py arduino-upload COM4
+
+# Optional: deploy staged SD bundle to SD card drive
+python Tools/build.py sd-deploy D:
 ```
 
 ### ISP Upload (blank chip):
@@ -103,7 +112,7 @@ python Tools/build.py arduino-upload-isp --isp-sck 10   # 100kHz, with firmware
 
 ```bash
 python Tools/build.py clean
-python Tools/build.py debug-arduino
+python Tools/build.py release
 python Tools/build.py arduino-upload COM4
 ```
 
@@ -221,7 +230,7 @@ Install VICE emulator and add its tools to PATH.
 
 ### `Port COM4 not found`
 
-Check available ports: `python Tools/build.py arduino-upload --list-ports`
+Check available ports: `python Tools/build.py arduino-list-ports`
 On Windows: Device Manager → Ports (COM & LPT)
 
 ---
@@ -234,5 +243,4 @@ On Windows: Device Manager → Ports (COM & LPT)
 
 ---
 
-*Last updated: 2026-03-05*
-*Build system version: v3.0.0*
+*Last updated: 2026-04-16*

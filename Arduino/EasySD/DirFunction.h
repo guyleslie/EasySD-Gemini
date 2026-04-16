@@ -9,6 +9,10 @@ class DirFunction {
     File m_dirFile;
     bool ResyncDirFromCwd();
     void CountEntries();
+    bool FindNextSortedEntry(bool wantDirectory,
+                             const char* afterName,
+                             char* outName,
+                             size_t outSize);
 
   public:
     char currentPath[64];
@@ -17,6 +21,8 @@ class DirFunction {
     unsigned int count;
     unsigned int currentIndex;
     unsigned int selected;
+    bool iterDirsPhase;
+    char iterLastName[64];
 
     void ReInit(void);
     void ToRoot();

@@ -20,6 +20,7 @@ volatile unsigned long interruptTime = 0;
 // Track when the state last changed; reset to IDLE if stuck too long.
 static unsigned long identifierStateChangeMs = 0;
 static constexpr unsigned long IDENTIFIER_STALE_TIMEOUT_MS = 200;
+static unsigned long lastStaleIdentLogMs = 0;
 //volatile uint8_t toggle = 1;
 
 namespace {
@@ -122,7 +123,11 @@ uint8_t CartInterface::ReceiveHandler() {
     // PROT_StartTalking can succeed without power-cycling.
     if (receiveState > IDLE && receiveState < IN_TRANSMISSION) {
       if ((unsigned long)(millis() - identifierStateChangeMs) > IDENTIFIER_STALE_TIMEOUT_MS) {
-        LOGE(SYS, "Stale ident reset");
+        // Rate-limit log to avoid serial flood in release-log/debug modes.
+        if ((unsigned long)(millis() - lastStaleIdentLogMs) > 1000UL) {
+          LOGE(SYS, "Stale ident reset");
+          lastStaleIdentLogMs = millis();
+        }
         bitState = BIT_STARTED;
         bitMask = 1;
         currentByte = 0;

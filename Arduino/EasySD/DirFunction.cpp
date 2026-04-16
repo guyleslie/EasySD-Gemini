@@ -52,6 +52,20 @@ static bool PrefixMatchesCaseInsensitive(const char* candidate,
   return true;
 }
 
+static int CompareCaseInsensitive(const char* left, const char* right) {
+  uint8_t i = 0;
+  while (true) {
+    const uint8_t l = (uint8_t)left[i];
+    const uint8_t r = (uint8_t)right[i];
+    const uint8_t lc = (uint8_t)tolower(l);
+    const uint8_t rc = (uint8_t)tolower(r);
+    if (lc < rc) return -1;
+    if (lc > rc) return 1;
+    if (l == '\0') return 0;
+    i++;
+  }
+}
+
 }  // namespace
 
 // Canonical way to synchronize m_dirFile with the CWD after any sd.chdir().
@@ -208,6 +222,8 @@ bool DirFunction::ChangeDirectory(char * directory) {
 void DirFunction::CountEntries() {
   count = 0;
   currentIndex = 0;
+  iterDirsPhase = true;
+  iterLastName[0] = '\0';
   m_dirFile.rewind();
   if (InSubDir == 1) count++;
   File file;
@@ -231,8 +247,6 @@ void DirFunction::Prepare() {
 }
 
 int DirFunction::Iterate() {
-  File file;
-
   currentFileName[0] = '\0';
 
   if (InSubDir == 1 && currentIndex == 0) {
@@ -242,23 +256,26 @@ int DirFunction::Iterate() {
     return 1;
   }
 
-  // Skip hidden files internally — they are never shown in the C64 menu
-  // and excluding them here keeps currentIndex consistent with count
-  // (which also excludes hidden files in CountEntries).
+  // Deterministic order:
+  //   1) directories (A..Z)
+  //   2) files       (A..Z)
+  // Hidden entries are excluded in both phases.
   while (currentIndex < count) {
-    if (!file.openNext(&m_dirFile)) {
-      IsFinished = 1;
-      return 0;
+    if (FindNextSortedEntry(iterDirsPhase, iterLastName, currentFileName, sizeof(currentFileName))) {
+      IsDirectory = iterDirsPhase ? 1 : 0;
+      strncpy(iterLastName, currentFileName, sizeof(iterLastName) - 1);
+      iterLastName[sizeof(iterLastName) - 1] = '\0';
+      currentIndex++;
+      return 1;
     }
-    if (file.isHidden()) {
-      file.close();
-      continue;  // skip hidden, do NOT increment currentIndex
+
+    // No more entries in current phase: switch dir -> file once.
+    if (iterDirsPhase) {
+      iterDirsPhase = false;
+      iterLastName[0] = '\0';
+      continue;
     }
-    CaptureFileNamePreview(file, currentFileName, sizeof(currentFileName));
-    IsDirectory = file.isSubDir();
-    currentIndex++;
-    file.close();
-    return 1;
+    break;
   }
 
   IsFinished = 1;
@@ -272,6 +289,8 @@ unsigned int DirFunction::GetCount() {
 void DirFunction::Rewind() {
   m_dirFile.rewind();
   currentIndex = 0;
+  iterDirsPhase = true;
+  iterLastName[0] = '\0';
   IsDirectory = 0;
   IsFinished = 0;
 }
@@ -312,50 +331,24 @@ bool DirFunction::FindDirectoryNameByVisibleIndex(uint16_t visibleIndex,
     return false;
   }
 
-  // The C64 listing includes a synthetic ".." entry at visible index 0 when
-  // in a subdirectory (injected by Iterate(), not present in openNext output).
-  // Subtract 1 to map the C64 row index to the real filesystem entry index.
-  if (InSubDir) {
-    if (visibleIndex == 0) {
-      LOGE(DIR, "CDVI: vis=0 in subdir");
-      return false;
-    }
-    visibleIndex--;
-  }
-
+  // Use Iterate() so index mapping always matches the C64-visible order.
   Rewind();
-
   uint16_t currentVisibleIndex = 0;
-  File file;
-  while (file.openNext(&m_dirFile)) {
-    if (file.isHidden()) {
-      file.close();
-      continue;
-    }
-
-    const bool isDirectory = file.isDir();
+  while (Iterate()) {
     if (currentVisibleIndex == visibleIndex) {
-      if (!isDirectory) {
-        LOGE(DIR, "CDVI: not a dir");
-        file.close();
+      if (!IsDirectory || strcmp(currentFileName, "..") == 0) {
+        LOGE(DIR, "CDVI: not a normal dir");
         Rewind();
         return false;
       }
-      if (!file.getName(outName, outSize)) {
-        LOGE(DIR, "CDVI: getName fail");
-        file.close();
-        Rewind();
-        return false;
-      }
-      file.close();
+      strncpy(outName, currentFileName, outSize - 1);
+      outName[outSize - 1] = '\0';
       LOGI(DIR, "CDVI found: ");
       LOG_PRINTLN(outName);
       Rewind();
       return true;
     }
-
     currentVisibleIndex++;
-    file.close();
   }
 
   LOGE(DIR, "CDVI: index not found");
@@ -445,4 +438,50 @@ bool DirFunction::FindDirectoryByPrefix(const char* prefix, uint8_t len,
     if (PrefixMatchesCaseInsensitive(outName, prefix, len)) return true;
   }
   return false;
+}
+
+bool DirFunction::FindNextSortedEntry(bool wantDirectory,
+                                      const char* afterName,
+                                      char* outName,
+                                      size_t outSize) {
+  if (!outName || outSize == 0) return false;
+
+  bool found = false;
+  char bestName[64];
+  bestName[0] = '\0';
+
+  m_dirFile.rewind();
+  File file;
+  while (file.openNext(&m_dirFile)) {
+    if (file.isHidden()) {
+      file.close();
+      continue;
+    }
+
+    if (file.isDir() != wantDirectory) {
+      file.close();
+      continue;
+    }
+
+    char candidate[64];
+    CaptureFileNamePreview(file, candidate, sizeof(candidate));
+    file.close();
+
+    if (afterName && afterName[0] != '\0' && CompareCaseInsensitive(candidate, afterName) <= 0) {
+      continue;
+    }
+
+    if (!found || CompareCaseInsensitive(candidate, bestName) < 0) {
+      strncpy(bestName, candidate, sizeof(bestName) - 1);
+      bestName[sizeof(bestName) - 1] = '\0';
+      found = true;
+    }
+  }
+
+  m_dirFile.rewind();
+  if (!found) return false;
+
+  strncpy(outName, bestName, outSize - 1);
+  outName[outSize - 1] = '\0';
+  return true;
 }

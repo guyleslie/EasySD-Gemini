@@ -1492,6 +1492,10 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
       high = 0x80;
     }
     
+    // Timing-critical PRG transfer path:
+    // keep global interrupts disabled so UART TX/RX ISRs (serial logging) cannot
+    // jitter NMI byte pacing and break real-hardware burst transfers.
+    noInterrupts();
     SendHeader(low, high, transferPages, transferLength, (crtFile ? TYPE_CARTRIDGE : (booter ? TYPE_BOOTER : TYPE_STANDARD_PRG)), cartInterface.TransferMode); 
 
     #ifdef  USERAMLAUNCHER
@@ -1512,7 +1516,8 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
       for (int i=0;i<padBytes;i++) {    
         cartInterface.TransmitByteFast(0x00); 
       }
-    }   
+    }
+    interrupts();
     
     delayMicroseconds(30);
     workingFile.close();               // close before chdir — prevents SdFat state corruption

@@ -15,19 +15,21 @@ CartInterface cartInterface;
 
 const unsigned char stateNone = 0;
 const unsigned char statePressed = 1;
-const unsigned char stateReleased = 2;
 
 unsigned char state = stateNone;
-uint16_t pressTime = 0;
+unsigned long pressTimeMs = 0;
 unsigned long buttonEnableAtMs = 0;
 
 const unsigned char chipSelect = 10;
-const unsigned long BUTTON_ENABLE_DELAY_MS = 2000;
+const unsigned long BUTTON_BOOT_GUARD_MS = 120;
+const unsigned long BUTTON_POST_ACTION_GUARD_MS = 120;
+const unsigned long BUTTON_DEBOUNCE_MS = 25;
+const unsigned long BUTTON_LONG_PRESS_MS = 1000;
 
 static void suppressButtonsFor(unsigned long delayMs) {
   buttonEnableAtMs = millis() + delayMs;
   state = stateNone;
-  pressTime = 0;
+  pressTimeMs = 0;
 }
 
 static bool waitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs) {
@@ -159,9 +161,9 @@ void setup() {
   // cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
   cartApi.Init();
 
-  // C64 is booting to BASIC on its own. Suppress buttons for 2s to let it
-  // settle and to debounce any power-on SEL noise.
-  suppressButtonsFor(BUTTON_ENABLE_DELAY_MS);
+  // C64 is booting to BASIC on its own. Keep only a short guard window
+  // against power-on button noise.
+  suppressButtonsFor(BUTTON_BOOT_GUARD_MS);
 }
 
 
@@ -170,32 +172,29 @@ void loop() {
 
   if ((long)(millis() - buttonEnableAtMs) < 0) {
     state = stateNone;
-    pressTime = 0;
+    pressTimeMs = 0;
   } else {
     if (!selRead() && state == stateNone) {
       state = statePressed;
-      pressTime = millis()/100;
+      pressTimeMs = millis();
     }
 
-    uint16_t elapsed;
     if (selRead() && state == statePressed) {
-      state = stateReleased;
-      elapsed = millis()/100 - pressTime;
-      if (elapsed > 5) {
-        LOGI(SYS, "SEL long press -> reset");
-        cartApi.ResetNoCartridge();
-      } else {
-        LOGI(SYS, "SEL press -> menu");
-        cartApi.TransferMenu();
-      }
-      suppressButtonsFor(BUTTON_ENABLE_DELAY_MS);
-    }
-  
-    if (state == stateReleased) {
-      if ((millis()/100 - pressTime) > 15) {
-        state = stateNone;
-        elapsed = 0;
-        pressTime = 0;
+      unsigned long elapsedMs = millis() - pressTimeMs;
+      state = stateNone;
+
+      // Ignore switch bounce / accidental micro taps.
+      if (elapsedMs >= BUTTON_DEBOUNCE_MS) {
+        // Long press: hold >1s, then release -> reset to BASIC only.
+        if (elapsedMs > BUTTON_LONG_PRESS_MS) {
+          LOGI(SYS, "SEL long press -> reset");
+          cartApi.ResetNoCartridge();
+        } else {
+          // Short press: release under 1s -> load EasySD menu.
+          LOGI(SYS, "SEL press -> menu");
+          cartApi.TransferMenu();
+        }
+        suppressButtonsFor(BUTTON_POST_ACTION_GUARD_MS);
       }
     }
   }
