@@ -309,6 +309,19 @@ _gcp_copy
 	INY
 	CPY #64
 	BNE _gcp_copy
+	; Validate payload: must be absolute path and null-terminated in first 64 bytes.
+	LDA PATHBUFFER
+	CMP #$2F		; '/'
+	BNE _gcp_error
+	LDY #0
+_gcp_find_nul
+	LDA PATHBUFFER, Y
+	BEQ _gcp_ok
+	INY
+	CPY #64
+	BNE _gcp_find_nul
+	JMP _gcp_error
+_gcp_ok
 	CLC
 	RTS
 _gcp_error
@@ -1584,10 +1597,16 @@ REFRESH_PATHBUFFER
 .if DEBUG = 0
 	JSR PROT_GetCurrentPath
 	BCC _rpb_ok
+	; On path transfer error, clear full buffer and force root.
+	LDY #0
+	LDA #$00
+_rpb_clear
+	STA PATHBUFFER, Y
+	INY
+	CPY #64
+	BNE _rpb_clear
 	LDA #$2F		; '/'
 	STA PATHBUFFER
-	LDA #$00
-	STA PATHBUFFER+1
 _rpb_ok
 	RTS
 .else

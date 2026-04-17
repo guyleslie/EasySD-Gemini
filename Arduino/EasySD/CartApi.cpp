@@ -262,8 +262,6 @@ void CartApi::HandleGetInfoForFile() {
   // (confirmed: BUG-F). All callers (#GETFILEINFO) only need bytes 28-31 (size).
   uint32_t sz = workingFile.fileSize();
   HandleResponse(SUCCESSFUL, 1);
-  // Keep 256-byte page framing deterministic for the C64 receiver.
-  cartInterface.ResetIndex();
   noInterrupts();
   for (uint8_t i = 0; i < 28; i++) cartInterface.TransmitByteFast(0);
   cartInterface.TransmitByteFast((uint8_t)(sz));
@@ -279,8 +277,6 @@ void CartApi::HandleGetPath() {
   GetArgumentsStatic(0);
   const char* path = dirFunc.currentPath;
   HandleResponse(SUCCESSFUL, 1);
-  // Keep 256-byte page framing deterministic for the C64 receiver.
-  cartInterface.ResetIndex();
   noInterrupts();
   for (uint8_t i = 0; i < 64; i++) {
     cartInterface.TransmitByteFast(path[i]);
