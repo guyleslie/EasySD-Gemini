@@ -52,20 +52,6 @@ static bool PrefixMatchesCaseInsensitive(const char* candidate,
   return true;
 }
 
-static int CompareCaseInsensitive(const char* left, const char* right) {
-  uint8_t i = 0;
-  while (true) {
-    const uint8_t l = (uint8_t)left[i];
-    const uint8_t r = (uint8_t)right[i];
-    const uint8_t lc = (uint8_t)tolower(l);
-    const uint8_t rc = (uint8_t)tolower(r);
-    if (lc < rc) return -1;
-    if (lc > rc) return 1;
-    if (l == '\0') return 0;
-    i++;
-  }
-}
-
 }  // namespace
 
 // Canonical way to synchronize m_dirFile with the CWD after any sd.chdir().
@@ -222,8 +208,6 @@ bool DirFunction::ChangeDirectory(char * directory) {
 void DirFunction::CountEntries() {
   count = 0;
   currentIndex = 0;
-  iterDirsPhase = true;
-  iterLastName[0] = '\0';
   m_dirFile.rewind();
   if (InSubDir == 1) count++;
   File file;
@@ -256,26 +240,23 @@ int DirFunction::Iterate() {
     return 1;
   }
 
-  // Deterministic order:
-  //   1) directories (A..Z)
-  //   2) files       (A..Z)
-  // Hidden entries are excluded in both phases.
-  while (currentIndex < count) {
-    if (FindNextSortedEntry(iterDirsPhase, iterLastName, currentFileName, sizeof(currentFileName))) {
-      IsDirectory = iterDirsPhase ? 1 : 0;
-      strncpy(iterLastName, currentFileName, sizeof(iterLastName) - 1);
-      iterLastName[sizeof(iterLastName) - 1] = '\0';
-      currentIndex++;
-      return 1;
-    }
+  if (currentIndex >= count) {
+    IsFinished = 1;
+    return 0;
+  }
 
-    // No more entries in current phase: switch dir -> file once.
-    if (iterDirsPhase) {
-      iterDirsPhase = false;
-      iterLastName[0] = '\0';
+  File file;
+  while (file.openNext(&m_dirFile)) {
+    if (file.isHidden()) {
+      file.close();
       continue;
     }
-    break;
+
+    CaptureFileNamePreview(file, currentFileName, sizeof(currentFileName));
+    IsDirectory = file.isDir() ? 1 : 0;
+    file.close();
+    currentIndex++;
+    return 1;
   }
 
   IsFinished = 1;
@@ -289,8 +270,6 @@ unsigned int DirFunction::GetCount() {
 void DirFunction::Rewind() {
   m_dirFile.rewind();
   currentIndex = 0;
-  iterDirsPhase = true;
-  iterLastName[0] = '\0';
   IsDirectory = 0;
   IsFinished = 0;
 }
@@ -438,50 +417,4 @@ bool DirFunction::FindDirectoryByPrefix(const char* prefix, uint8_t len,
     if (PrefixMatchesCaseInsensitive(outName, prefix, len)) return true;
   }
   return false;
-}
-
-bool DirFunction::FindNextSortedEntry(bool wantDirectory,
-                                      const char* afterName,
-                                      char* outName,
-                                      size_t outSize) {
-  if (!outName || outSize == 0) return false;
-
-  bool found = false;
-  char bestName[64];
-  bestName[0] = '\0';
-
-  m_dirFile.rewind();
-  File file;
-  while (file.openNext(&m_dirFile)) {
-    if (file.isHidden()) {
-      file.close();
-      continue;
-    }
-
-    if (file.isDir() != wantDirectory) {
-      file.close();
-      continue;
-    }
-
-    char candidate[64];
-    CaptureFileNamePreview(file, candidate, sizeof(candidate));
-    file.close();
-
-    if (afterName && afterName[0] != '\0' && CompareCaseInsensitive(candidate, afterName) <= 0) {
-      continue;
-    }
-
-    if (!found || CompareCaseInsensitive(candidate, bestName) < 0) {
-      strncpy(bestName, candidate, sizeof(bestName) - 1);
-      bestName[sizeof(bestName) - 1] = '\0';
-      found = true;
-    }
-  }
-
-  m_dirFile.rewind();
-  if (!found) return false;
-
-  strncpy(outName, bestName, outSize - 1);
-  outName[outSize - 1] = '\0';
-  return true;
 }
