@@ -4,7 +4,7 @@ This document is for AI assistants working on the EasySD project. It covers rule
 constraints that are not obvious from the code. Always check the code itself — this file describes
 *why* things are done a certain way, not just what they are.
 
-- **Current Version**: Post-v3.1.3 (cold boot auto-load, PCB v3 validated, 2026-04-06)
+- **Current Version**: Post-v3.1.3 (BASIC-first cold boot, PCB v3 validated, 2026-04-18)
 - **Real hardware status**: PRG loading ✅, directory nav ✅, menu ✅ — WAV/KOA/MUS/PET/CVD plugins ❌ (not working on real C64, need debugging)
 
 ---
@@ -100,7 +100,7 @@ For PRGs that load into `$C000+` (trigger: `ENDADDRESS > $C002`):
 ## Arduino Firmware
 
 ### Architecture
-- **Entry point**: `Arduino/EasySD/EasySD.ino` — setup/loop, SD init (3 attempts), EEPROM last-dir restore
+- **Entry point**: `Arduino/EasySD/EasySD.ino` — setup/loop, SD init (3 attempts), cold-boot BASIC release state machine
 - **Command routing**: `CartApi.cpp` — all COMMAND_* handlers; new commands registered here
 - **Directory navigation**: `DirFunction.cpp` — `currentPath[64]`, relative-path navigation
 - **C64 communication**: `CartInterface.cpp` — NMI transfer, IO2 ISR, software serial receive
@@ -173,12 +173,14 @@ dirFunc.ForceReset();
 ### Hardware Notes (PCB v3)
 - **Pin swap vs breadboard**: IO2=D3 (INT1), EXROM=D2 (PD2). Previously IO2=D2/INT0. PIND bitmask: IO2→0x08
 - **SEL button**: A6 (analog-only — no `digitalRead`). Read via `analogRead(A6) >= 512`. Short press (≤500ms) → TransferMenu(); long press (>500ms) → ResetNoCartridge()
+- **Cold boot policy**: AVR holds C64 `/RESET` LOW during startup, then releases to BASIC through a centralized BASIC-safe idle path. Menu is not auto-loaded on cold boot.
 - **STATUS_LED**: A7 (NC on PCB — LED is hardware-driven from cartridge 5V rail, always on when powered)
-- **Data bus**: D4-D7 + A0-A3 (PORTD[4:7]/PORTC[0:3]) permanently drive C64 data bus. IO1 is NOT connected.
+- **Data bus**: D4-D7 + A0-A3 (PORTD[4:7]/PORTC[0:3]) drive the C64 data bus only while the cartridge transfer path is enabled. Idle state must be true tristate (no AVR pull-ups left latched on the bus). IO1 is NOT connected.
 - **EXROM glitch prevention**: Set `PORTD |= _BV(PD2)` HIGH *before* `DDRD |= _BV(PD2)` output. Otherwise ~1-2µs LOW glitch causes C64 freeze via ROML assertion.
 - **CBM80 detection window**: Data bus pins must be INPUT (tristate) during CBM80 check so EEPROM drives bus undisturbed.
 - **Transfer speeds**: NMI ~40 KB/s; IO2 streaming ~13.5 KB/s; CvdPlayer: NMI at STARTRASTER=241 via READCART_MODULATED
-- **A5=IRQ, A4=PHI2**: reserved for future use, not yet read in firmware
+- **A5=IRQ, A4=PHI2**: A5 remains reserved; A4/PHI2 is actively read in firmware to synchronize cartridge visibility and bus-drive changes.
+- **Bench hardware caveat**: On the current repeatedly re-seated test unit, intermittent cartridge-edge or module-header contact can mimic boot/reset firmware faults. If touching the cartridge changes startup behavior or blinks the Arduino LED, treat that as hardware integrity first.
 
 ### EEPROM (Last Directory Persistence)
 - Layout: bytes 0-1 = magic (`0xE5`, `0xD0`); bytes 2-65 = null-terminated path
@@ -217,7 +219,7 @@ python Tools/build.py debug-vice                 # C64 only, VICE mock
 python Tools/build.py debug-arduino             # C64 + Arduino debug
 python Tools/build.py plugins                   # plugins only
 python Tools/build.py arduino-upload COM4       # upload release firmware
-python Tools/build.py arduino-upload-isp        # ISP upload + burn Optiboot
+python Tools/build.py arduino-upload-isp        # ISP upload (default: no Optiboot restore)
 python Tools/build.py protocol-test COM4        # protocol echo test build
 python Tools/test_arduino_comm.py COM4 --verbose
 python Tools/test_vice_menu.py --build --verbose
@@ -252,4 +254,4 @@ python Tools/prepare_test_sd.py D:
 
 ---
 
-**Last Updated**: 2026-04-06 — PCB v3 validated, cold boot auto-load, plugin debugging next
+**Last Updated**: 2026-04-18 — PCB v3 validated, BASIC-first cold boot, plugin debugging next

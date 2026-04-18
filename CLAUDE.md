@@ -58,7 +58,7 @@ python Tools/build.py release --skip-arduino
 
 **Arduino upload notes:**
 - `arduino-upload` uses USB serial bootloader (115200 baud, `atmega328` Optiboot FQBN)
-- `arduino-upload-isp` uses USBtinyISP programmer — burns firmware + Optiboot bootloader (USB upload works after)
+- `arduino-upload-isp` uses USBtinyISP programmer — by default writes firmware only (no Optiboot restore). Use `--optiboot` only when USB bootloader upload must be restored afterward.
 - ISP SCK speed: `--isp-sck 2` (500 kHz, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
 - **Debug flash budget:** `--debug` = 29.8KB (96%, ~950B free). `--debug --selftest` exceeds 30720B limit — self-test suite adds ~2KB. Use `--selftest` only for standalone SD testing, not for C64-connected debug sessions.
 
@@ -66,7 +66,9 @@ python Tools/build.py release --skip-arduino
 
 ### Dual-System Design
 
-**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. Cold boot uses explicit state machine: AVR holds C64 /RESET LOW → SD init (3 attempts) → `cartApi.Init()` → `TransferMenu()` releases /RESET and loads menu → `RUNNING_READY`. If SD fails, C64 is released to BASIC and SEL button retries.
+**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. Cold boot uses explicit state machine: AVR holds C64 `/RESET` LOW → SD init (3 attempts) → `cartApi.Init()` → cartridge interface returned to BASIC-safe idle state → `/RESET` released → `RUNNING_READY`. The C64 boots to BASIC on cold boot; `TransferMenu()` is invoked only on explicit short `SEL` press. If SD fails, C64 is still released to BASIC and `SEL` can retry.
+
+**Hardware caveat:** Recent bench sessions indicate intermittent mechanical/contact issues on the current test cartridge assembly (edge connector / module headers). If behavior changes when the cartridge or SD module is touched, treat that as a hardware integrity symptom first, not as proof of a firmware regression.
 
 **C64 software** (`EasySD/`): Cartridge ROM with communication library (`Loader/`), main file browser menu (`Menu/EasySD/EasySDMenu.s`), and file-type plugins (`Plugins/`).
 
@@ -136,6 +138,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **SPI speed:** Use `SPI_HALF_SPEED` (8 MHz) — tested stable on breadboard (8/8 tests pass). `SPI_QUARTER_SPEED` is no longer needed.
 - **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail on nested paths.
 - **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.
+- **Cartridge idle state must be truly BASIC-safe:** hide cartridge (`EXROM` HIGH), reset receive/session state, and tristate the data bus without leaving AVR pull-ups latched on D4-D7/A0-A3. Use the centralized `ReleaseToBasic()` / `EnterBasicSafeMode()` path instead of re-creating this sequence ad hoc.
 - **EEPROM persistence:** `SaveLastDir()` / `RestoreLastDir()` use `eeprom_update_block()` / `eeprom_read_block()` (avr-libc). Prefer these over byte-by-byte loops — smaller flash footprint. EEPROM layout: bytes 0-1 magic (`0xE5`, `0xD0`), bytes 2-65 null-terminated path. Current firmware still writes the last visited directory, but startup always begins from root instead of restoring it.
 - **Flash budget:** Release 25.2KB/30.7KB (82%, **~5.5KB free**). Debug 29.8KB (96%, ~950B free). Debug+selftest exceeds limit (~32.6KB) — self-test suite gated behind `EASYSD_SELFTEST`, enabled via `--selftest` flag.
 
