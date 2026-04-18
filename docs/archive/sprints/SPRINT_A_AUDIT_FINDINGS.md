@@ -552,7 +552,7 @@ BurstLoader is an **approved architectural exception** for valid technical reaso
 1. ✅ `docs/IO2_PROTOCOL_SPECIFICATION.md` (normative)
 2. ✅ `docs/MEMORY_MAP_CANONICAL.md` (normative)
 3. ✅ `IRQHack64/Loader/CartMemoryMap.inc` (implementation)
-4. ✅ `docs/sprints/SPRINT_A_AUDIT_FINDINGS.md` (this document)
+4. ✅ `docs/archive/sprints/SPRINT_A_AUDIT_FINDINGS.md` (this document)
 
 ### Documents to Update
 - ⏳ `docs/ARCHITECTURE_CONSOLIDATION_PLAN.md` (v2.0 → v2.1)

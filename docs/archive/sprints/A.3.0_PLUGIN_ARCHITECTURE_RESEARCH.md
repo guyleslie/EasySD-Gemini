@@ -276,7 +276,7 @@ Main:
 ; Transfer Buffer: $A000-$A18F (400 bytes)
 ; Rationale: Optimized NMI handler requires specific memory layout for burst streaming.
 ;
-; Reference: docs/sprints/A.3.0_PLUGIN_ARCHITECTURE_RESEARCH.md Section 3
+; Reference: docs/archive/sprints/A.3.0_PLUGIN_ARCHITECTURE_RESEARCH.md Section 3
 ;----------------------------------------------------------------------------------------------------------
 ```
 

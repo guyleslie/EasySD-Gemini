@@ -33,7 +33,7 @@ Created comprehensive evidence document proving SafeStream was non-functional:
 5. C64 PHI2 timing (~500ns) prevents any ISR delays
 6. Streaming MUST be deterministic and uninterruptible (SEI-protected)
 
-**Document:** `docs/sprints/SPRINT_SAFE_STREAM_TRUTH_CLEANUP_EVIDENCE.md`
+**Document:** `docs/archive/sprints/SPRINT_SAFE_STREAM_TRUTH_CLEANUP_EVIDENCE.md`
 
 ---
 
@@ -52,7 +52,7 @@ Created comprehensive evidence document proving SafeStream was non-functional:
 - "Future reserved" is dishonest when feature is architecturally impossible
 - Technical debt compounds (every doc must explain "this exists but does nothing")
 
-**Document:** `docs/sprints/SPRINT_SAFE_STREAM_TRUTH_CLEANUP_DECISION.md`
+**Document:** `docs/archive/sprints/SPRINT_SAFE_STREAM_TRUTH_CLEANUP_DECISION.md`
 
 ---
 
@@ -346,13 +346,13 @@ Created comprehensive evidence document proving SafeStream was non-functional:
 **Affected Files (require historical note):**
 - docs/ZP_INVENTORY.md - Section 3.2 (SafeStream Parameters) → mark as removed
 - docs/ARCHITECTURE_REVIEW.md - SafeStream references → update
-- docs/sprints/SPRINT10_COMPLETION.md - Historical reference → add note
-- docs/sprints/SPRINT11_API_CONSOLIDATION.md - SafeStream as public API → add note
+- docs/archive/sprints/SPRINT10_COMPLETION.md - Historical reference → add note
+- docs/archive/sprints/SPRINT11_API_CONSOLIDATION.md - SafeStream as public API → add note
 - CHANGELOG_UNIFIED.md - SafeStream entries → add removal note
 
 **Recommendation:** Add a single-line note at top of each affected sprint doc:
 ```markdown
-**Note (2026-01-01):** SafeStream abstraction removed in SPRINT_SAFE_STREAM_TRUTH_CLEANUP - parameters were never functional. See docs/sprints/SPRINT_SAFE_STREAM_TRUTH_CLEANUP_COMPLETION.md.
+**Note (2026-01-01):** SafeStream abstraction removed in SPRINT_SAFE_STREAM_TRUTH_CLEANUP - parameters were never functional. See docs/archive/sprints/SPRINT_SAFE_STREAM_TRUTH_CLEANUP_COMPLETION.md.
 ```
 
 ---

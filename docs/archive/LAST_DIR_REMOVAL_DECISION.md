@@ -204,7 +204,7 @@ Recommended action:
 The following documents should be updated to avoid stale architecture claims:
 
 - `docs/architecture/EEPROM_ARCHITECTURE.md`
-- `docs/architecture/LAST_DIR_PERSISTENCE_REDESIGN.md`
+- `docs/archive/LAST_DIR_PERSISTENCE_REDESIGN.md`
 - any testing or roadmap document that still describes active save/restore behavior
 
 ## What Should Remain

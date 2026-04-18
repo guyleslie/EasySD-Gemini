@@ -33,7 +33,7 @@
 
 ### 2. SPRINT11_API_CONSOLIDATION.md
 
-**Location:** `docs/sprints/SPRINT11_API_CONSOLIDATION.md`
+**Location:** `docs/archive/sprints/SPRINT11_API_CONSOLIDATION.md`
 
 **Changes Made:**
 
@@ -121,7 +121,7 @@
 
 ### Files Modified
 - `docs/ARCHITECTURE_REVIEW.md` - 2 additions (18 lines)
-- `docs/sprints/SPRINT11_API_CONSOLIDATION.md` - 1 section + metadata (49 lines)
+- `docs/archive/sprints/SPRINT11_API_CONSOLIDATION.md` - 1 section + metadata (49 lines)
 - `docs/ZP_INVENTORY.md` - 1 description + 1 note (3 lines)
 
 ### Files Created

@@ -214,6 +214,7 @@ Phase 3 — C64 library comment cleanup
 | COMMAND_READ_EEPROM | 15 | HandleReadEeprom | |
 | COMMAND_SEEK_EEPROM | 16 | HandleSeekEeprom | |
 | COMMAND_WRITE_EEPROM | 17 | HandleWriteEeprom | |
+| COMMAND_SET_PORT | 20 | HandleSetPort | set IO port value |
 | COMMAND_INVOKE_WITH_NAME | 23 | HandleInvokeWithName | loads + launches plugin/prg |
 | COMMAND_STREAM | 25 | HandleStream | IRQ double-buffered, IO2 sync |
 | COMMAND_NI_STREAM | 26 | HandleNonInterruptedStream | exits on SEL low only |
@@ -221,4 +222,5 @@ Phase 3 — C64 library comment cleanup
 | COMMAND_END_TALKING | 30 | HandleEndTalking | sent by PROT_EndTalking |
 | COMMAND_EXIT_TO_MENU | 31 | HandleEndTalking+TransferMenu | sent by PROT_ExitToMenu |
 | COMMAND_HWTEST | 32 | HandleHwTest | data bus diagnostic |
+| COMMAND_CHANGE_DIR_INDEX | 33 | HandleChangeDirectoryIndex | menu: change dir by visible entry index |
 | COMMAND_READ_FILE | 78 | HandleReadFile | 16-byte chunks |

@@ -425,9 +425,9 @@ PLA
 ## Resources
 
 **Documentation:**
-- `docs/sprints/MACRO_REFACTORING_MASTER_PLAN.md` - 5-sprint roadmap
-- `docs/sprints/SPRINT1_MACRO_COMPLETION.md` - Sprint 1 report (Tier 1 macros)
-- `docs/sprints/SPRINT2_MACRO_COMPLETION.md` - Sprint 2 report (Tier 1+2 extensions)
+- `docs/archive/sprints/MACRO_REFACTORING_MASTER_PLAN.md` - 5-sprint roadmap
+- `docs/archive/sprints/SPRINT1_MACRO_COMPLETION.md` - Sprint 1 report (Tier 1 macros)
+- `docs/archive/sprints/SPRINT2_MACRO_COMPLETION.md` - Sprint 2 report (Tier 1+2 extensions)
 - `IRQHack64/Loader/SystemMacros.s` - Tier 1 macro source with inline docs
 - `IRQHack64/Loader/APIMacros.s` - Tier 2 API macro source with inline docs
 

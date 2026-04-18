@@ -44,19 +44,19 @@
 
 ### Sprint Documentation
 
-5. **docs/sprints/MACRO_REFACTORING_MASTER_PLAN.md** (NEW)
+5. **docs/archive/sprints/MACRO_REFACTORING_MASTER_PLAN.md** (NEW)
    - **Content:** 5-sprint roadmap, pattern analysis, risk assessment
    - **Size:** ~350 lines
 
-6. **docs/sprints/SPRINT1_MACRO_CORE_SYSTEM.md** (NEW)
+6. **docs/archive/sprints/SPRINT1_MACRO_CORE_SYSTEM.md** (NEW)
    - **Content:** Sprint 1 detailed plan, deliverables, testing checklist
    - **Size:** ~200 lines
 
-7. **docs/sprints/SPRINT1_MACRO_COMPLETION.md** (NEW)
+7. **docs/archive/sprints/SPRINT1_MACRO_COMPLETION.md** (NEW)
    - **Content:** Sprint 1 completion report, metrics, lessons learned
    - **Size:** ~450 lines
 
-8. **docs/sprints/MACRO_SPRINT1_SUMMARY.md** (NEW)
+8. **docs/archive/sprints/MACRO_SPRINT1_SUMMARY.md** (NEW)
    - **Content:** Quick summary for fast reference
    - **Size:** ~80 lines
 

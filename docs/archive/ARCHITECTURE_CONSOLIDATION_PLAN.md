@@ -21,7 +21,7 @@
 - ✅ Refaktoring példák javítása (auto-placement → explicit ORG)
 - ✅ BurstLoader exception tisztázása (approved architectural decision)
 - ✅ Timeline frissítése: 2-3 nap → 4-5 nap (kutatási fázis miatt)
-- ✅ Referencia: docs/sprints/SPRINT_A_AUDIT_FINDINGS.md (részletes audit jelentés)
+- ✅ Referencia: docs/archive/sprints/SPRINT_A_AUDIT_FINDINGS.md (részletes audit jelentés)
 
 **v2.2 változások (SPRINT A.3 CANCELLED - ARCHITECTURAL FACT-CHECKING):**
 - 🔴 **SPRINT A.3 CANCELLED** - Plugin refactoring NO-GO (architectural assumptions were INCORRECT)
@@ -31,8 +31,8 @@
 - ✅ **Sprint A.1-A.2 COMPLETE** - IO2_PROTOCOL_SPECIFICATION.md ✅, CartMemoryMap.inc ✅
 - ✅ **Sprint A.3.0 COMPLETE** - Architectural research, NO-GO decision approved by user
 - ✅ Referenciák:
-  - docs/sprints/A.3.0_PLUGIN_ARCHITECTURE_RESEARCH.md (Type A/B categories)
-  - docs/sprints/A.3.0_REFACTORING_DECISION.md (NO-GO justification)
+  - docs/archive/sprints/A.3.0_PLUGIN_ARCHITECTURE_RESEARCH.md (Type A/B categories)
+  - docs/archive/sprints/A.3.0_REFACTORING_DECISION.md (NO-GO justification)
   - docs/MEMORY_MAP_CANONICAL.md v2.0 (corrected normative spec)
 
 ---
@@ -271,7 +271,7 @@ NMI_000:
 **⚠️ v2.1 MEGJEGYZÉS:**
 A Sprint A audit felfedezte, hogy a pluginok **NEM hardcode-olják** a memória címeket.
 Az assembler automatikusan helyezi el a buffereket. A refaktoring célja **explicit címzés hozzáadása** (nem replace!).
-**Részletek:** `docs/sprints/SPRINT_A_AUDIT_FINDINGS.md`
+**Részletek:** `docs/archive/sprints/SPRINT_A_AUDIT_FINDINGS.md`
 
 ### A.1 - IO2 Protokoll Kanonizálás
 
@@ -530,7 +530,7 @@ call compile.bat
 
 **Alternatív megoldás:** MEMORY_MAP_CANONICAL.md v2.0 - dokumentáció frissítés (COMPLETE)
 
-**Referencia:** `docs/sprints/A.3.0_REFACTORING_DECISION.md` (részletes indoklás)
+**Referencia:** `docs/archive/sprints/A.3.0_REFACTORING_DECISION.md` (részletes indoklás)
 
 ---
 
@@ -614,9 +614,9 @@ TransferBuffer: .res BURST_BUFFER_SIZE
 **✅ Befejezett dokumentumok:**
 1. ✅ `docs/IO2_PROTOCOL_SPECIFICATION.md` v1.0 (normatív)
 2. ✅ `docs/MEMORY_MAP_CANONICAL.md` **v2.0** (normatív - **MAJOR REVISION**)
-3. ✅ `docs/sprints/SPRINT_A_AUDIT_FINDINGS.md` (audit jelentés)
-4. ✅ `docs/sprints/A.3.0_PLUGIN_ARCHITECTURE_RESEARCH.md` (kutatási jelentés)
-5. ✅ `docs/sprints/A.3.0_REFACTORING_DECISION.md` (NO-GO döntés dokumentáció)
+3. ✅ `docs/archive/sprints/SPRINT_A_AUDIT_FINDINGS.md` (audit jelentés)
+4. ✅ `docs/archive/sprints/A.3.0_PLUGIN_ARCHITECTURE_RESEARCH.md` (kutatási jelentés)
+5. ✅ `docs/archive/sprints/A.3.0_REFACTORING_DECISION.md` (NO-GO döntés dokumentáció)
 
 **✅ Befejezett kód változások:**
 6. ✅ `IRQHack64/Loader/CartMemoryMap.inc` (ÚJ fájl - High memory symbols)
@@ -2543,7 +2543,7 @@ CANONICAL_ARCHITECTURE.md (THIS DOCUMENT - master reference)
 
 #### D.4.1 - Sprint Retrospektív Dokumentum
 
-**Dokumentum:** `docs/sprints/SPRINT_A_D_RETROSPECTIVE.md`
+**Dokumentum:** `SPRINT_A_D_RETROSPECTIVE.md` (tervezett retrospektív dokumentum, nem része a jelenlegi archive fának)
 
 ```markdown
 # Sprint A-D Retrospective - "IO2 Kanonikus Architektúra"
@@ -2817,7 +2817,7 @@ Ebben a sprintben létrehozandó normatív dokumentumok:
    - Register save/restore pattern
    - ZP ownership guidelines
 
-7. **docs/sprints/SPRINT_A_D_RETROSPECTIVE.md** (Sprint D.4)
+7. **SPRINT_A_D_RETROSPECTIVE.md** (Sprint D.4, tervezett retrospektív dokumentum)
    - Sprint eredmények
    - Metrics
    - Lessons learned

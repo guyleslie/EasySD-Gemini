@@ -166,7 +166,7 @@ Sprint 2 successfully extended the macro architecture with **Memory & API macros
 IRQHack64/Loader/APIMacros.s                    (+240 lines)
 Tools/analyze_sprint2_patterns.py               (+200 lines)
 Tools/convert_sprint2_macros.py                 (+318 lines)
-docs/sprints/SPRINT2_MACRO_COMPLETION.md        (this file)
+docs/archive/sprints/SPRINT2_MACRO_COMPLETION.md        (this file)
 ```
 
 ### Modified:

@@ -1,7 +1,7 @@
 # Directory Navigation API Reference
 
 **File:** `Arduino/EasySD/DirFunction.h` / `DirFunction.cpp`
-**Last updated:** 2026-03-11
+**Last updated:** 2026-04-18
 
 ---
 
@@ -28,8 +28,8 @@
 | `currentIndex` | `unsigned int` | Current iteration position. |
 | `IsDirectory` | `int` | Set by `Iterate()`: 1 if the last iterated entry is a directory. |
 | `IsFinished` | `int` | Set by `Iterate()`: 1 when all entries have been iterated. |
-| `IsHidden` | `int` | Set by `Iterate()`: 1 if the last iterated entry is hidden. |
-| `CurrentFileName` | `StringPrint` | Name of the last iterated entry. |
+| `selected` | `unsigned int` | Menu cursor position tracking (get/set via `SetSelected`/`GetSelected`). |
+| `currentFileName[32]` | `char[]` | Name of the last iterated entry (preview, may be truncated). |
 
 ---
 
@@ -126,13 +126,13 @@ Return the next directory entry. Call repeatedly after `Prepare()`.
 
 **Behaviour:**
 - If `InSubDir == 1` and `currentIndex == 0`: returns `..` as first entry (`IsDirectory = 1`)
-- Otherwise: opens next file with `file.openNext(&m_dirFile)`, sets `CurrentFileName`, `IsDirectory`, `IsHidden`
+- Otherwise: opens next file with `file.openNext(&m_dirFile)`, sets `currentFileName`, `IsDirectory`; skips hidden entries automatically
 
 ---
 
 ### `void Rewind()`
 
-Reset iteration back to the beginning without re-counting. Rewinds `m_dirFile` and clears `currentIndex`, `IsDirectory`, `IsHidden`, `IsFinished`.
+Reset iteration back to the beginning without re-counting. Rewinds `m_dirFile` and clears `currentIndex`, `IsDirectory`, `IsFinished`.
 
 ---
 
@@ -165,6 +165,46 @@ delay(50);
 sd.begin(chipSelect, SPI_HALF_SPEED);
 dirFunc.ForceReset();
 ```
+
+---
+
+### `bool NavigateToPath(const char* absPath)`
+
+Navigate from root to an absolute path, segment by segment. Used by `COMMAND_GOTO_PATH` (MultiLoad path restore).
+
+**Parameters:** `absPath` — absolute path starting with `/` (e.g. `"/GAMES/LEVEL1/"`)
+
+**Returns:** `true` on success, `false` if any segment fails (resets to root on failure)
+
+---
+
+### `bool FindDirectoryNameByVisibleIndex(uint16_t visibleIndex, char* outName, size_t outSize)`
+
+Look up a directory entry by its visible index (as seen by the C64 menu). Used by `COMMAND_CHANGE_DIR_INDEX`.
+
+**Parameters:**
+- `visibleIndex` — zero-based index matching the C64-visible entry order
+- `outName` — output buffer (minimum 13 bytes)
+
+**Returns:** `true` if found and entry is a directory (not `..`), `false` otherwise
+
+---
+
+### `bool FindByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize)`
+
+Scan CWD for a non-hidden, non-directory file whose name starts with `prefix` (case-insensitive). Does not affect `Iterate()` state.
+
+---
+
+### `bool FindDirectoryByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize)`
+
+Same as `FindByPrefix` but matches directories only.
+
+---
+
+### `void SetSelected(unsigned int)` / `unsigned int GetSelected()`
+
+Get/set the `selected` index (menu cursor position tracking).
 
 ---
 

@@ -504,7 +504,7 @@ ZP_LF_SIZE0 = $80  ; LSB (byte 0)
   - **Content**: 100% comments and organization (zero code change)
 
 ### New Files (1)
-- `docs/sprints/SPRINT10_COMPLETION.md` (This document)
+- `docs/archive/sprints/SPRINT10_COMPLETION.md` (This document)
 
 ---
 
