@@ -13,6 +13,16 @@ DirFunction dirFunc;
 CartApi cartApi;
 CartInterface cartInterface;
 
+// Boot state machine — cold boot holds C64 in /RESET until AVR is fully ready
+enum BootState : uint8_t {
+  BOOT_HOLD_RESET,      // C64 held in /RESET, AVR starting
+  BOOT_INIT_SD,         // Initializing SPI + SD card
+  BOOT_INIT_RUNTIME,    // cartApi.Init() — directory setup
+  BOOT_ARM_CARTRIDGE,   // TransferMenu() — arming and releasing C64
+  RUNNING_READY,        // Fully operational
+  BOOT_ERROR            // SD init failed, C64 released to BASIC
+};
+
 const unsigned char stateNone = 0;
 const unsigned char statePressed = 1;
 
@@ -20,7 +30,7 @@ unsigned char state = stateNone;
 unsigned long pressTimeMs = 0;
 unsigned long buttonEnableAtMs = 0;
 bool runtimeReady = false;
-bool runtimeInitAttempted = false;
+static BootState bootState = BOOT_HOLD_RESET;
 bool selStableReleased = true;
 bool selCandidateReleased = true;
 unsigned long selCandidateSinceMs = 0;
@@ -30,7 +40,6 @@ const unsigned long BUTTON_BOOT_GUARD_MS = 500;
 const unsigned long BUTTON_POST_ACTION_GUARD_MS = 120;
 const unsigned long BUTTON_DEBOUNCE_MS = 12;
 const unsigned long BUTTON_LONG_PRESS_MS = 1000;
-const unsigned long BUTTON_RUNTIME_READY_GUARD_MS = 120;
 const unsigned long SEL_STABLE_MS = 8;
 const int SEL_PRESSED_THRESHOLD = 256;
 const int SEL_RELEASED_THRESHOLD = 768;
@@ -132,23 +141,6 @@ static bool ensureRuntimeReady() {
   return true;
 }
 
-static void serviceBootRuntimeInit() {
-  if (runtimeReady || runtimeInitAttempted) {
-    return;
-  }
-
-  runtimeInitAttempted = true;
-  if (ensureRuntimeReady()) {
-    // Only enable SEL after the whole runtime stack is ready. This removes the
-    // ambiguous window where BASIC is already visible but the first button
-    // press still races SD/cartApi initialization.
-    suppressButtonsFor(BUTTON_RUNTIME_READY_GUARD_MS);
-    rearmSelTracking();
-  } else {
-    // Keep retrying on later loop iterations if SD init fails transiently.
-    runtimeInitAttempted = false;
-  }
-}
 
 // SD error recovery: reinitialize card + resync dirFunc
 // Call this after any SD error (write timeout, etc.) to restore working state.
@@ -187,8 +179,10 @@ void printSDStatus(bool sdInitSuccess) {
 #ifdef EASYSD_DEBUG_SERIAL
 // Help System (DEBUG mode only)
 void printHelp() {
-  Serial.println(F("h:Help d:CD r:Root l:List p:Stat m:Mem"));
-  Serial.println(F("T:Run self-test suite"));
+  Serial.println(F("h:Help m:Mem"));
+  #ifdef EASYSD_SELFTEST
+  Serial.println(F("d:CD r:Root l:List p:Stat T:Test"));
+  #endif
   #ifdef EASYSD_PROTOCOL_TEST
   Serial.println(F("F:FileDump G:GameHeader B:BoundaryDump"));
   #endif
@@ -196,24 +190,51 @@ void printHelp() {
 #endif // EASYSD_DEBUG_SERIAL
 
 void setup() {
-  cartInterface.Init();   // IOSetup: EXROM=HIGH, /RESET not driven — C64 boots to BASIC
+  cartInterface.Init();   // IOSetup: EXROM=HIGH, /RESET=LOW — C64 held in reset
 
   LOG_BEGIN(57600);
   printStartupBanner();
+  LOGI(SYS, "Boot: hold reset");
 
   pinMode(chipSelect, OUTPUT);
   digitalWrite(chipSelect, HIGH);
   SPI.begin();
 
-  // Do not arm the IO2 receive state machine during cold boot idle. In the
-  // BASIC-first design, the first user-visible action is always the local SEL
-  // button, not an incoming C64 API session. Starting to listen here lets
-  // power-on bus noise create partial/false sessions that steal the first SEL
-  // press on real hardware. Listening starts after the first successful menu
-  // transfer instead.
+  // IO2 receive not armed during cold boot — listening starts after TransferMenu()
   cartInterface.ResetReceive();
 
-  // Cold boot still needs a short settle window before runtime init begins.
+  // SD card power-up settling time. Previously implicit from Optiboot bootloader
+  // delay or C64 BASIC boot time. Now explicit because /RESET hold means the AVR
+  // reaches this point within ~1ms of power-on.
+  delay(300);
+
+  LOGI(SYS, "Boot: init SD");
+  bootState = BOOT_INIT_SD;
+  bool sdOk = initSD();
+  printSDStatus(sdOk);
+
+  if (sdOk) {
+    LOGI(SYS, "Boot: init runtime");
+    bootState = BOOT_INIT_RUNTIME;
+    cartApi.Init();
+    runtimeReady = true;
+
+    LOGI(SYS, "Boot: arm cartridge");
+    bootState = BOOT_ARM_CARTRIDGE;
+    // TransferMenu() releases /RESET via ResetC64(), transfers the menu PRG,
+    // waits for stable PHI2, and starts IO2 listening.
+    cartApi.TransferMenu();
+
+    bootState = RUNNING_READY;
+    LOGI(SYS, "Boot: running");
+  } else {
+    // SD failed: release C64 to BASIC so the user isn't stuck at a black screen.
+    // SEL button will retry SD init + TransferMenu on press.
+    cartInterface.ResetHigh();
+    bootState = BOOT_ERROR;
+    LOGE(SYS, "Boot: SD fail, released");
+  }
+
   suppressButtonsFor(BUTTON_BOOT_GUARD_MS);
   rearmSelTracking();
 }
@@ -224,15 +245,6 @@ void loop() {
     state = stateNone;
     pressTimeMs = 0;
   } else {
-    serviceBootRuntimeInit();
-
-    if (!runtimeReady) {
-      state = stateNone;
-      pressTimeMs = 0;
-      cartApi.HandleApi();
-      return;
-    }
-
     bool selReleased = serviceSelReleased();
 
     if (!selReleased && state == stateNone) {
@@ -255,6 +267,7 @@ void loop() {
           LOGI(SYS, "SEL press -> menu");
           if (ensureRuntimeReady()) {
             cartApi.TransferMenu();
+            bootState = RUNNING_READY;
           }
         }
         suppressButtonsFor(BUTTON_POST_ACTION_GUARD_MS);
@@ -263,9 +276,10 @@ void loop() {
     }
   }
 
-  // Handle API after button processing so SEL remains responsive even when
-  // command parsing is under noise/partial-frame stress.
-  cartApi.HandleApi();
+  // Handle API only when runtime is ready — listening is started by TransferMenu().
+  if (runtimeReady) {
+    cartApi.HandleApi();
+  }
 
   #ifdef EASYSD_DEBUG_SERIAL
   // Serial monitor commands (DEBUG mode only)
@@ -273,14 +287,15 @@ void loop() {
       char data=(char)Serial.read();
       switch(data) {
           case 'h' : printHelp(); break;
+          case 'm' : ShowMem(); break;
+
+          #ifdef EASYSD_SELFTEST
           case 'd' : testDirectoryNavigation(); break;
           case 'r' : testResetToRoot(); break;
           case 'p' : testPrintCurrentPath(); break;
           case 'l' : testListDirectory(); break;
-          case 'm' : ShowMem(); break;
-
-          // Self-test suite
           case 'T' : testRunAll(); break;
+          #endif
 
           #ifdef EASYSD_PROTOCOL_TEST
           case 'F' : testFileDump(); break;
@@ -292,9 +307,11 @@ void loop() {
   #endif
 }
 
-#ifdef EASYSD_DEBUG_SERIAL
+#ifdef EASYSD_SELFTEST
 // ========================================================================
-// Directory Navigation Test Functions (DEBUG mode only)
+// Self-test & interactive directory test functions (EASYSD_SELFTEST only)
+// These are gated separately from EASYSD_DEBUG_SERIAL because they consume
+// ~2KB flash. Enable via build.py --selftest or #define EASYSD_SELFTEST.
 // ========================================================================
 
 void testDirectoryNavigation() {
@@ -550,7 +567,7 @@ void testRunAll() {
   dirFunc.ForceReset();
 }
 
-#endif // EASYSD_DEBUG_SERIAL
+#endif // EASYSD_SELFTEST
 
 // ============================================================================
 // Protocol Echo Test Functions (EASYSD_PROTOCOL_TEST mode only)

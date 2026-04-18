@@ -254,17 +254,16 @@ uint16_t CartInterface::Read() {
 }
 
 void CartInterface::IOSetup() {
-  // BASIC-first boot: do NOT pull /RESET LOW. The C64 boots normally to BASIC.
+  // Cold boot: hold C64 in /RESET while AVR initializes SD + runtime.
   // EXROM stays HIGH (cartridge hidden). Data bus stays INPUT (tristate).
-  // The menu is loaded later when the user presses SEL, which calls
-  // TransferMenu() — that does EnableExromOnly() + ResetC64() to warm-reset
-  // the C64 into the cartridge menu.
+  // The boot state machine in setup() will release /RESET after initialization
+  // is complete, via TransferMenu() which calls ResetC64().
   #ifdef OPENCOLLECTORSTYLE
-    ResetHigh();
+    ResetLow();
     NmiHigh();
   #else
     pinMode(RESET, OUTPUT);
-    digitalWrite(RESET, HIGH);
+    digitalWrite(RESET, LOW);
 
     pinMode(NMI, OUTPUT);
     digitalWrite(NMI, HIGH);
@@ -321,10 +320,10 @@ bool CartInterface::WaitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs
 
 void CartInterface::Init() {
   IOSetup();
-  // IOSetup() leaves /RESET HIGH (not driven) and EXROM HIGH (cartridge hidden).
-  // C64 boots normally to BASIC. Data bus pins start as INPUT (tristate).
-  // SetAddressPinsOutput() must NOT be called here to avoid bus contention.
-  // Listening starts later, after SD init and after PHI2 has become stable.
+  // IOSetup() holds /RESET LOW (C64 in reset) and sets EXROM HIGH (cartridge hidden).
+  // Data bus pins start as INPUT (tristate). SetAddressPinsOutput() must NOT be
+  // called here to avoid bus contention. The boot state machine in setup()
+  // releases /RESET after SD + runtime init, via TransferMenu() → ResetC64().
 }
 
 

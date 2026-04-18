@@ -886,7 +886,7 @@ def arduino_setup(ctx: Context) -> None:
     print("\nNext: python build.py arduino-compile")
 
 
-def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: bool = False, release_log: bool = False) -> None:
+def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: bool = False, release_log: bool = False, selftest: bool = False) -> None:
     """Generate BuildConfig.h for Arduino sketch"""
     buildconfig_h = ctx.arduino_root / "BuildConfig.h"
     if protocol_test:
@@ -901,7 +901,11 @@ def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: 
         mode_str = "PROTOCOL_TEST"
     elif debug_mode:
         buildconfig_content = "#define EASYSD_DEBUG_SERIAL\n"
-        mode_str = "ON"
+        if selftest:
+            buildconfig_content += "#define EASYSD_SELFTEST\n"
+            mode_str = "ON+SELFTEST"
+        else:
+            mode_str = "ON"
     elif release_log:
         buildconfig_content = "#define EASYSD_RELEASE_LOG\n"
         mode_str = "RELEASE_LOG"
@@ -913,15 +917,15 @@ def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: 
     print(f"[ARDUINO] Generated BuildConfig.h (EASYSD_DEBUG_SERIAL={mode_str})")
 
 
-def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, protocol_test: bool = False, release_log: bool = False) -> dict | None:
+def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, protocol_test: bool = False, release_log: bool = False, selftest: bool = False) -> dict | None:
     """Compile Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
     build_path, _ = prepare_arduino_cli_paths(ctx, "compile")
 
     # Generate BuildConfig.h first
-    arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test, release_log=release_log)
+    arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test, release_log=release_log, selftest=selftest)
 
-    mode_label = 'PROTOCOL_TEST' if protocol_test else ('ON' if debug_mode else ('RELEASE_LOG' if release_log else 'OFF'))
+    mode_label = 'PROTOCOL_TEST' if protocol_test else ('ON+SELFTEST' if (debug_mode and selftest) else ('ON' if debug_mode else ('RELEASE_LOG' if release_log else 'OFF')))
     print("\n" + "="*70)
     print("BUILDING ARDUINO SKETCH")
     print("="*70)
@@ -1216,6 +1220,8 @@ Examples:
     p.add_argument("--baudrate", type=int, default=57600, help="Baudrate for serial monitor (default: 57600)")
     p.add_argument("--isp-sck", type=int, default=2, metavar="USEC",
                    help="ISP SCK period in µs for arduino-upload-isp (default: 2 = 500kHz, use 100 for blank/bricked chips)")
+    p.add_argument("--selftest", action="store_true",
+                   help="Include SD self-test suite in debug builds (adds ~2KB flash)")
     p.add_argument("--release-log", action="store_true",
                    help="Enable lightweight serial logging in release builds (DIR/SYS/SD/ERR categories only)")
     p.add_argument("--optiboot", action="store_true",
@@ -1244,8 +1250,8 @@ def main(argv: Sequence[str]) -> int:
 
     if args.target == "arduino-compile":
         compile_dir = default_arduino_compile_dir(ctx)
-        arduino_compile(ctx, debug_mode=args.debug, output_dir=compile_dir, release_log=args.release_log)
-        mode_label = "DEBUG" if args.debug else ("RELEASE_LOG" if args.release_log else "RELEASE")
+        arduino_compile(ctx, debug_mode=args.debug, output_dir=compile_dir, release_log=args.release_log, selftest=args.selftest)
+        mode_label = "DEBUG+SELFTEST" if (args.debug and args.selftest) else ("DEBUG" if args.debug else ("RELEASE_LOG" if args.release_log else "RELEASE"))
         stage_upload_bundle(ctx, compile_dir, mode_label=mode_label)
         return 0
 

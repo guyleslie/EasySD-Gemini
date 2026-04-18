@@ -43,7 +43,7 @@ python Tools/build.py plugins
 python Tools/build.py clean
 
 # Arduino-specific commands
-python Tools/build.py arduino-compile [--debug]
+python Tools/build.py arduino-compile [--debug] [--selftest]
 python Tools/build.py arduino-upload COM4 [--debug]
 python Tools/build.py arduino-upload-isp [--debug] [--isp-sck USEC]
 python Tools/build.py arduino-monitor COM4
@@ -60,13 +60,13 @@ python Tools/build.py release --skip-arduino
 - `arduino-upload` uses USB serial bootloader (115200 baud, `atmega328` Optiboot FQBN)
 - `arduino-upload-isp` uses USBtinyISP programmer — burns firmware + Optiboot bootloader (USB upload works after)
 - ISP SCK speed: `--isp-sck 2` (500 kHz, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
-- **Debug flash margin is only ~36B** — adding new `LOGD`/`LOGI` calls or string literals in debug mode can push the build over the 30720B limit. Check size before committing.
+- **Debug flash budget:** `--debug` = 29.8KB (96%, ~950B free). `--debug --selftest` exceeds 30720B limit — self-test suite adds ~2KB. Use `--selftest` only for standalone SD testing, not for C64-connected debug sessions.
 
 ## Architecture
 
 ### Dual-System Design
 
-**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. On boot: 3-attempt SD init, then `dirFunc.ReInit()` + `dirFunc.Prepare()` from root. EEPROM last-directory persistence still exists, but boot-time restore is disabled because it caused real-hardware startup instability.
+**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. Cold boot uses explicit state machine: AVR holds C64 /RESET LOW → SD init (3 attempts) → `cartApi.Init()` → `TransferMenu()` releases /RESET and loads menu → `RUNNING_READY`. If SD fails, C64 is released to BASIC and SEL button retries.
 
 **C64 software** (`EasySD/`): Cartridge ROM with communication library (`Loader/`), main file browser menu (`Menu/EasySD/EasySDMenu.s`), and file-type plugins (`Plugins/`).
 
@@ -137,7 +137,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail on nested paths.
 - **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.
 - **EEPROM persistence:** `SaveLastDir()` / `RestoreLastDir()` use `eeprom_update_block()` / `eeprom_read_block()` (avr-libc). Prefer these over byte-by-byte loops — smaller flash footprint. EEPROM layout: bytes 0-1 magic (`0xE5`, `0xD0`), bytes 2-65 null-terminated path. Current firmware still writes the last visited directory, but startup always begins from root instead of restoring it.
-- **Flash budget:** Release 23.7KB/30.7KB (77%, **~7KB free**) — this is the production target (includes COMMAND_HWTEST + auto-load). Debug build 30.7KB (99%, ~36B margin) — debug-only constraint, not a feature limit. Adding new `LOGD`/`LOGI` calls in debug mode can push it over 30720B.
+- **Flash budget:** Release 25.2KB/30.7KB (82%, **~5.5KB free**). Debug 29.8KB (96%, ~950B free). Debug+selftest exceeds limit (~32.6KB) — self-test suite gated behind `EASYSD_SELFTEST`, enabled via `--selftest` flag.
 
 ## Key File Locations
 
@@ -166,7 +166,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 
 Baud rate: 57600. Log format: `[LEVEL][CATEGORY] message` (e.g. `[INFO][SD] SD OK`, `[ERR][DIR] chdir failed`). Categories: `SYS`, `SD`, `DIR`, `FILE`, `PROTO`, `PRG`, `ERR`. Enable with `debug-arduino` build target or `--debug` flag. Category compilation controlled by `LOG_ENABLE_*` flags in `EasySDLog.h` — `PRG` and `PROTO` are OFF by default to save flash.
 
-**Self-test:** Send `T` via serial to run the on-device test suite (8 tests: SD init, file read, seek, non-existent file, write/delete, memory stability, root listing, directory navigation).
+**Self-test:** Build with `--debug --selftest`, then send `T` via serial to run the on-device test suite (8 tests: SD init, file read, seek, non-existent file, write/delete, memory stability, root listing, directory navigation). Self-test adds ~2KB flash and exceeds the 30720B limit — use only for standalone SD card testing, not for C64-connected sessions.
 
 ```bash
 # Prepare SD card with test files (TESTDATA.BIN, TESTFILE.TXT, BIGFILE.BIN, TESTDIR/INNER.TXT)
