@@ -21,7 +21,7 @@ unsigned long pressTimeMs = 0;
 unsigned long buttonEnableAtMs = 0;
 
 const unsigned char chipSelect = 10;
-const unsigned long BUTTON_BOOT_GUARD_MS = 120;
+const unsigned long BUTTON_BOOT_GUARD_MS = 500;
 const unsigned long BUTTON_POST_ACTION_GUARD_MS = 120;
 const unsigned long BUTTON_DEBOUNCE_MS = 25;
 const unsigned long BUTTON_LONG_PRESS_MS = 1000;
@@ -30,25 +30,6 @@ static void suppressButtonsFor(unsigned long delayMs) {
   buttonEnableAtMs = millis() + delayMs;
   state = stateNone;
   pressTimeMs = 0;
-}
-
-static bool waitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs) {
-  unsigned long startMs = millis();
-  bool lastLevel = phi2Read();
-  uint16_t edgeCount = 0;
-
-  while ((millis() - startMs) < timeoutMs) {
-    bool currentLevel = phi2Read();
-    if (currentLevel != lastLevel) {
-      lastLevel = currentLevel;
-      edgeCount++;
-      if (edgeCount >= minEdges) {
-        return true;
-      }
-    }
-  }
-
-  return false;
 }
 
 #ifdef EASYSD_DEBUG_SERIAL
@@ -157,12 +138,19 @@ void setup() {
   bool sdSuccess = initSD();
   printSDStatus(sdSuccess);
 
-
   // cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
   cartApi.Init();
 
-  // C64 is booting to BASIC on its own. Keep only a short guard window
-  // against power-on button noise.
+  // Do not listen on IO2 until the SD stack is initialized and the C64 clock
+  // is visibly running. This avoids cold-boot false sessions before BASIC is up.
+  if (!cartInterface.WaitForStablePhi2(16, 250)) {
+    LOGE(SYS, "PHI2 not stable at boot");
+  }
+  delay(20);
+  cartInterface.StartListening();
+
+  // Cold boot still needs a short settle window after PHI2 becomes stable:
+  // the machine may already show BASIC while bus/session noise is still dying out.
   suppressButtonsFor(BUTTON_BOOT_GUARD_MS);
 }
 

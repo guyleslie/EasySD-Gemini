@@ -96,6 +96,7 @@ class CartInterface {
   void ResetReceiveNoStateChange();
   void StartListening();
   void EndListening();
+  bool WaitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs);
 
   void SoftStartListening();
   void SoftEndListening();

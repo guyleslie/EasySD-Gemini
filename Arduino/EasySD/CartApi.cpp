@@ -310,7 +310,6 @@ void CartApi::HandleGotoPath() {
 
   bool ok = dirFunc.NavigateToPath(path);
   if (ok) {
-    dirFunc.Prepare();
     HandleResponse(SUCCESSFUL, 1);
   } else {
     HandleResponse(DIR_NOT_FOUND, 1);
@@ -429,7 +428,6 @@ void CartApi::HandleChangeDirectory() {
   bool success = dirFunc.ChangeDirectoryBasename(fileName);
 
   if (success) {
-    dirFunc.Prepare();
     LOGI(DIR, "CD OK: ");
     LOG_PRINT(dirFunc.currentPath);
     LOG_PRINT_F(" cnt="); LOG_PRINTLN(dirFunc.GetCount());
@@ -1225,16 +1223,19 @@ void CartApi::GetArgumentsDynamic(int16_t argumentsLength) {
 
 void CartApi::HandleApi() {  
   static unsigned long lastSessionActivityMs = 0;
+  static bool sessionSawCommand = false;
   uint8_t state = cartInterface.ReceiveHandler();
 
   if (state == IN_TRANSMISSION) {    
       if (lastSessionActivityMs == 0) {
         lastSessionActivityMs = millis();
+        sessionSawCommand = false;
       }
 
       int16_t command = GetByte();
       if (command>=0) {
         lastSessionActivityMs = millis();
+        sessionSawCommand = true;
         m_argsOk = true;  // assume OK; GetArguments* will clear on timeout
         cartInterface.SetPage(0);
 
@@ -1271,6 +1272,7 @@ void CartApi::HandleApi() {
             cartInterface.DisableCartridge();
             cartInterface.ResetReceive();
             lastSessionActivityMs = 0;
+            sessionSawCommand = false;
             return;
         }
 
@@ -1282,22 +1284,28 @@ void CartApi::HandleApi() {
           cartInterface.DisableCartridge();
           cartInterface.ResetReceive();
           lastSessionActivityMs = 0;
+          sessionSawCommand = false;
           return;
         }
 
         cartInterface.SetPage(0);
       } else {
-        // Session watchdog: if we stay in IN_TRANSMISSION without any command
-        // bytes for too long, recover to IDLE (noise / aborted session).
-        if ((unsigned long)(millis() - lastSessionActivityMs) > 1000UL) {
-          LOGE(SYS, "Session idle reset");
+        // Only reap sessions that never delivered a single command byte.
+        // The EasySD menu intentionally keeps one long-lived session open
+        // while the user navigates, so resetting an otherwise healthy idle
+        // menu session causes the slow-navigation lockups seen on hardware.
+        if (!sessionSawCommand &&
+            (unsigned long)(millis() - lastSessionActivityMs) > 250UL) {
+          LOGE(SYS, "Session pre-cmd reset");
           cartInterface.DisableCartridge();
           cartInterface.ResetReceive();
           lastSessionActivityMs = 0;
+          sessionSawCommand = false;
         }
       }
    } else {
       lastSessionActivityMs = 0;
+      sessionSawCommand = false;
    }
 }  
 
@@ -1364,7 +1372,6 @@ void CartApi::TransferMenu() {
   cartInterface.EndListening();  
    
   dirFunc.ReInit();
-  dirFunc.Prepare();
   
   unsigned char readFromFile = 0;  
   
@@ -1452,6 +1459,10 @@ void CartApi::TransferMenu() {
   // The file is no longer needed — the menu PRG is now in C64 RAM.
   if (readFromFile && workingFile) workingFile.close();
 
+  // Wait until the reset/menu boot sequence has produced a stable PHI2 clock
+  // again before accepting a fresh IO2 protocol session from the C64.
+  cartInterface.WaitForStablePhi2(32, 250);
+  delay(20);
   cartInterface.StartListening();
 }
 

@@ -45,6 +45,25 @@ bool waitForPhi2Level(bool targetLevel, unsigned long timeoutUs) {
   return true;
 }
 
+bool waitForStablePhi2Edges(uint16_t minEdges, unsigned long timeoutMs) {
+  unsigned long startMs = millis();
+  bool lastLevel = phi2ReadFast();
+  uint16_t edgeCount = 0;
+
+  while ((unsigned long)(millis() - startMs) < timeoutMs) {
+    bool currentLevel = phi2ReadFast();
+    if (currentLevel != lastLevel) {
+      lastLevel = currentLevel;
+      edgeCount++;
+      if (edgeCount >= minEdges) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 void syncBusChangeToPhi2Low() {
   // Cartridge visibility and bus-driving changes should happen while PHI2 is low,
   // i.e. outside the CPU-owned half-cycle, to avoid mid-read mapping glitches.
@@ -296,13 +315,16 @@ void CartInterface::SoftEndListening() {
   ResetReceiveNoStateChange();
 }
 
+bool CartInterface::WaitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs) {
+  return waitForStablePhi2Edges(minEdges, timeoutMs);
+}
 
 void CartInterface::Init() {
   IOSetup();
   // IOSetup() leaves /RESET HIGH (not driven) and EXROM HIGH (cartridge hidden).
   // C64 boots normally to BASIC. Data bus pins start as INPUT (tristate).
   // SetAddressPinsOutput() must NOT be called here to avoid bus contention.
-  StartListening();
+  // Listening starts later, after SD init and after PHI2 has become stable.
 }
 
 
