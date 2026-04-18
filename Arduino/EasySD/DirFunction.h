@@ -44,7 +44,7 @@ class DirFunction {
 
     // Preview buffer used for menu listing transport to the C64.
     // It intentionally stores only the leading part of a filename.
-    char currentFileName[64];
+    char currentFileName[32];
     int IsDirectory;
     int IsFinished;
     int InSubDir;

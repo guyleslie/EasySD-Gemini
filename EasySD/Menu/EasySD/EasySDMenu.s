@@ -113,10 +113,8 @@ CART_ROM_RESTORE .macro
 	LDY #>MSG_SD_READ_ERR
 	JSR STATUS_LINE
 _dir_ok
-	JSR REFRESH_PATHBUFFER
 .else
 	JSR MOCK_InitReadDirectory
-	JSR REFRESH_PATHBUFFER
 .endif
 
 ;Start of main loop
@@ -309,19 +307,6 @@ _gcp_copy
 	INY
 	CPY #64
 	BNE _gcp_copy
-	; Validate payload: must be absolute path and null-terminated in first 64 bytes.
-	LDA PATHBUFFER
-	CMP #$2F		; '/'
-	BNE _gcp_error
-	LDY #0
-_gcp_find_nul
-	LDA PATHBUFFER, Y
-	BEQ _gcp_ok
-	INY
-	CPY #64
-	BNE _gcp_find_nul
-	JMP _gcp_error
-_gcp_ok
 	CLC
 	RTS
 _gcp_error
@@ -365,10 +350,12 @@ _eld_done
 
 ENTERDIR
 .if DEBUG = 0
-	; Menu path changes use page + row index so Arduino can resolve the full
-	; LFN from the current listing instead of relying on the 31-char preview.
-	LDA CURPAGEINDEX
-	JSR PROT_ChangeDirectoryIndex
+	; Set filename from selected directory record and change directory by name.
+	; This is the proven path used in the stable 5331f47 flow.
+	LDX NAMELOW
+	LDY NAMEHIGH
+	JSR PROT_SetNameZ
+	JSR PROT_ChangeDirectory
 	BCS CHANGEDIRFAIL
 .else
 	JSR MOCK_EnterDir
@@ -399,10 +386,8 @@ DOREADDIRECTORY
 	LDY #>MSG_SD_READ_ERR
 	JSR STATUS_LINE
 _dirNC_ok
-	JSR REFRESH_PATHBUFFER
 .else
 	JSR MOCK_ReadDirectory
-	JSR REFRESH_PATHBUFFER
 .endif
 	
 	JMP NEWCONTENT
@@ -1509,8 +1494,10 @@ PRINTDIRHEADER
 	STA $042C
 
 .if DEBUG = 0
-	; PATHBUFFER is refreshed after each directory read/change in
-	; REFRESH_PATHBUFFER. Keep rendering side-effect free here.
+	; Read current path directly here (stable behavior from the proven flow).
+	JSR PROT_GetCurrentPath
+.else
+	JSR MOCK_GetCurrentPath
 .endif
 	; Check if at root: PATHBUFFER[1] == 0 means path is just "/"
 	LDA PATHBUFFER+1
@@ -1587,32 +1574,6 @@ _pdh_col
 	BNE _pdh_col
 	RTS
 
-; ------------------------------------------------------------
-; REFRESH_PATHBUFFER
-;   Keep PATHBUFFER synchronized with Arduino currentPath at safe points
-;   (after directory reads/changes), not during header rendering.
-;   On communication error, fallback to "/".
-; ------------------------------------------------------------
-REFRESH_PATHBUFFER
-.if DEBUG = 0
-	JSR PROT_GetCurrentPath
-	BCC _rpb_ok
-	; On path transfer error, clear full buffer and force root.
-	LDY #0
-	LDA #$00
-_rpb_clear
-	STA PATHBUFFER, Y
-	INY
-	CPY #64
-	BNE _rpb_clear
-	LDA #$2F		; '/'
-	STA PATHBUFFER
-_rpb_ok
-	RTS
-.else
-	JSR MOCK_GetCurrentPath
-	RTS
-.endif
 
 ; ------------------------------------------------------------
 ; PrepareFileNameParameter

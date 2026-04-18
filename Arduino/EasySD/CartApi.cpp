@@ -34,9 +34,8 @@ void CartApi::Init() {
   m_argsOk = true;
   cartInterface.SetPage(0);
 
-  // ReInit() → ToRoot() already does sd.chdir("/") + ResyncDirFromCwd() +
-  // CountEntries(). No separate Prepare() needed.
   dirFunc.ReInit();
+  dirFunc.Prepare();
 }
 
 inline void HandleResponse(unsigned char response, uint16_t waitAfterResponse) {
@@ -262,6 +261,8 @@ void CartApi::HandleGetInfoForFile() {
   // (confirmed: BUG-F). All callers (#GETFILEINFO) only need bytes 28-31 (size).
   uint32_t sz = workingFile.fileSize();
   HandleResponse(SUCCESSFUL, 1);
+  // Keep 256-byte page framing deterministic for the C64 receiver.
+  cartInterface.ResetIndex();
   noInterrupts();
   for (uint8_t i = 0; i < 28; i++) cartInterface.TransmitByteFast(0);
   cartInterface.TransmitByteFast((uint8_t)(sz));
@@ -277,6 +278,8 @@ void CartApi::HandleGetPath() {
   GetArgumentsStatic(0);
   const char* path = dirFunc.currentPath;
   HandleResponse(SUCCESSFUL, 1);
+  // Keep 256-byte page framing deterministic for the C64 receiver.
+  cartInterface.ResetIndex();
   noInterrupts();
   for (uint8_t i = 0; i < 64; i++) {
     cartInterface.TransmitByteFast(path[i]);
@@ -424,15 +427,9 @@ void CartApi::HandleChangeDirectory() {
   LOG_PRINTLN(fileName);
 
   bool success = dirFunc.ChangeDirectoryBasename(fileName);
-  if (!success) {
-    static char matchBuf[128];
-    uint8_t len = (uint8_t)strlen(fileName);
-    if (dirFunc.FindDirectoryByPrefix(fileName, len, matchBuf, sizeof(matchBuf))) {
-      success = dirFunc.ChangeDirectoryBasename(matchBuf);
-    }
-  }
 
   if (success) {
+    dirFunc.Prepare();
     LOGI(DIR, "CD OK: ");
     LOG_PRINT(dirFunc.currentPath);
     LOG_PRINT_F(" cnt="); LOG_PRINTLN(dirFunc.GetCount());
@@ -1366,10 +1363,8 @@ void CartApi::TransferMenu() {
 
   cartInterface.EndListening();  
    
-  // ReInit() → ToRoot() already does sd.chdir("/") + ResyncDirFromCwd() +
-  // CountEntries(). No need for the extra Prepare() call that was duplicating
-  // the same ResyncDirFromCwd + CountEntries work.
   dirFunc.ReInit();
+  dirFunc.Prepare();
   
   unsigned char readFromFile = 0;  
   

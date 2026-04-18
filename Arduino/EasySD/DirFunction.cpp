@@ -115,45 +115,48 @@ bool DirFunction::GoBack() {
     return true;
   }
 
-  // Compute parent path by stripping the last path component
-  char parentPath[64];
-  strcpy(parentPath, currentPath);
-  int plen = strlen(parentPath);
-  if (parentPath[plen-1] == '/') { parentPath[--plen] = '\0'; }
-  for (int i = plen - 1; i >= 0; i--) {
-    if (parentPath[i] == '/') {
+  // Save for rollback
+  char savedPath[64];
+  strcpy(savedPath, currentPath);
+  uint8_t savedDepth = pathDepth;
+
+  // Strip trailing slash
+  if (currentPath[len-1] == '/') { currentPath[len-1] = '\0'; len--; }
+
+  // Strip last path component
+  for (int i = len - 1; i >= 0; i--) {
+    if (currentPath[i] == '/') {
       if (i == 0) {
         ToRoot();
         return true;
       }
-      parentPath[i] = '\0';
+      currentPath[i] = '\0';
       break;
     }
   }
 
-  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(parentPath);
+  pathDepth--;
+  if (pathDepth == 0) InSubDir = 0;
 
-  // Prefer a direct relative step up. This avoids rescanning every ancestor
-  // directory on the hot path while keeping the absolute-path fallback.
-  if (sd.chdir("..")) {
-    if (!ResyncDirFromCwd()) {
-      LOGE(DIR, "GoBack ResyncDirFromCwd FAIL");
-      return false;
-    }
+  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(currentPath);
 
-    strcpy(currentPath, parentPath);
-    pathDepth--;
+  if (!sd.chdir(currentPath)) {
+    LOGE(DIR, "GoBack chdir FAIL");
+    strcpy(currentPath, savedPath);
+    pathDepth = savedDepth;
     InSubDir = (pathDepth > 0) ? 1 : 0;
-    CountEntries();
-    return true;
-  }
-
-  // Fallback for cards/filesystems where relative parent navigation is not
-  // accepted even though segment-by-segment navigation works reliably.
-  if (!NavigateToPath(parentPath)) {
-    LOGE(DIR, "GoBack FAIL");
     return false;
   }
+
+  if (!ResyncDirFromCwd()) {
+    LOGE(DIR, "GoBack ResyncDirFromCwd FAIL");
+    strcpy(currentPath, savedPath);
+    pathDepth = savedDepth;
+    InSubDir = (pathDepth > 0) ? 1 : 0;
+    return false;
+  }
+
+  CountEntries();
   return true;
 }
 
