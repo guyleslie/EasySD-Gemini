@@ -256,8 +256,8 @@ uint16_t CartInterface::Read() {
 void CartInterface::IOSetup() {
   // Cold boot: hold C64 in /RESET while AVR initializes SD + runtime.
   // EXROM stays HIGH (cartridge hidden). Data bus stays INPUT (tristate).
-  // The boot state machine in setup() will release /RESET after initialization
-  // is complete, via TransferMenu() which calls ResetC64().
+  // The boot state machine in setup() releases /RESET after init is complete,
+  // letting C64 boot to BASIC. Menu is loaded only on explicit SEL press.
   #ifdef OPENCOLLECTORSTYLE
     ResetLow();
     NmiHigh();
@@ -323,7 +323,7 @@ void CartInterface::Init() {
   // IOSetup() holds /RESET LOW (C64 in reset) and sets EXROM HIGH (cartridge hidden).
   // Data bus pins start as INPUT (tristate). SetAddressPinsOutput() must NOT be
   // called here to avoid bus contention. The boot state machine in setup()
-  // releases /RESET after SD + runtime init, via TransferMenu() → ResetC64().
+  // releases /RESET via ResetHigh() after SD + runtime init, booting C64 to BASIC.
 }
 
 

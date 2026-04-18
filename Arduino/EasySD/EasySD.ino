@@ -13,13 +13,14 @@ DirFunction dirFunc;
 CartApi cartApi;
 CartInterface cartInterface;
 
-// Boot state machine — cold boot holds C64 in /RESET until AVR is fully ready
+// Boot state machine — cold boot holds C64 in /RESET until AVR is fully ready,
+// then releases to BASIC. Menu is only loaded on explicit SEL button press.
 enum BootState : uint8_t {
   BOOT_HOLD_RESET,      // C64 held in /RESET, AVR starting
   BOOT_INIT_SD,         // Initializing SPI + SD card
   BOOT_INIT_RUNTIME,    // cartApi.Init() — directory setup
-  BOOT_ARM_CARTRIDGE,   // TransferMenu() — arming and releasing C64
-  RUNNING_READY,        // Fully operational
+  BOOT_RELEASE_BASIC,   // Release C64 to BASIC (cartridge hidden)
+  RUNNING_READY,        // Fully operational, waiting for SEL press
   BOOT_ERROR            // SD init failed, C64 released to BASIC
 };
 
@@ -201,6 +202,7 @@ void setup() {
   SPI.begin();
 
   // IO2 receive not armed during cold boot — listening starts after TransferMenu()
+  // which is only called on explicit SEL button press, not at boot.
   cartInterface.ResetReceive();
 
   // SD card power-up settling time. Previously implicit from Optiboot bootloader
@@ -219,14 +221,15 @@ void setup() {
     cartApi.Init();
     runtimeReady = true;
 
-    LOGI(SYS, "Boot: arm cartridge");
-    bootState = BOOT_ARM_CARTRIDGE;
-    // TransferMenu() releases /RESET via ResetC64(), transfers the menu PRG,
-    // waits for stable PHI2, and starts IO2 listening.
-    cartApi.TransferMenu();
+    // Release C64 to BASIC — cartridge stays hidden (EXROM HIGH, bus tristate).
+    // /RESET was held LOW by IOSetup(); releasing it lets C64 boot to BASIC.
+    // Menu is NOT loaded automatically; user must press SEL to invoke TransferMenu().
+    LOGI(SYS, "Boot: release to BASIC");
+    bootState = BOOT_RELEASE_BASIC;
+    cartInterface.ResetHigh();
 
     bootState = RUNNING_READY;
-    LOGI(SYS, "Boot: running");
+    LOGI(SYS, "Boot: ready (BASIC)");
   } else {
     // SD failed: release C64 to BASIC so the user isn't stuck at a black screen.
     // SEL button will retry SD init + TransferMenu on press.
@@ -276,7 +279,8 @@ void loop() {
     }
   }
 
-  // Handle API only when runtime is ready — listening is started by TransferMenu().
+  // Handle API only when runtime is ready — listening is started by TransferMenu()
+  // which is called on SEL press, not at cold boot.
   if (runtimeReady) {
     cartApi.HandleApi();
   }
