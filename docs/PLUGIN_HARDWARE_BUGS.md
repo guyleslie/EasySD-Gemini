@@ -1,28 +1,31 @@
 # EasySD Plugin Hardware Bug Investigation
 
-**Status:** Open — hardware debugging in progress
-**Date:** 2026-04-12
-**Scope:** Common real-hardware plugin failures on PCB v3. MultiLoad notes below include both the historical hang report and the current post-fix retest status.
+**Status:** Open — plugin hardware status is still narrower than the now-stable boot/menu/PRG baseline
+**Date:** 2026-04-18
+**Scope:** Real-hardware plugin status on PCB v3. The firmware baseline itself is currently stable for boot to BASIC, SEL-triggered menu entry, directory navigation, and PRG loading; this document tracks what remains uncertain or broken beyond that baseline.
 
 ---
 
 ## 1. Symptom
 
-Several non-trivial plugins fail on real C64 hardware (PCB v3, ATmega328P, Optiboot).
-The same plugins pass in VICE with `debug-vice` builds.
+The current firmware baseline is no longer the main open problem. Source plus recent hardware use indicate that boot, menu entry, directory navigation, and PRG loading are stable on the current firmware.
+
+The remaining uncertainty is plugin behavior on real C64 hardware. VICE still passes more cases than real hardware confirms, so plugin status must be tracked separately.
 
 | Plugin | Extension | VICE | Real HW |
 |--------|-----------|------|---------|
 | KernalBridge (PRG loader) | `.PRG` | ✅ | ✅ working |
-| HWTest (signal test) | `.HWT` | ✅ | ✅ working |
-| WavPlayer | `.WAV` | ✅ | ❌ hang |
-| KoalaDisplayer | `.KOA` | ✅ | ❌ hang |
-| MusPlayer | `.MUS` | ✅ | ❌ hang |
-| PetsciiDisplayer | `.PET` | ✅ | ❌ hang |
-| CvdPlayer | `.CVD` | ✅ | ❌ hang |
+| HWTest (signal test) | `.HWT` | ✅ | ❌ current bench report: not working correctly |
+| WavPlayer | `.WAV` | ✅ | ⚠️ not yet re-verified on current stable firmware baseline |
+| KoalaDisplayer | `.KOA` | ✅ | ⚠️ not yet re-verified on current stable firmware baseline |
+| MusPlayer | `.MUS` | ✅ | ⚠️ not yet re-verified on current stable firmware baseline |
+| PetsciiDisplayer | `.PET` | ✅ | ⚠️ not yet re-verified on current stable firmware baseline |
+| CvdPlayer | `.CVD` | ✅ | ⚠️ not yet re-verified on current stable firmware baseline |
 | MultiLoad | `.PRG` (EASYLOAD) | ✅ | ⚠️ historical hang on older build; current code needs hardware re-test |
 
 **Historical MultiLoad failure:** on the older hardware-debug build, black outer border + dark blue inner border appeared immediately, then the system hung indefinitely.
+
+**Important status rule:** unless a plugin has been explicitly re-tested on the present firmware/hardware baseline, do not downgrade the whole firmware state because of older plugin notes. Keep the stable baseline and plugin-specific status separate.
 
 **Current status:** MultiLoad source changed materially on 2026-04-12. The resident loader now preserves the game's NMI vector during transfers, no longer destroys unrelated IRQ sources, returns X/Y correctly from the resident stub, and the first-part config field now stores the full filename including `.PRG` in 20 bytes. The Multiload template builds cleanly and the existing VICE PRG-load suite still passes, but the current MultiLoad code has not yet been re-verified on real hardware.
 

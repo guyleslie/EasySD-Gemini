@@ -121,7 +121,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 | MusPlayer | `.MUS` | ❌ needs debug |
 | PetsciiDisplayer | `.PET` | ❌ needs debug |
 | CvdPlayer (CVD video player) | `.CVD` | ❌ needs debug |
-| HWTest (signal diagnostic) | `.HWT` | ✅ working |
+| HWTest (signal diagnostic) | `.HWT` | ❌ needs debug |
 
 **KernalBridge** handles PRGs that load into `$C000+` via a three-phase transfer kernel (P2TK). Trigger: `ENDADDRESS > $C002`. Data tables stored at `$C003`/`$C02A` (KernalBridge gap, always-readable RAM).
 

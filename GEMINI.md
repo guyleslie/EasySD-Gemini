@@ -4,8 +4,9 @@ This document is for AI assistants working on the EasySD project. It covers rule
 constraints that are not obvious from the code. Always check the code itself — this file describes
 *why* things are done a certain way, not just what they are.
 
-- **Current Version**: Post-v3.1.3 (BASIC-first cold boot, PCB v3 validated, 2026-04-18)
-- **Real hardware status**: PRG loading ✅, directory nav ✅, menu ✅ — WAV/KOA/MUS/PET/CVD plugins ❌ (not working on real C64, need debugging)
+- **Current Version**: Post-v3.1.3 / v0.5-era firmware baseline (BASIC-first cold boot, PCB v3, 2026-04-18)
+- **Current stable hardware baseline**: boot to BASIC ✅, SEL -> menu ✅, directory navigation ✅, PRG loading ✅
+- **Current plugin status note**: non-PRG plugins are not yet re-verified on the present hardware baseline; current bench feedback says the HWTest / hardware-test plugin path is not working correctly
 
 ---
 
@@ -105,6 +106,12 @@ For PRGs that load into `$C000+` (trigger: `ENDADDRESS > $C002`):
 - **Directory navigation**: `DirFunction.cpp` — `currentPath[64]`, relative-path navigation
 - **C64 communication**: `CartInterface.cpp` — NMI transfer, IO2 ISR, software serial receive
 - **Pin definitions**: `CartInterface.h` — IO2=D3(INT1), EXROM=D2(PD2), NMI=D8, RESET=D9, SEL=A6, STATUS_LED=A7
+
+Current firmware behavior from source:
+- Cold boot holds the C64 in reset during AVR startup, then releases to BASIC through `ReleaseToBasic(false)`.
+- `TransferMenu()` is called only on explicit short `SEL` press, not automatically at boot.
+- `CartApi::Init()` resets directory state to root via `dirFunc.ReInit()` and `dirFunc.Prepare()`.
+- After PRG launch transfers, the firmware closes the file, disables the cartridge, re-initializes runtime state, and resumes listening.
 
 ### Command Numbers (CartApi.h)
 ```

@@ -38,13 +38,12 @@ Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 | File browser: folder navigation | ✅ Verified |
 | File browser: directory header (`ROOT` / current folder) | ✅ Verified |
 | PRG file loading | ✅ Verified |
-| WavPlayer (`.WAV`) | ⚠️ Not yet tested on real HW |
-| KoalaDisplayer (`.KOA`) | ⚠️ Not yet tested on real HW |
-| MusPlayer (`.MUS`) | ⚠️ Not yet tested on real HW |
-| PetsciiDisplayer (`.PET`) | ⚠️ Not yet tested on real HW |
-| CvdPlayer (`.CVD`) | ⚠️ Not yet tested on real HW |
+| Non-PRG media plugins (`.WAV`, `.KOA`, `.MUS`, `.PET`, `.CVD`) | ⚠️ Not yet re-verified on current real HW firmware baseline |
+| HWTest / hardware-test plugin path | ❌ Current bench report: not working correctly |
 
 **Current field note:** recent hardware sessions point to an intermittent mechanical/contact issue on the EasySD PCB assembly (cartridge edge / module headers), which can mimic boot or reset faults. The firmware now boots to BASIC on cold boot and only enters the menu on explicit `SEL` press; if startup behavior changes when the cartridge or SD module is physically moved, treat that as a hardware integrity issue first.
+
+**Status interpretation:** the verified baseline is currently boot -> BASIC, SEL -> menu, directory browsing, and PRG loading. Plugin status should be treated separately from that baseline until each plugin is re-tested on hardware.
 
 ---
 

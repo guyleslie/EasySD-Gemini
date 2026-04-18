@@ -1,6 +1,6 @@
 # EasySD Development Roadmap
 
-Last updated: 2026-04-12
+Last updated: 2026-04-18
 
 This file is the short planning view of the project. It should stay focused on current source-backed status and next work, not on historical debugging transcripts.
 
@@ -10,10 +10,13 @@ This file is the short planning view of the project. It should stay focused on c
 
 The following points are directly supported by the current codebase:
 
-- Cold boot auto-load path exists in the firmware: `setup()` waits for stable PHI2, then calls `TransferMenu()`.
+- Cold boot does not auto-load the menu. `setup()` initializes SD/runtime, then calls `ReleaseToBasic(false)` so the C64 comes up in BASIC. Menu transfer happens only on explicit short `SEL` press in `loop()`.
 - `TransferMenu()` prefers `EASYSD.PRG` from the SD card root and falls back to built-in `cartridgeData` if the file is not present.
 - Directory handling uses firmware CWD as the source of truth, with `currentPath` kept as UI/debug state.
+- Directory changes are routed through `DirFunction` and resynchronized with `openCwd()` after every `sd.chdir()`.
+- Menu navigation uses `COMMAND_CHANGE_DIR_INDEX` for visible-row directory changes, which avoids stale-name and deep-stack issues on the Arduino side.
 - PRG loading uses KernalBridge and the P2TK path for programs extending into `$C000+`.
+- PRG launch returns the Arduino side to a clean baseline by closing the file, disabling the cartridge, calling `Init()`, and starting listening again.
 - Long filenames and full path handling are supported by the current firmware and recent plugin-side fixes no longer assume a fixed 31-byte media filename.
 - MusPlayer now opens `/PLUGINS/SIDPLAYER.PRG` explicitly.
 - WavPlayer, MusPlayer, and CvdPlayer all contain the expected session-level protocol pieces (`PROT_StartTalking`, file/session cleanup, and the newer path handling), but source inspection alone does not prove final real-hardware reliability.
@@ -22,7 +25,11 @@ The following points are directly supported by the current codebase:
 
 ## Current Cautions
 
-These are the areas where the source shows active complexity or recently changed behavior, but the repository does not currently provide a single unambiguous, final hardware-status source:
+These are the areas where the source shows active complexity or recently changed behavior, and where current bench status is still narrower than the stable firmware baseline:
+
+- The stable real-hardware baseline is currently boot to BASIC, SEL-triggered menu load, directory browsing, and PRG loading.
+- Non-PRG plugin behavior is not yet re-verified as a group on the current hardware/firmware baseline.
+- Current bench feedback says the HWTest / hardware-test plugin path is not working correctly, so older notes marking it working should not be treated as current status.
 
 - WavPlayer remains one of the highest-risk plugins because of its timing-sensitive playback paths and multiple hardware modes.
 - MusPlayer depends on the external SID player binary and symbol alignment in addition to the plugin code itself.
