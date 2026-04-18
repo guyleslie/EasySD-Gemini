@@ -26,22 +26,25 @@ EasySD is a cartridge for the Commodore 64 that combines an Arduino-based SD car
 
 ---
 
-## Hardware verification status (v0.3)
+## Hardware verification status (v0.5)
 
 Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 
 | Feature | Status |
 |---------|--------|
 | C64 boots to BASIC with cartridge inserted | ✅ Verified |
-| SEL button press loads EasySD menu | ✅ Verified |
+| SEL button press loads EasySD menu | ✅ Verified, with one known cold-boot startup limitation |
 | File browser: directory listing | ✅ Verified |
 | File browser: folder navigation | ✅ Verified |
+| File browser: directory header (`ROOT` / current folder) | ✅ Verified |
 | PRG file loading | ✅ Verified |
 | WavPlayer (`.WAV`) | ⚠️ Not yet tested on real HW |
 | KoalaDisplayer (`.KOA`) | ⚠️ Not yet tested on real HW |
 | MusPlayer (`.MUS`) | ⚠️ Not yet tested on real HW |
 | PetsciiDisplayer (`.PET`) | ⚠️ Not yet tested on real HW |
 | CvdPlayer (`.CVD`) | ⚠️ Not yet tested on real HW |
+
+**Known limitation in v0.5:** after a true cold boot, the first SEL press may still occasionally fail to open the menu immediately. Once the menu has been entered, SEL handling stabilizes and behaves normally. This is the main remaining issue for the next fix cycle.
 
 ---
 

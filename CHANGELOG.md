@@ -1,7 +1,7 @@
 # EasySD - Unified Changelog
 
-> **Last updated:** 2026-04-14
-> **Current version:** v0.3 (public) / v3.1.3 (internal)
+> **Last updated:** 2026-04-18
+> **Current version:** v0.5 (public) / v3.1.3 (internal)
 > **Project:** EasySD Gemini - C64 Cartridge-based SD card reader
 
 ---
@@ -16,6 +16,7 @@ This document contains all significant changes to the EasySD project in chronolo
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
+| **v0.5** | 2026-04-18 | Public stabilization release: directory header/nav/PRG launch/SEL handling improved on real hardware | ✅ Real HW verified |
 | **v0.3** | 2026-04-14 | First public release: BASIC-first boot, PRG load, folder nav verified on real hardware | ✅ Real HW verified |
 | **v3.1.3** | 2026-03-09 | P2TK Phase 3: full-range PRG load up to $FFFF, 3 bug fixes | ✅ Complete |
 | **v3.1.2** | 2026-03-08 | WavPlayer EXROM fix, VICE audio test, EasySD rename | ✅ Complete |
@@ -56,6 +57,39 @@ This document contains all significant changes to the EasySD project in chronolo
 ---
 
 ## Chronological Changes
+
+### [v0.5] - 2026-04-18
+**Public Stabilization Release — Real Hardware Verified**
+
+This tag marks the current stabilized public EasySD release, validated on real Commodore 64 hardware with the EasySD v3 PCB.
+
+#### Verified on Real Hardware
+
+| Feature | Status |
+|---------|--------|
+| C64 boots to BASIC with cartridge inserted | ✅ Verified |
+| EasySD menu header shows `ROOT` / current directory correctly | ✅ Verified |
+| Directory navigation (enter folder, go back) | ✅ Verified |
+| PRG file loading | ✅ Verified |
+| SEL button handling after the menu has been entered once | ✅ Verified |
+
+#### Known Limitation
+
+- **Cold-boot SEL startup is not yet fully deterministic:** after a true power-on cold boot, there are still occasional states where the first SEL press does not immediately enter the menu. Once the menu has been entered, SEL handling stabilizes and behaves as expected. This remains the main known issue for the next narrowing/fix cycle.
+
+#### Key Changes Included Since v0.3
+
+- **Directory header path rendering fixed** (`EasySDMenu.s`): the browser header now reliably shows `ROOT` at the root level and the active directory name inside subdirectories.
+- **Directory enter/exit flow stabilized** (`EasySDMenu.s`, `CartApi.cpp`, `DirFunction.cpp`): folder changes no longer hang the browser during normal navigation, including slower user input.
+- **PRG launch path stabilized** (`CartApi.cpp`, plugin path): PRG loading works again on real hardware after the browser fixes.
+- **Menu session handling stabilized** (`CartApi.cpp`): idle-session resets were tightened so slow navigation no longer breaks the active menu session.
+- **Cold-boot/startup listening cleanup** (`EasySD.ino`, `CartInterface.cpp`): boot-time IO2/session handling was reworked to avoid false startup sessions stealing local SEL input.
+- **SEL input conditioning improved** (`EasySD.ino`): the local A6 button input now uses a small hysteresis/stability filter plus explicit post-action re-arming instead of a raw threshold-only read.
+
+#### Release Position
+
+- `v0.5` is recommended over `v0.3` for real hardware use.
+- The remaining cold-boot SEL startup issue is known and isolated enough to continue in a focused follow-up without blocking this release.
 
 ### [v0.3] - 2026-04-14
 **First Public Release — Real Hardware Verified**
