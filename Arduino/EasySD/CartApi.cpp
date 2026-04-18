@@ -1340,7 +1340,6 @@ bool StartsWith(char *str,const char *pre)
     return lenstr < lenpre ? false : strncmp(pre, str, lenpre) == 0;
 }
 
-
 void CartApi::SendHeader(unsigned char startLow, unsigned char startHigh, unsigned char transferPages, long dataLength, unsigned char type, unsigned char transferMode) {
   long endAddress = (startLow + startHigh*256) + dataLength + 1;
 

@@ -19,17 +19,58 @@ const unsigned char statePressed = 1;
 unsigned char state = stateNone;
 unsigned long pressTimeMs = 0;
 unsigned long buttonEnableAtMs = 0;
+bool runtimeReady = false;
+bool runtimeInitAttempted = false;
+bool selStableReleased = true;
+bool selCandidateReleased = true;
+unsigned long selCandidateSinceMs = 0;
 
 const unsigned char chipSelect = 10;
 const unsigned long BUTTON_BOOT_GUARD_MS = 500;
 const unsigned long BUTTON_POST_ACTION_GUARD_MS = 120;
-const unsigned long BUTTON_DEBOUNCE_MS = 25;
+const unsigned long BUTTON_DEBOUNCE_MS = 12;
 const unsigned long BUTTON_LONG_PRESS_MS = 1000;
+const unsigned long BUTTON_RUNTIME_READY_GUARD_MS = 120;
+const unsigned long SEL_STABLE_MS = 8;
+const int SEL_PRESSED_THRESHOLD = 256;
+const int SEL_RELEASED_THRESHOLD = 768;
 
 static void suppressButtonsFor(unsigned long delayMs) {
   buttonEnableAtMs = millis() + delayMs;
   state = stateNone;
   pressTimeMs = 0;
+}
+
+static bool sampleSelReleasedRaw() {
+  return analogRead(SEL) >= SEL_RELEASED_THRESHOLD;
+}
+
+static void rearmSelTracking() {
+  // Seed the stable/candidate state from the current electrical level so the
+  // next press is measured against the real input, not leftover state from a
+  // previous reset or menu transfer.
+  bool released = sampleSelReleasedRaw();
+  selStableReleased = released;
+  selCandidateReleased = released;
+  selCandidateSinceMs = millis();
+}
+
+static bool serviceSelReleased() {
+  const int sample = analogRead(SEL);
+  bool nextCandidateReleased = selStableReleased
+      ? (sample > SEL_PRESSED_THRESHOLD)
+      : (sample >= SEL_RELEASED_THRESHOLD);
+
+  unsigned long now = millis();
+  if (nextCandidateReleased != selCandidateReleased) {
+    selCandidateReleased = nextCandidateReleased;
+    selCandidateSinceMs = now;
+  } else if (selStableReleased != selCandidateReleased &&
+             (unsigned long)(now - selCandidateSinceMs) >= SEL_STABLE_MS) {
+    selStableReleased = selCandidateReleased;
+  }
+
+  return selStableReleased;
 }
 
 #ifdef EASYSD_DEBUG_SERIAL
@@ -73,6 +114,40 @@ bool initSD() {
   }
 
   return false;
+}
+
+static bool ensureRuntimeReady() {
+  if (runtimeReady) {
+    return true;
+  }
+
+  bool sdSuccess = initSD();
+  printSDStatus(sdSuccess);
+  if (!sdSuccess) {
+    return false;
+  }
+
+  cartApi.Init();
+  runtimeReady = true;
+  return true;
+}
+
+static void serviceBootRuntimeInit() {
+  if (runtimeReady || runtimeInitAttempted) {
+    return;
+  }
+
+  runtimeInitAttempted = true;
+  if (ensureRuntimeReady()) {
+    // Only enable SEL after the whole runtime stack is ready. This removes the
+    // ambiguous window where BASIC is already visible but the first button
+    // press still races SD/cartApi initialization.
+    suppressButtonsFor(BUTTON_RUNTIME_READY_GUARD_MS);
+    rearmSelTracking();
+  } else {
+    // Keep retrying on later loop iterations if SD init fails transiently.
+    runtimeInitAttempted = false;
+  }
 }
 
 // SD error recovery: reinitialize card + resync dirFunc
@@ -130,28 +205,17 @@ void setup() {
   digitalWrite(chipSelect, HIGH);
   SPI.begin();
 
-  // Without Optiboot, firmware starts ~1ms after power-on. SD cards need up to
-  // 300ms power-up time before accepting SPI commands (SD spec + margin).
-  // Optiboot's 300ms window provided this implicitly; we must supply it explicitly.
-  delay(300);
+  // Do not arm the IO2 receive state machine during cold boot idle. In the
+  // BASIC-first design, the first user-visible action is always the local SEL
+  // button, not an incoming C64 API session. Starting to listen here lets
+  // power-on bus noise create partial/false sessions that steal the first SEL
+  // press on real hardware. Listening starts after the first successful menu
+  // transfer instead.
+  cartInterface.ResetReceive();
 
-  bool sdSuccess = initSD();
-  printSDStatus(sdSuccess);
-
-  // cartApi.Init() handles dirFunc.ReInit() + Prepare() internally
-  cartApi.Init();
-
-  // Do not listen on IO2 until the SD stack is initialized and the C64 clock
-  // is visibly running. This avoids cold-boot false sessions before BASIC is up.
-  if (!cartInterface.WaitForStablePhi2(16, 250)) {
-    LOGE(SYS, "PHI2 not stable at boot");
-  }
-  delay(20);
-  cartInterface.StartListening();
-
-  // Cold boot still needs a short settle window after PHI2 becomes stable:
-  // the machine may already show BASIC while bus/session noise is still dying out.
+  // Cold boot still needs a short settle window before runtime init begins.
   suppressButtonsFor(BUTTON_BOOT_GUARD_MS);
+  rearmSelTracking();
 }
 
 
@@ -160,27 +224,41 @@ void loop() {
     state = stateNone;
     pressTimeMs = 0;
   } else {
-    if (!selRead() && state == stateNone) {
+    serviceBootRuntimeInit();
+
+    if (!runtimeReady) {
+      state = stateNone;
+      pressTimeMs = 0;
+      cartApi.HandleApi();
+      return;
+    }
+
+    bool selReleased = serviceSelReleased();
+
+    if (!selReleased && state == stateNone) {
       state = statePressed;
       pressTimeMs = millis();
     }
 
-    if (selRead() && state == statePressed) {
+    if (selReleased && state == statePressed) {
       unsigned long elapsedMs = millis() - pressTimeMs;
       state = stateNone;
 
       // Ignore switch bounce / accidental micro taps.
       if (elapsedMs >= BUTTON_DEBOUNCE_MS) {
-        // Long press: hold >1s, then release -> reset to BASIC only.
         if (elapsedMs > BUTTON_LONG_PRESS_MS) {
+          // Long press: hold >1s, then release -> reset to BASIC only.
           LOGI(SYS, "SEL long press -> reset");
           cartApi.ResetNoCartridge();
         } else {
           // Short press: release under 1s -> load EasySD menu.
           LOGI(SYS, "SEL press -> menu");
-          cartApi.TransferMenu();
+          if (ensureRuntimeReady()) {
+            cartApi.TransferMenu();
+          }
         }
         suppressButtonsFor(BUTTON_POST_ACTION_GUARD_MS);
+        rearmSelTracking();
       }
     }
   }
