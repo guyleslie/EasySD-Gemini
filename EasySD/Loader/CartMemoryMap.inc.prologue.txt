@@ -1,0 +1,22 @@
+;==============================================================================
+; CartMemoryMap.inc - Canonical High Memory Map for EasySD/IRQHack64
+; -----------------------------------------------------------------------------
+; Purpose: Defines standard high memory regions for plugins and menu code on
+;          the C64 side. Provides optional reference symbols for transfer buffers,
+;          NMI handler region, and BurstLoader buffer. All API access is via
+;          Zero Page pointers (see CartZpMap.inc).
+;
+; Key Architecture (2026):
+;   - Buffers can be placed anywhere; fixed addresses are optional for consistency
+;   - Type A plugins: assembler auto-placement is recommended
+;   - Type B apps (e.g., BurstLoader) have full memory freedom
+;   - All buffer and region usage must be documented in plugin headers
+;
+; Lessons Learned (2026):
+;   - Never assume fixed buffer addresses; always check actual symbol placement
+;   - Document all memory usage and cross-reference with canonical docs
+;   - Use .if/.error checks to prevent memory overlap
+;   - Always update this file and docs when memory map changes
+;
+; See also: docs/MEMORY_MAP_CANONICAL.md, CartZpMap.inc, Plugin headers
+;==============================================================================

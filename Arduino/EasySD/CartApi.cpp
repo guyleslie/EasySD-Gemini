@@ -1009,6 +1009,30 @@ void CartApi::HandleStream() {
         }
         workingFile.read(streamingBuffer2, DOUBLE_BUFFER_SIZE);         
       }
+#==============================================================================
+# CartApi.cpp - EasySD Cartridge API Implementation
+# -----------------------------------------------------------------------------
+# Purpose: Implements the command protocol and file/directory operations for
+#          the EasySD cartridge (Arduino side). Handles all C64-initiated API
+#          commands: file open/read/write/close, directory navigation, and
+#          streaming. Coordinates with DirFunction and CartInterface.
+#
+# Key Architecture (2026):
+#   - All protocol commands are routed through CartApi::HandleApi()
+#   - File operations use SdFat 2.x API (File, not deprecated SdFile)
+#   - Robust error handling: always responds to C64, never leaves protocol in
+#     undefined state
+#   - Absolute path handling: always navigates to parent before opening file
+#   - Streaming uses static double buffers for ISR safety
+#
+# Lessons Learned (2026):
+#   - Always document protocol state transitions and error codes
+#   - Never trust absolute paths from C64; always validate and restore CWD
+#   - Use static buffers for all ISR-driven streaming to avoid pointer bugs
+#   - All file operations must be atomic and rollback-safe
+#
+# See also: docs/CARTRIDGE_PROTOCOL_OVERVIEW.md, DirFunction.cpp, CartInterface.cpp
+#==============================================================================
 out:
       TIMSK2 = 0x02; // Enable timer 2 interrupts (for milliseconds and so on)
       cartInterface.DisableCartridge(); // EXROM HIGH: clean state before returning to command mode
