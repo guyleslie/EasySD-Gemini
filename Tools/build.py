@@ -1018,17 +1018,34 @@ def find_bootloader_hex(ctx: Context) -> Path:
     return candidates[-1]
 
 
+def resolve_existing_arduino_hex(ctx: Context) -> Path:
+    """Return the default Arduino HEX artifact produced by release/arduino-compile."""
+    compile_dir = default_arduino_compile_dir(ctx)
+    hex_file = compile_dir / "EasySD.ino.hex"
+    if not hex_file.exists():
+        raise SystemExit(
+            "ERROR: Existing Arduino HEX not found.\n"
+            f"Expected: {hex_file}\n"
+            "Run: python build.py release  or  python build.py arduino-compile"
+        )
+    return hex_file
+
+
 def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = False,
-                       burn_bootloader: bool = False, release_log: bool = False) -> None:
-    """Compile and upload Arduino sketch via ISP programmer (USBTinyISP)"""
-    import tempfile
-    output_dir = Path(tempfile.gettempdir()) / "easysd_isp_output"
-    reset_dir(output_dir)
-    size = arduino_compile(ctx, debug_mode=debug_mode, output_dir=output_dir, release_log=release_log)
+                       burn_bootloader: bool = False, release_log: bool = False,
+                       use_existing: bool = False) -> None:
+    """Upload Arduino sketch via ISP programmer (USBTinyISP)."""
+    if use_existing:
+        hex_file = resolve_existing_arduino_hex(ctx)
+        size = None
+    else:
+        import tempfile
+        output_dir = Path(tempfile.gettempdir()) / "easysd_isp_output"
+        reset_dir(output_dir)
+        size = arduino_compile(ctx, debug_mode=debug_mode, output_dir=output_dir, release_log=release_log)
+        hex_file = output_dir / "EasySD.ino.hex"
 
     avrdude_exe, avrdude_conf = find_avrdude(ctx)
-
-    hex_file = output_dir / "EasySD.ino.hex"
     if not hex_file.exists():
         raise SystemExit(f"ERROR: HEX file not found: {hex_file}")
 
@@ -1036,9 +1053,10 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
     print("UPLOADING VIA ISP (USBTinyISP)")
     print("="*70)
     print(f"  HEX:        {hex_file.name}")
+    print(f"  Source:     {'existing build artifact' if use_existing else 'fresh compile'}")
     print(f"  Programmer: usbtinyisp")
     print(f"  SCK period: {sck_period} µs  ({1000 // sck_period} kHz)")
-    print(f"  DEBUG_SERIAL: {'ON' if debug_mode else 'OFF'}")
+    print(f"  DEBUG_SERIAL: {'ON' if debug_mode else ('RELEASE_LOG' if release_log else 'OFF')}")
     print(f"  Bootloader: {'YES (--optiboot, USB upload will work after)' if burn_bootloader else 'NO (default, no Optiboot)'}")
     print("="*70)
 
@@ -1177,6 +1195,7 @@ Examples:
   python build.py arduino-compile --debug  # Compile (debug mode - SERIAL ON)
     python build.py arduino-upload COM4               # Compile + Upload (USB)
     python build.py arduino-upload-isp                # Compile + Upload (ISP/USBTinyISP, no Optiboot)
+    python build.py arduino-upload-isp --use-existing # Upload existing build/_arduino-compile/EasySD.ino.hex
     python build.py arduino-upload-isp --optiboot    # ISP upload + re-burn Optiboot bootloader
     python build.py arduino-upload-isp --isp-sck 10  # ISP with custom SCK period (µs)
     python build.py arduino-monitor COM4              # Serial monitor
@@ -1220,6 +1239,8 @@ Examples:
     p.add_argument("--baudrate", type=int, default=57600, help="Baudrate for serial monitor (default: 57600)")
     p.add_argument("--isp-sck", type=int, default=2, metavar="USEC",
                    help="ISP SCK period in µs for arduino-upload-isp (default: 2 = 500kHz, use 100 for blank/bricked chips)")
+    p.add_argument("--use-existing", action="store_true",
+                   help="Reuse build/_arduino-compile/EasySD.ino.hex instead of recompiling for arduino-upload-isp")
     p.add_argument("--selftest", action="store_true",
                    help="Include SD self-test suite in debug builds (adds ~2KB flash)")
     p.add_argument("--release-log", action="store_true",
@@ -1270,7 +1291,8 @@ def main(argv: Sequence[str]) -> int:
             print("\nERROR: Use either --optiboot or --no-bootloader, not both")
             return 1
         arduino_upload_isp(ctx, sck_period=args.isp_sck, debug_mode=args.debug,
-                           burn_bootloader=args.optiboot, release_log=args.release_log)
+                           burn_bootloader=args.optiboot, release_log=args.release_log,
+                           use_existing=args.use_existing)
         return 0
 
     if args.target == "arduino-monitor":
