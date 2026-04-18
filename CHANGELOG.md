@@ -16,7 +16,7 @@ This document contains all significant changes to the EasySD project in chronolo
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
-| **v0.5** | 2026-04-18 | Public stabilization release: directory header/nav/PRG launch/SEL handling improved on real hardware | ✅ Real HW verified |
+| **v0.5** | 2026-04-18 | Public stabilization release: BASIC-first cold boot, directory/nav/PRG launch/SEL handling improved on real hardware | ✅ Real HW verified |
 | **v0.3** | 2026-04-14 | First public release: BASIC-first boot, PRG load, folder nav verified on real hardware | ✅ Real HW verified |
 | **v3.1.3** | 2026-03-09 | P2TK Phase 3: full-range PRG load up to $FFFF, 3 bug fixes | ✅ Complete |
 | **v3.1.2** | 2026-03-08 | WavPlayer EXROM fix, VICE audio test, EasySD rename | ✅ Complete |
@@ -71,11 +71,12 @@ This tag marks the current stabilized public EasySD release, validated on real C
 | EasySD menu header shows `ROOT` / current directory correctly | ✅ Verified |
 | Directory navigation (enter folder, go back) | ✅ Verified |
 | PRG file loading | ✅ Verified |
-| SEL button handling after the menu has been entered once | ✅ Verified |
+| SEL button press loads EasySD menu | ✅ Verified |
+| Long SEL press returns to BASIC | ✅ Verified |
 
-#### Known Limitation
+#### Field Note
 
-- **Cold-boot SEL startup is not yet fully deterministic:** after a true power-on cold boot, there are still occasional states where the first SEL press does not immediately enter the menu. Once the menu has been entered, SEL handling stabilizes and behaves as expected. This remains the main known issue for the next narrowing/fix cycle.
+- Recent hardware sessions exposed an intermittent contact/mechanical issue on the current EasySD PCB assembly. Moving the cartridge or SD module headers can reset the Arduino or change startup behavior, so cold-boot anomalies observed on that hardware should not automatically be interpreted as firmware regressions.
 
 #### Key Changes Included Since v0.3
 
@@ -85,11 +86,13 @@ This tag marks the current stabilized public EasySD release, validated on real C
 - **Menu session handling stabilized** (`CartApi.cpp`): idle-session resets were tightened so slow navigation no longer breaks the active menu session.
 - **Cold-boot/startup listening cleanup** (`EasySD.ino`, `CartInterface.cpp`): boot-time IO2/session handling was reworked to avoid false startup sessions stealing local SEL input.
 - **SEL input conditioning improved** (`EasySD.ino`): the local A6 button input now uses a small hysteresis/stability filter plus explicit post-action re-arming instead of a raw threshold-only read.
+- **Boot release path cleaned up** (`CartInterface.cpp`, `EasySD.ino`, `CartApi.cpp`): BASIC-safe release is now centralized so cold boot and long-press reset both return through the same cartridge-hidden/reset-clean path.
+- **True tristate cleanup** (`CartInterface.cpp`): disabling the cartridge now clears the AVR data latch bits before switching to input, preventing weak pull-ups from remaining on the C64 data bus.
 
 #### Release Position
 
 - `v0.5` is recommended over `v0.3` for real hardware use.
-- The remaining cold-boot SEL startup issue is known and isolated enough to continue in a focused follow-up without blocking this release.
+- The remaining startup risk on the current bench hardware is now treated primarily as a hardware integrity issue, not as an open firmware boot-policy problem.
 
 ### [v0.3] - 2026-04-14
 **First Public Release — Real Hardware Verified**

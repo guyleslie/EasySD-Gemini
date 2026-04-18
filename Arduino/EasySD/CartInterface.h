@@ -81,6 +81,8 @@ class CartInterface {
   void EnableExromOnly();   // EXROM LOW only — data bus stays tristate (use before ResetC64)
   void EnableDataBus();     // data bus OUTPUT — call after delay(300), before NMI transfers
   void DisableCartridge();
+  void EnterBasicSafeMode();
+  void ReleaseToBasic(bool pulseReset);
   void ResetLow();
   void ResetHigh();
   void NmiLow();

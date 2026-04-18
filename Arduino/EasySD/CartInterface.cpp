@@ -76,6 +76,15 @@ void syncBusChangeToPhi2Low() {
   delayMicroseconds(1);
 }
 
+void tristateDataBus() {
+  // Clear the output latches before switching to INPUT so the AVR does not
+  // leave weak pull-ups on the C64 data bus while "tristated".
+  PORTD &= 0x0F;  // D4-D7 low, keep D0-D3 untouched
+  PORTC &= 0xF0;  // A0-A3 low, keep A4-A7 untouched
+  DDRD &= ~0xF0;  // D4-D7 input
+  DDRC &= ~0x0F;  // A0-A3 input
+}
+
 }
 
 static void CartInterface::ReceiveInterrupt() {
@@ -295,9 +304,7 @@ void CartInterface::StartListening() {
 }
 
 void CartInterface::EndListening() {
-  detachInterrupt(digitalPinToInterrupt(IO2));
-  ResetReceive();
-  DisableCartridge();
+  EnterBasicSafeMode();
 }
 
 void CartInterface::SoftStartListening() {
@@ -395,6 +402,7 @@ void CartInterface::EnableExromOnly() {
   // override the chip's 4mA source and CBM80 detection would fail even with
   // the chip installed.
   syncBusChangeToPhi2Low();
+  tristateDataBus();
   PORTD &= ~_BV (PD2);
 }
 
@@ -411,8 +419,23 @@ void CartInterface::EnableDataBus() {
 void CartInterface::DisableCartridge() {
   syncBusChangeToPhi2Low();
   PORTD |= _BV (PD2);    // EXROM HIGH — cartridge hidden from C64
-  DDRD &= ~0xF0;         // D4-D7: INPUT (tristate — stop driving data bus)
-  DDRC &= ~0x0F;         // A0-A3: INPUT (tristate — stop driving data bus)
+  tristateDataBus();
+}
+
+void CartInterface::EnterBasicSafeMode() {
+  detachInterrupt(digitalPinToInterrupt(IO2));
+  ResetReceive();
+  DisableCartridge();
+}
+
+void CartInterface::ReleaseToBasic(bool pulseReset) {
+  EnterBasicSafeMode();
+  if (pulseReset) {
+    ResetC64();
+  } else {
+    delay(2);
+    ResetHigh();
+  }
 }
 
 void CartInterface::ResetLow() {

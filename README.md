@@ -33,7 +33,7 @@ Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 | Feature | Status |
 |---------|--------|
 | C64 boots to BASIC with cartridge inserted | ✅ Verified |
-| SEL button press loads EasySD menu | ✅ Verified, with one known cold-boot startup limitation |
+| SEL button press loads EasySD menu | ✅ Verified |
 | File browser: directory listing | ✅ Verified |
 | File browser: folder navigation | ✅ Verified |
 | File browser: directory header (`ROOT` / current folder) | ✅ Verified |
@@ -44,7 +44,7 @@ Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 | PetsciiDisplayer (`.PET`) | ⚠️ Not yet tested on real HW |
 | CvdPlayer (`.CVD`) | ⚠️ Not yet tested on real HW |
 
-**Known limitation in v0.5:** after a true cold boot, the first SEL press may still occasionally fail to open the menu immediately. Once the menu has been entered, SEL handling stabilizes and behaves normally. This is the main remaining issue for the next fix cycle.
+**Current field note:** recent hardware sessions point to an intermittent mechanical/contact issue on the EasySD PCB assembly (cartridge edge / module headers), which can mimic boot or reset faults. The firmware now boots to BASIC on cold boot and only enters the menu on explicit `SEL` press; if startup behavior changes when the cartridge or SD module is physically moved, treat that as a hardware integrity issue first.
 
 ---
 
@@ -57,7 +57,7 @@ The cartridge has two parts working together:
 
 When you select a file, the menu loads the matching plugin from the SD card's `/PLUGINS/` folder, which handles playback or display. This keeps the ROM small and lets new file types be added without reprogramming the cartridge ROML chip.
 
-**Boot sequence:** The Arduino holds the C64 in reset while initialising the SD card. Once ready, the C64 is released and boots normally to BASIC. Press the SEL button to open the EasySD menu at any time.
+**Boot sequence:** The Arduino holds the C64 in reset while initialising the SD card and runtime state. Once ready, it returns the cartridge interface to a BASIC-safe idle state and releases the C64 to normal BASIC startup. Press the SEL button to open the EasySD menu at any time.
 
 ---
 
@@ -235,7 +235,7 @@ The LED is connected directly to the PCB 5V rail and is **always lit when the ca
 
 **SD card not detected** — Check that a 100 nF ceramic and a 10–100 µF electrolytic capacitor are fitted directly at the SD module's VCC/GND pins. Missing or misplaced bypass caps are the most common cause of SD init failures, especially on breadboard builds.
 
-**Garbled screen on boot** — Check that the cartridge ROML chip is correctly seated and the PCB connections are solid.
+**Garbled screen on boot / startup changes when the cartridge is touched** — Check the cartridge edge connector, Nano headers, SD module headers, and ROML chip seating. Intermittent contact can reset the Arduino or disturb `/RESET`/`EXROM` timing and looks like a firmware boot fault from the outside.
 
 **File won't load** — Make sure the correct plugin is in `/PLUGINS/` on the SD card. Plugin filenames must match exactly (8.3 format, uppercase).
 

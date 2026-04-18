@@ -142,7 +142,6 @@ static bool ensureRuntimeReady() {
   return true;
 }
 
-
 // SD error recovery: reinitialize card + resync dirFunc
 // Call this after any SD error (write timeout, etc.) to restore working state.
 // Critical for C64 service: the C64 can't know the SD is in a bad state.
@@ -226,14 +225,14 @@ void setup() {
     // Menu is NOT loaded automatically; user must press SEL to invoke TransferMenu().
     LOGI(SYS, "Boot: release to BASIC");
     bootState = BOOT_RELEASE_BASIC;
-    cartInterface.ResetHigh();
+    cartInterface.ReleaseToBasic(false);
 
     bootState = RUNNING_READY;
     LOGI(SYS, "Boot: ready (BASIC)");
   } else {
     // SD failed: release C64 to BASIC so the user isn't stuck at a black screen.
     // SEL button will retry SD init + TransferMenu on press.
-    cartInterface.ResetHigh();
+    cartInterface.ReleaseToBasic(false);
     bootState = BOOT_ERROR;
     LOGE(SYS, "Boot: SD fail, released");
   }

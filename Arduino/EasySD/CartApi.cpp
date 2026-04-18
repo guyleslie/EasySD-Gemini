@@ -1733,8 +1733,7 @@ void CartApi::UpdateFile() {
 
 
 void CartApi::ResetNoCartridge() {
-  cartInterface.DisableCartridge();
-  cartInterface.ResetC64();
+  cartInterface.ReleaseToBasic(true);
 }
 
 
