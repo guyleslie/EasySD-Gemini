@@ -7,7 +7,7 @@
 #include <ByteQueue.h>
 
 #define PORT_MANIPULATION
-#define OPENCOLLECTORSTYLE
+#define NMI_OPENCOLLECTORSTYLE
 
 #define IO2 3    // D3 → C64 /IO2 (INPUT, INT1, $DF00-$DFFF trigger detect)
 #define EXROM 2  // D2 → C64 /EXROM (OUTPUT, controls ROM visibility)

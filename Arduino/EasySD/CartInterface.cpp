@@ -258,16 +258,12 @@ void CartInterface::IOSetup() {
   // EXROM stays HIGH (cartridge hidden). Data bus stays INPUT (tristate).
   // The boot state machine in setup() releases /RESET after init is complete,
   // letting C64 boot to BASIC. Menu is loaded only on explicit SEL press.
-  #ifdef OPENCOLLECTORSTYLE
-    ResetLow();
-    NmiHigh();
-  #else
-    pinMode(RESET, OUTPUT);
-    digitalWrite(RESET, LOW);
+  // Keep RESET as a push-pull output so cold boot can drive the C64 reset
+  // line HIGH decisively after init. NMI remains open-collector style.
+  pinMode(RESET, OUTPUT);
+  digitalWrite(RESET, LOW);
 
-    pinMode(NMI, OUTPUT);
-    digitalWrite(NMI, HIGH);
-  #endif
+  NmiHigh();
 
   pinMode(IO2, INPUT);
   pinMode(PHI2, INPUT);
@@ -420,25 +416,17 @@ void CartInterface::DisableCartridge() {
 }
 
 void CartInterface::ResetLow() {
-  #ifdef OPENCOLLECTORSTYLE
-   PORTB &= ~_BV(PB1); // turn off internal resistor 
-   DDRB |= _BV(PB1);   // set to output       
-  #else
-    PORTB &= ~_BV (PB1);
-  #endif  
+  PORTB &= ~_BV(PB1);
+  DDRB |= _BV(PB1);
 }
 
 void CartInterface::ResetHigh() {
-  #ifdef OPENCOLLECTORSTYLE
-    DDRB &= ~_BV(PB1); //switch to input while port is low. 
-    PORTB |= _BV(PB1); //turn on internal resistor to Vcc 
-  #else
-    PORTB |= _BV (PB1);
-  #endif 
+  PORTB |= _BV(PB1);
+  DDRB |= _BV(PB1);
 }
 
 void CartInterface::NmiLow() {
-  #ifdef OPENCOLLECTORSTYLE
+  #ifdef NMI_OPENCOLLECTORSTYLE
    PORTB &= ~_BV(PB0); // turn off internal resistor 
    DDRB |= _BV(PB0);   // set to output       
   #else
@@ -447,7 +435,7 @@ void CartInterface::NmiLow() {
 }
 
 void CartInterface::NmiHigh() {
-  #ifdef OPENCOLLECTORSTYLE
+  #ifdef NMI_OPENCOLLECTORSTYLE
     DDRB &= ~_BV(PB0); //switch to input while port is low. 
     PORTB |= _BV(PB0); //turn on internal resistor to Vcc 
   #else      

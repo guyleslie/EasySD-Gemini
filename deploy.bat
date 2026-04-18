@@ -1,5 +1,7 @@
 @echo off
-REM Full release deploy: build + ISP upload + SD card update
+REM Full release deploy: always make a fresh release build first,
+REM then upload that exact firmware to Arduino and deploy that exact
+REM SD bundle to the card.
 REM Usage: deploy.bat
 setlocal
 
@@ -13,7 +15,7 @@ echo  EasySD Release Deploy
 echo ==============================
 echo.
 
-echo [1/3] Release build...
+echo [1/3] Fresh release build (C64 + Arduino + SD bundle)...
 python Tools/build.py release
 if errorlevel 1 (
     set "STEP1=FAIL"
@@ -23,7 +25,7 @@ if errorlevel 1 (
 set "STEP1=OK"
 
 echo.
-echo [2/3] ISP upload from existing release build...
+echo [2/3] ISP upload from fresh release build...
 python Tools/build.py arduino-upload-isp --use-existing
 if errorlevel 1 (
     set "STEP2=FAIL"
