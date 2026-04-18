@@ -320,6 +320,19 @@ def stage_sd_content_bundle(ctx: Context, preferred_menu_name: str, dst_root: Pa
     return target_root
 
 
+def read_manifest_value(manifest_path: Path, key: str) -> str | None:
+    """Read a simple key=value manifest entry."""
+    if not manifest_path.exists():
+        return None
+    try:
+        for line in manifest_path.read_text(encoding="utf-8", errors="ignore").splitlines():
+            if line.startswith(f"{key}="):
+                return line.split("=", 1)[1].strip()
+    except OSError:
+        return None
+    return None
+
+
 def stage_upload_bundle(ctx: Context, compile_dir: Path, mode_label: str) -> Path:
     upload_root = ctx.build_dir / "upload"
     reset_dir(upload_root)
@@ -1288,18 +1301,39 @@ def main(argv: Sequence[str]) -> int:
             return 1
         copied = 0
 
-        sd_bundle_root = ctx.build_dir / "sd-content"
-        use_bundle = sd_bundle_root.exists() and (sd_bundle_root / "EASYSD.PRG").exists()
+        expected_menu = "easysd-debug.prg" if args.debug else "easysd.prg"
+
+        # Choose bundle root safely: never deploy debug bundle in release mode by accident.
+        candidate_roots: list[Path] = []
+        if args.debug:
+            candidate_roots = [ctx.build_dir / "sd-content"]
+        else:
+            candidate_roots = [ctx.build_dir / "release" / "sd-content", ctx.build_dir / "sd-content"]
+
+        sd_bundle_root = None
+        for root in candidate_roots:
+            menu_file = root / "EASYSD.PRG"
+            if not menu_file.exists():
+                continue
+            manifest_menu = read_manifest_value(root / "manifest.txt", "menu")
+            # If manifest exists, enforce matching mode.
+            if manifest_menu and manifest_menu.lower() != expected_menu.lower():
+                continue
+            sd_bundle_root = root
+            break
+
+        use_bundle = sd_bundle_root is not None
 
         # EASYSD.PRG → SD root (required: TransferMenu() loads menu from SD)
-        menu_src = (sd_bundle_root / "EASYSD.PRG") if use_bundle else (ctx.build_dir / "easysd.prg")
+        menu_src = (sd_bundle_root / "EASYSD.PRG") if use_bundle else (ctx.build_dir / expected_menu)
         if menu_src.exists():
             dst = drive_root / "EASYSD.PRG"
             shutil.copyfile(menu_src, dst)
             print(f"[SD-DEPLOY] {menu_src.name} -> {dst}")
             copied += 1
         else:
-            print(f"WARNING: {menu_src} not found — run 'python build.py release' first")
+            mode_note = "debug-vice/debug-arduino" if args.debug else "release"
+            print(f"WARNING: {menu_src} not found — run 'python build.py {mode_note}' first")
 
         # Plugin PRGs → D:/PLUGINS/*.PRG
         if use_bundle:
