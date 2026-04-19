@@ -27,8 +27,8 @@ Thumbs.db
 nul
 
 # SD card media files (large binaries, generated locally)
-sdcard/*.CVID
-sdcard/*.cvid
+sdcard/*.CVD
+sdcard/*.cvd
 
 # Backup archives (multiload/ ZIPs are tracked — see !multiload/*.zip below)
 *.zip

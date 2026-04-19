@@ -8,8 +8,10 @@ TYPE_CHECK_PLUGIN	= 1
 ; absolute paths. Extension-based dispatch becomes deterministic:
 ;   /PLUGINS/<EXT>PLUGIN.PRG  (fallback .BIN optionally)
 ;
-; CHECKFILENAME extracts 1..3 char extension (after last '.')
-; into EXTBUF and sets EXT_LEN. If no valid extension -> TYPE_PROGRAM.
+; CHECKFILENAME extracts only the first 1..3 chars of the extension
+; (after the last '.'). Plugin dispatch therefore expects 3-char media
+; extensions such as .WAV, .KOA, .MUS, .CVD.
+; If no valid extension -> TYPE_PROGRAM.
 ; ------------------------------------------------------------
 
 PERIOD_POSITION

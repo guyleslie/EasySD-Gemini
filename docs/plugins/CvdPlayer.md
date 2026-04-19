@@ -15,6 +15,10 @@ Video is streamed in real time at 5 fps in multicolor bitmap mode (160×80 effec
 3. On the C64, browse to the `.cvd` file in the EasySD menu and press **Enter**.
 4. Press **STOP** to exit back to the menu.
 
+Important: the current EasySD plugin dispatch uses 3-character extensions, so
+the video file extension must be `.cvd` / `.CVD`. `.cvid` is not a supported
+runtime extension on the current menu path.
+
 ---
 
 ## Converting Video — cvd_convert.py
