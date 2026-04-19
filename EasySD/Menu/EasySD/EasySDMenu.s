@@ -589,35 +589,7 @@ PROGRAM
 	;Setting name of the file
 	JSR SETFILENAME	
 .if DEBUG = 0
-	; If it's a .tap, offer choice: Convert+Run (default) or Save only.
-	JSR IS_TAP_SELECTED
-	BEQ +
-	; --- TAP path ---
-	JSR TAP_CHOICE
-	; X now holds flags for PROT_InvokeWithName (bit0=autorun)
-	JSR PROT_InvokeWithName
-	BCC TAP_INVOKE_OK
-	; Error: A holds error code
-	JSR TAP_SHOW_ERROR
-	JSR PROT_EnableDisplay
-	JMP INPUT_GET
-TAP_INVOKE_OK
-	; If save-only (bit0=0), stay in menu and show success.
-	TXA
-	AND #$01
-	BNE TAP_AUTORUN
-	LDA #$0B			; dark gray
-	LDX #<MSG_TAP_SAVED
-	LDY #>MSG_TAP_SAVED
-	JSR STATUS_LINE
-	JSR PROT_EnableDisplay
-	JMP INPUT_GET
-TAP_AUTORUN
-	; Auto-run path: the micro will reset C64 and load the converted PRG.
-	JMP *
-
-	; --- Non-TAP default path ---
-+	;Invoking with name
+	;Invoking with name
 	LDX #$01		; flags: autorun
 	JSR PROT_InvokeWithName
 	BCC SUCCEEDINVOKE
@@ -627,118 +599,6 @@ SUCCEEDINVOKE
 .else
 	JMP MOCK_PrgExecute
 .endif
-
-
-; ------------------------------------------------------------
-; TAP helpers
-; ------------------------------------------------------------
-
-; Returns Z=1 if selected filename ends with .tap (case-insensitive PETSCII)
-IS_TAP_SELECTED
-	JSR GETCURRENTROW
-	LDA NAMESLO, X
-	STA NAMELOW
-	LDA NAMESHI, X
-	STA NAMEHIGH
-	; find last non-zero char within 31 bytes
-	LDY #$1E			; start from 30
-TAP_SCAN_LOOP
-	LDA (NAMELOW), Y
-	BEQ TAP_SCAN_DEC
-	JMP TAP_SCAN_CHECK
-TAP_SCAN_DEC
-	DEY
-	BPL TAP_SCAN_LOOP
-	LDA #$00
-	RTS
-TAP_SCAN_CHECK
-	; need at least 4 chars: . t a p
-	CPY #$03
-	BCC TAP_SCAN_NO
-	; dot
-	LDA (NAMELOW), Y
-	AND #$DF
-	CMP #$50			; 'P'
-	BNE TAP_SCAN_NO
-	DEY
-	LDA (NAMELOW), Y
-	AND #$DF
-	CMP #$41			; 'A'
-	BNE TAP_SCAN_NO
-	DEY
-	LDA (NAMELOW), Y
-	AND #$DF
-	CMP #$54			; 'T'
-	BNE TAP_SCAN_NO
-	DEY
-	LDA (NAMELOW), Y
-	CMP #$2E			; '.'
-	BNE TAP_SCAN_NO
-	LDA #$01
-	RTS
-TAP_SCAN_NO
-	LDA #$00
-	RTS
-
-
-; Waits for user choice. Returns X flags for PROT_InvokeWithName.
-; Default: Convert+Run (X=$01). Save-only: X=$00.
-TAP_CHOICE
-	LDA #$0B			; dark gray
-	LDX #<MSG_TAP_PROMPT
-	LDY #>MSG_TAP_PROMPT
-	JSR STATUS_LINE
-	JSR PROT_EnableDisplay
-TAP_CHOICE_WAIT
-	JSR SCNKEY
-	JSR GETIN
-	BEQ TAP_CHOICE_WAIT
-	CMP #$53			; 'S'
-	BEQ TAP_SAVE
-	CMP #$73			; 's'
-	BEQ TAP_SAVE
-	CMP #$0D			; RETURN -> autorun
-	BEQ TAP_RUN
-	CMP #$43			; 'C'
-	BEQ TAP_RUN
-	CMP #$63			; 'c'
-	BEQ TAP_RUN
-	JMP TAP_CHOICE_WAIT
-TAP_SAVE
-	LDX #$00
-	RTS
-TAP_RUN
-	LDX #$01
-	RTS
-
-
-; A contains error code from PROT_InvokeWithName (carry set)
-TAP_SHOW_ERROR
-	CMP #$12			; TAP_UNSUPPORTED
-	BEQ _uns
-	CMP #$13			; TAP_BAD_TAP
-	BEQ _bad
-	CMP #$14			; TAP_WRITE_FAILED
-	BEQ _wr
-	LDA #$02			; red
-	LDX #<MSG_TAP_FAIL
-	LDY #>MSG_TAP_FAIL
-	JMP STATUS_LINE
-_uns
-	LDA #$02			; red
-	LDX #<MSG_TAP_UNSUPPORTED
-	LDY #>MSG_TAP_UNSUPPORTED
-	JMP STATUS_LINE
-_bad
-	LDA #$02			; red
-	LDX #<MSG_TAP_BAD
-	LDY #>MSG_TAP_BAD
-	JMP STATUS_LINE
-_wr
-	LDA #$02			; red
-	LDX #<MSG_TAP_WRITE
-	LDY #>MSG_TAP_WRITE
-	JMP STATUS_LINE
 
 
 ; Prints a 0-terminated string (X=lo, Y=hi) to bottom status line (row 24)
@@ -1922,35 +1782,11 @@ COLORDATA
 
 
 ; ------------------------------------------------------------
-; TAP UI strings (0-terminated)
+; UI strings (0-terminated)
 ; ------------------------------------------------------------
 .enc "screen"		; .TEXT strings below use C64 screen code encoding (A=$01, etc.)
-MSG_TAP_PROMPT
-	.TEXT "   TAP: C=CONVERT+RUN  S=SAVE PRG"
-	.BYTE 0
-
 MSG_PATH_TOO_LONG
 	.TEXT "   PATH TOO LONG"
-	.BYTE 0
-
-MSG_TAP_SAVED
-	.TEXT "   TAP CONVERT OK: PRG SAVED"
-	.BYTE 0
-
-MSG_TAP_UNSUPPORTED
-	.TEXT "   UNSUPPORTED TAP (TURBO/NONSTD)"
-	.BYTE 0
-
-MSG_TAP_BAD
-	.TEXT "   BAD TAP (INVALID/SHORT)"
-	.BYTE 0
-
-MSG_TAP_WRITE
-	.TEXT "   SD WRITE FAILED"
-	.BYTE 0
-
-MSG_TAP_FAIL
-	.TEXT "   TAP CONVERT FAILED"
 	.BYTE 0
 
 MSG_SD_READ_ERR
