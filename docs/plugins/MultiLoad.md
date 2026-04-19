@@ -10,7 +10,7 @@ This is intended for standard sequential multiload cracks, not for games that us
 
 ## Quick Start
 
-Build the MultiLoad template:
+Build the raw MultiLoad template:
 
 ```bash
 python Tools/build.py multiload
@@ -67,7 +67,7 @@ Its current behavior is:
 - It merges PRG files from all input disks into one file set.
 - If the same PRG name appears on multiple disks, the first occurrence wins and later duplicates are reported as warnings.
 - The game folder name is derived from the first disk image filename, then the internal disk label, and finally the parent folder if needed.
-- It builds `EASYLOAD.PRG` by patching the MultiLoad template and prepending a normal PRG load header for `$C000`.
+- It builds `EASYLOAD.PRG` by patching the raw MultiLoad template and prepending a normal PRG load header for `$C000`.
 - It writes all extracted PRGs into a ZIP under `MULTILOAD/GAMENAME/`.
 
 By default, the first merged PRG becomes the first part. If that is wrong for a given game, use `--first-part NAME`.
@@ -142,7 +142,7 @@ The resident handler:
 | `$C004` | `ML_FIRST_PART_LEN` | Length of first filename including `.PRG` |
 | `$C005-$C018` | `ML_FIRST_PART_NAME` | First filename including `.PRG`, null-padded, 20 bytes |
 
-Template layout in `bootplugin.prg`:
+Template layout in `multiload_template.bin`:
 
 | File Offset | Meaning |
 |-------------|---------|

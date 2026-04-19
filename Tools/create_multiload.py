@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""create_multiload.py — MultiLoad ZIP builder and template patcher.
+"""create_multiload.py — MultiLoad ZIP builder from a raw launcher template.
 
-V2 mode (legacy): patch template PRG with game-specific first-part name.
-V3 mode (new):    convert D64/D71/D81/T64 disk image(s) → ready-to-extract ZIP.
+Legacy mode: patch the raw template with a game-specific first-part name.
+Disk mode:   convert D64/D71/D81/T64 disk image(s) -> ready-to-extract ZIP.
 
 Usage:
   V2 (patch only):
@@ -17,22 +17,22 @@ Usage:
     python Tools/create_multiload.py --from-autoswap autoswap.lst --first-part AUTODUEL
     python Tools/create_multiload.py --from-disk TURRICAN.D64 --list-only
 
-Output (V3): EasySD/build/multiload/GAMENAME.ZIP
+Output (Disk mode): EasySD/build/multiload/GAMENAME.ZIP
   Extract ZIP to SD card root. Select MULTILOAD/GAMENAME/EASYLOAD.PRG in EasySD menu.
 
-Template PRG must be pre-built:
+Raw template must be pre-built:
     python Tools/build.py multiload
 
 EASYLOAD.PRG file layout (generated output):
-    Bytes 0-1   : PRG load address header ($00 $C0 = $C000) — prepended by this script
+    Bytes 0-1   : PRG load address header ($00 $C0 = $C000) - prepended by this script
     Byte  2     : $4C (JMP)                                  (= $C000 in C64 RAM)
     Byte  3     : low byte of MAIN address                   (= $C001)
     Byte  4     : $C0                                        (= $C002)
-    Byte  5     : ML_CONFIG_VERSION = 2  (= $C003 in C64 RAM)
-    Byte  6     : ML_FIRST_PART_LEN      (= $C004)
-    Bytes 7-26  : ML_FIRST_PART_NAME 20 bytes null-padded    (= $C005-$C018)
+    Byte  5     : ML_CONFIG_VERSION = 3                      (= $C003 in C64 RAM)
+    Byte  6     : ML_FIRST_PART_LEN                          (= $C004)
+    Bytes 7-26  : ML_FIRST_PART_NAME, 20 bytes, null-padded  (= $C005-$C018)
 
-bootplugin.prg template file layout (raw binary, no header):
+multiload_template.bin layout (raw binary, no header):
     OFFSET_VERSION = 3  → $C003, OFFSET_LEN = 4 → $C004, OFFSET_NAME = 5 → $C005
 """
 
@@ -47,10 +47,10 @@ import zipfile
 # Constants
 # ---------------------------------------------------------------------------
 
-TEMPLATE_REL = "EasySD/build/plugins/bootplugin.prg"
+TEMPLATE_REL = "EasySD/build/plugins/multiload_template.bin"
 OUTPUT_DIR   = "EasySD/build/multiload"
 
-# bootplugin.prg is raw binary (64tass -b flag = no load address header).
+# multiload_template.bin is raw binary (64tass -b flag = no load address header).
 # Plugin assembles at * = $C000; file offset = RAM address - $C000.
 OFFSET_VERSION = 3    # ML_CONFIG_VERSION  at $C003 → file offset 3
 OFFSET_LEN     = 4    # ML_FIRST_PART_LEN  at $C004 → file offset 4
@@ -582,7 +582,7 @@ def patch_template(template_data: bytearray, first_part_name: str) -> bytearray:
     """Patch ML_FIRST_PART_LEN and ML_FIRST_PART_NAME in the template bytearray.
 
     Args:
-        template_data: Mutable copy of the template PRG binary.
+        template_data: Mutable copy of the raw template binary.
         first_part_name: Uppercase ASCII name without extension (e.g. "LAST NINJA 2").
             ".PRG" is appended automatically. Total length must not exceed MAX_NAME_LEN.
 
@@ -602,7 +602,7 @@ def patch_template(template_data: bytearray, first_part_name: str) -> bytearray:
 
 
 def load_template(repo_root: str, override_path: str = None) -> bytearray:
-    """Load the bootplugin.prg template and validate it.
+    """Load the raw MultiLoad template and validate it.
 
     The template is a raw binary (64tass -b, no 2-byte load address header).
     Plugin is assembled at $C000; file offset = RAM address - $C000.
@@ -617,12 +617,12 @@ def load_template(repo_root: str, override_path: str = None) -> bytearray:
         data = bytearray(f.read())
 
     if len(data) < OFFSET_NAME + MAX_NAME_LEN:
-        print(f"Error: template PRG too small ({len(data)} bytes).")
+        print(f"Error: template file too small ({len(data)} bytes).")
         sys.exit(1)
 
     # Sanity check: first 3 bytes should be JMP MAIN ($4C xx $C0)
     if data[0] != 0x4C or data[2] != 0xC0:
-        print(f"Warning: unexpected plugin entry bytes "
+        print(f"Warning: unexpected template entry bytes "
               f"${data[0]:02X} ${data[1]:02X} ${data[2]:02X} (expected 4C xx C0).")
 
     actual_version = data[OFFSET_VERSION]
@@ -699,7 +699,7 @@ def build_zip(all_files: list, first_part_name, template_data: bytearray,
 
     patched = patch_template(bytearray(template_data), first_part_name)
     # Prepend 2-byte PRG load address header ($00 $C0 = $C000).
-    # bootplugin.prg is a raw binary (no header); KernalBridge reads the first
+    # multiload_template.bin is a raw binary (no header); KernalBridge reads the first
     # 2 bytes as load address.  Without the header it reads $4C $15 = $154C
     # instead of $C000, P2TK never triggers, and the plugin crashes.
     prg_with_header = bytes([0x00, 0xC0]) + bytes(patched)
@@ -775,7 +775,7 @@ def main_from_disk(args) -> None:
 # ---------------------------------------------------------------------------
 
 def main_legacy(first_part: str) -> None:
-    """V2 mode: patch template and write EASYLOAD.PRG (unchanged behaviour)."""
+    """Legacy mode: patch template and write EASYLOAD.PRG."""
     first_part = first_part.strip().upper()
 
     if not first_part:
@@ -854,7 +854,7 @@ Supported formats: D64, D71, D81, T64
         help="List disk contents and exit without creating ZIP")
     ap.add_argument(
         "--template", metavar="PRG_FILE",
-        help="Override template PRG (default: EasySD/build/plugins/bootplugin.prg)")
+        help="Override raw template path (default: EasySD/build/plugins/multiload_template.bin)")
 
     return ap.parse_args()
 

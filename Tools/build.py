@@ -779,15 +779,15 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
 
 
 def build_multiload(ctx: Context, *, debug: int, debug_break: int, ml_debug_borders: int = 0) -> None:
-    """Build only BOOT.PRG (MultiLoad plugin) without rebuilding all plugins."""
+    """Build the raw MultiLoad template consumed by create_multiload.py."""
     ensure_dirs(ctx)
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
     src = ctx.irq_root / "Loader" / "Bridges" / "MultiLoad" / "MultiLoad.s"
-    out_prg = ctx.plugins_out_dir / "bootplugin.prg"
-    labels  = ctx.sym_dir / "bootplugin.txt"
-    listing = ctx.lst_dir / "bootpluginLST.txt"
+    out_prg = ctx.plugins_out_dir / "multiload_template.bin"
+    labels  = ctx.sym_dir / "multiload_template.txt"
+    listing = ctx.lst_dir / "multiload_templateLST.txt"
 
-    print(f"[MULTILOAD] Building Loader/Bridges/MultiLoad/MultiLoad.s -> build/plugins/bootplugin.prg")
+    print(f"[MULTILOAD] Building Loader/Bridges/MultiLoad/MultiLoad.s -> build/plugins/multiload_template.bin")
     if ml_debug_borders:
         print("[MULTILOAD] ML_DEBUG_BORDERS=1 — border-color markers enabled for hardware diagnostics")
     run_cmd(
@@ -810,7 +810,7 @@ def build_multiload(ctx: Context, *, debug: int, debug_break: int, ml_debug_bord
         print("                 4=purple(StartTalking) 5=green(Send) 6=blue(WaitProc)")
         print("                 7=yellow(RecvFragment) 8=orange(OpenFile ok) 9=brown(OpenFile fail)")
         print("  Last visible color before hang = the stage that hangs.")
-    print("  Copy bootplugin.prg to the game directory on the SD card as EASYLOAD.PRG")
+    print("  This is a raw template binary. Use Tools/create_multiload.py to generate EASYLOAD.PRG.")
 
 
 def build_vice_tests(ctx: Context) -> None:
