@@ -30,8 +30,12 @@ MAIN
     STA $D011                       ; screen on, 25 rows
     LDA #$08
     STA $D016                       ; 40 columns, no scroll
-    LDA #$15
-    STA $D018                       ; screen $0400, charset $1000
+    ; Keep the currently active charset (the menu uses a custom RAM charset),
+    ; only force screen RAM back to $0400.
+    LDA $D018
+    AND #$0F
+    ORA #$10
+    STA $D018
 
     ; Clear screen via KERNAL
     LDA #$93

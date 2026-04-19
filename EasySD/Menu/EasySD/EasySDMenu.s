@@ -571,6 +571,11 @@ PRGPLUGINEXISTS
 	JSR GETCURRENTROW	
 	JSR PrepareFileNameParameter
 
+	; FILE_PATH_BUF/PATHBUFFER now contains the selected media file's absolute path.
+	; Keep that for the plugin to consume, but invoke the plugin executable itself.
+	LDX #<PLUGINNAME
+	LDY #>PLUGINNAME
+	JSR PROT_SetNameZ
 	JSR PROT_InvokeWithName
 
 	JMP *

@@ -816,6 +816,8 @@ void CartApi::HandleInvokeWithName() {
   uint8_t flags = Arguments[0];
   unsigned int fileNameLength = Arguments[1];
   char * fileName = (char *) &Arguments[2];
+  char savedPath[64];
+  bool restoreCwd = false;
 
   // Flags are passed from the C64 in X register.
   // Bit0: 1=auto-run (default), 0=convert/save only (TAP only)
@@ -832,14 +834,38 @@ void CartApi::HandleInvokeWithName() {
   // NUL-terminate the received filename (GetArgumentsDynamic does not do this).
   Arguments[2 + fileNameLength] = '\0';
 
-  // For absolute paths (e.g. "/PRG/dizzy 2 1  -cmm.prg"), sd.exists() with an
-  // absolute path containing LFN components can fail in SdFat 2.x.
-  // The CWD is already set to the parent directory by DirFunction during menu
-  // navigation, so we use just the basename with the current directory.
+  // For absolute paths (e.g. "/PLUGINS/CVDPLUGIN.PRG"), sd.exists() with an
+  // absolute path containing LFN components can fail in SdFat 2.x. Move CWD to
+  // the parent directory first, then use the basename there.
   const char* openName = fileName;
   if (fileName[0] == '/') {
     const char* lastSlash = strrchr(fileName, '/');
-    if (lastSlash) openName = lastSlash + 1;
+    char parentPath[64];
+
+    if (lastSlash == NULL || lastSlash[1] == '\0') {
+      HandleResponse(INVALID_ARGUMENT, 0);
+      return;
+    }
+
+    strncpy(savedPath, dirFunc.currentPath, sizeof(savedPath) - 1);
+    savedPath[sizeof(savedPath) - 1] = '\0';
+
+    strncpy(parentPath, fileName, sizeof(parentPath) - 1);
+    parentPath[sizeof(parentPath) - 1] = '\0';
+    char* parentLastSlash = strrchr(parentPath, '/');
+    if (parentLastSlash == parentPath) {
+      parentPath[1] = '\0';
+    } else if (parentLastSlash) {
+      *parentLastSlash = '\0';
+    }
+
+    if (!dirFunc.NavigateToPath(parentPath)) {
+      HandleResponse(DIR_NOT_FOUND, 0);
+      return;
+    }
+
+    openName = lastSlash + 1;
+    restoreCwd = true;
   }
 
   // Verify file exists before committing to C64 — once SUCCESSFUL is sent,
@@ -853,6 +879,9 @@ void CartApi::HandleInvokeWithName() {
     static char matchBuf[128];
     uint8_t len = strlen(openName);
     if (!dirFunc.FindByPrefix(openName, len, matchBuf, sizeof(matchBuf))) {
+      if (restoreCwd) {
+        dirFunc.NavigateToPath(savedPath);
+      }
       HandleResponse(FILE_NOT_FOUND, 0);
       return;
     }
@@ -1493,8 +1522,14 @@ void CartApi::TransferMenu() {
 
 void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   const size_t BUF_SIZE = 16;
-  uint8_t buf[BUF_SIZE];  
+  uint8_t buf[BUF_SIZE];
+  char launchPath[64];
   cartInterface.EndListening();
+
+  // Preserve the launch directory: MultiLoad queries it immediately after
+  // EASYLOAD.PRG starts, and plugin invokes may temporarily switch CWD.
+  strncpy(launchPath, dirFunc.currentPath, sizeof(launchPath) - 1);
+  launchPath[sizeof(launchPath) - 1] = '\0';
 
   // If a TAP is selected, try to convert it to a PRG on the SD card first.
   // Only standard (KERNAL/CBM) tape blocks are supported.
@@ -1593,6 +1628,7 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     workingFile.close();               // close before chdir — prevents SdFat state corruption
     cartInterface.DisableCartridge();  // EXROM HIGH + data bus tristate — clean state after transfer
     Init();
+    dirFunc.NavigateToPath(launchPath);
 
     cartInterface.StartListening();
     //interrupts();
