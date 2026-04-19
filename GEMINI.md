@@ -123,7 +123,7 @@ COMMAND_END_TALKING=30, COMMAND_EXIT_TO_MENU=31, COMMAND_HWTEST=32
 ```
 
 ### Memory Constraints (ATmega328P — CRITICAL)
-- **Flash**: 32256B max (Optiboot). Release: ~23708B (77%, ~7KB free). Debug: ~30684B (99%, 36B margin)
+- **Flash**: 32768B max (no bootloader). Release: ~23708B (77%, ~7KB free). Debug: ~30684B (99%, 36B margin)
 - **SRAM**: 2KB total, ~413B free at boot. Keep 300B+ minimum free.
 - Monitor with `FreeStack()`. RAM threshold: `>400`=OK, `>300`=LOW, `≤300`=CRIT!
 
@@ -226,8 +226,7 @@ python Tools/build.py release                    # full build
 python Tools/build.py debug-vice                 # C64 only, VICE mock
 python Tools/build.py debug-arduino             # C64 + Arduino debug
 python Tools/build.py plugins                   # plugins only
-python Tools/build.py arduino-upload COM4       # upload release firmware
-python Tools/build.py arduino-upload-isp        # ISP upload (default: no Optiboot restore)
+python Tools/build.py arduino-upload-isp        # ISP upload (USBtinyISP)
 python Tools/build.py protocol-test COM4        # protocol echo test build
 python Tools/test_arduino_comm.py COM4 --verbose
 python Tools/test_vice_menu.py --build --verbose

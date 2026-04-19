@@ -61,7 +61,7 @@ build.py `arduino-upload-isp` has a bug: looks for hex in wrong directory. Use a
 
 **Speed:** `-B10` (100kHz) = ~2.5 min for 30KB. Acceptable for occasional uploads.
 
-**Important:** ISP upload performs chip erase → **bootloader is erased**. USB upload will not work after ISP upload until bootloader is restored. All future uploads must use ISP.
+**Note:** EasySD intentionally runs without a bootloader — ISP is the only supported upload method. Any bootloader's startup window leaves /RESET and EXROM floating, breaking the cold-boot sequence.
 
 **TODO:** Fix `arduino_upload_isp()` in `build.py` — correct hex path is:
 `C:\Users\guyle\AppData\Local\arduino\sketches\61398A5C2D5C2F5FC0E8639CC6B96A6F\EasySD.ino.hex`

@@ -44,7 +44,6 @@ python Tools/build.py clean
 
 # Arduino-specific commands
 python Tools/build.py arduino-compile [--debug] [--selftest]
-python Tools/build.py arduino-upload COM4 [--debug]
 python Tools/build.py arduino-upload-isp [--debug] [--isp-sck USEC]
 python Tools/build.py arduino-monitor COM4
 
@@ -57,8 +56,7 @@ python Tools/build.py release --skip-arduino
 **First-time Arduino setup:** `python Tools/build.py arduino-setup`
 
 **Arduino upload notes:**
-- `arduino-upload` uses USB serial bootloader (115200 baud, `atmega328` Optiboot FQBN)
-- `arduino-upload-isp` uses USBtinyISP programmer — by default writes firmware only (no Optiboot restore). Use `--optiboot` only when USB bootloader upload must be restored afterward.
+- `arduino-upload-isp` uses USBtinyISP programmer (ISP only — no bootloader). USB serial upload is intentionally unsupported because any bootloader's startup window breaks the EasySD cold-boot sequence.
 - ISP SCK speed: `--isp-sck 2` (500 kHz, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
 - **Debug flash budget:** `--debug` = 29.8KB (96%, ~950B free). `--debug --selftest` exceeds 30720B limit — self-test suite adds ~2KB. Use `--selftest` only for standalone SD testing, not for C64-connected debug sessions.
 

@@ -29,7 +29,6 @@ python Tools/build.py clean
 
 # Arduino-specific commands
 python Tools/build.py arduino-compile
-python Tools/build.py arduino-upload COM4
 python Tools/build.py arduino-upload-isp [--isp-sck USEC]
 python Tools/build.py arduino-monitor COM4
 
@@ -93,8 +92,8 @@ python Tools/build.py arduino-setup
 # 1. Full release build + staging
 python Tools/build.py release
 
-# 2. Upload firmware
-python Tools/build.py arduino-upload COM4
+# 2. Upload firmware via ISP
+python Tools/build.py arduino-upload-isp
 
 # Optional: deploy staged SD bundle to SD card drive
 python Tools/build.py sd-deploy D:
@@ -113,7 +112,7 @@ python Tools/build.py arduino-upload-isp --isp-sck 10   # 100kHz, with firmware
 ```bash
 python Tools/build.py clean
 python Tools/build.py release
-python Tools/build.py arduino-upload COM4
+python Tools/build.py arduino-upload-isp
 ```
 
 ---

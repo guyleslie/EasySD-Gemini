@@ -144,20 +144,14 @@ python Tools/build.py sd-content
 ### Flash the Arduino
 
 ```bash
-# Upload via USB (Arduino already has a bootloader)
-python Tools/build.py arduino-upload COM4
-
-# Upload via ISP programmer (default, recommended for EasySD: no Optiboot)
+# Upload via ISP programmer (USBtinyISP)
 python Tools/build.py arduino-upload-isp
 
-# Upload via ISP programmer for a blank/bricked chip (slower SCK)
+# Upload for a blank/bricked chip (slower SCK)
 python Tools/build.py arduino-upload-isp --isp-sck 100
-
-# Only use this if you explicitly want Optiboot restored for later USB uploads
-python Tools/build.py arduino-upload-isp --optiboot
 ```
 
-> Important: when writing the Arduino over ISP for EasySD, Optiboot should normally be omitted. The default `arduino-upload-isp` flow now keeps the chip in application-start mode (`BOOTRST=1`), avoiding bootloader delay. Use `--optiboot` only when you intentionally want to restore USB bootloader uploads.
+> USB serial upload is intentionally unsupported. Any bootloader (e.g. Optiboot) introduces a startup window during which the AVR pins float, breaking the EasySD cold-boot sequence that must hold the C64 in reset until the AVR is fully initialised. Always use an ISP programmer.
 
 > After flashing, the Arduino firmware is complete. Next, program the C64-side ROM image into the cartridge ROML chip using a TL866 or similar programmer — see **Flash the Cartridge ROML Chip** below.
 
@@ -178,9 +172,6 @@ Add `--release-log` to any Arduino build or upload command to enable lightweight
 ```bash
 # Compile with release logging
 python Tools/build.py arduino-compile --release-log
-
-# Upload via USB with release logging
-python Tools/build.py arduino-upload COM4 --release-log
 
 # Upload via ISP with release logging
 python Tools/build.py arduino-upload-isp --release-log

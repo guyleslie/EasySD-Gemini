@@ -35,10 +35,7 @@ python Tools/build.py arduino-compile
 # Compile firmware (debug, serial logging enabled)
 python Tools/build.py arduino-compile --debug
 
-# Upload via USB serial (Optiboot bootloader, 115200 baud)
-python Tools/build.py arduino-upload COM4
-
-# Upload via USBtinyISP (no bootloader required)
+# Upload via USBtinyISP (ISP only — no bootloader)
 python Tools/build.py arduino-upload-isp
 
 # Upload via ISP with debug firmware
@@ -54,16 +51,16 @@ python Tools/build.py arduino-monitor COM4
 
 | Parameter | Value |
 |-----------|-------|
-| FQBN | `arduino:avr:nano` (Optiboot, 115200 baud) |
+| FQBN | `arduino:avr:nano:cpu=atmega328` |
 | MCU | ATmega328P |
-| Flash | 30720 bytes (30 KB) |
+| Flash | 32768 bytes (32 KB, no bootloader) |
 | SRAM | 2048 bytes (2 KB) |
 
 ---
 
 ## ISP Upload Notes
 
-- ISP upload erases the bootloader — USB serial upload will not work afterward unless Optiboot is restored with `--optiboot`
+- EasySD requires ISP upload (USBtinyISP). USB serial upload is unsupported — any bootloader's startup window breaks the cold-boot /RESET sequence.
 - Default ISP SCK: `-B 2` (500 kHz) for chips with existing firmware
 - Blank/bricked chips: `-B 100` (10 kHz, ~8 min upload time)
 - See `CLAUDE.md` for full ISP details
@@ -76,5 +73,5 @@ python Tools/build.py arduino-monitor COM4
 |---------|-----|
 | `arduino-cli not found` | Install via winget or add to PATH |
 | `Port not found` | Check Device Manager → Ports (COM & LPT) |
-| `stk500 not in sync` | Bootloader may be erased — use ISP upload instead |
+| `stk500 not in sync` | Expected — EasySD uses ISP upload only, not USB serial |
 | Flash overflow in debug build | Disable log categories in `EasySDLog.h` (see `docs/arduino/LOGGING_QUICKREF.md`) |

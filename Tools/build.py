@@ -17,7 +17,7 @@ Usage Examples:
   python build.py arduino-setup        # One-time Arduino-CLI setup
   python build.py arduino-compile      # Compile Arduino (release mode)
   python build.py arduino-compile --debug  # Compile Arduino (debug mode - SERIAL ON)
-  python build.py arduino-upload COM4  # Compile + Upload to port
+  python build.py arduino-upload-isp   # Upload via ISP (USBtinyISP)
   python build.py arduino-monitor COM4 # Serial monitor (57600 baud)
   python build.py arduino-clean        # Clean Arduino temp files
 
@@ -854,7 +854,7 @@ def build_vice_tests(ctx: Context) -> None:
 # Arduino Build Functions (NEW - POST-SPRINT6)
 # ============================================================================
 
-ARDUINO_FQBN = "arduino:avr:nano:cpu=atmega328"  # Arduino Nano (ATmega328P, Optiboot)
+ARDUINO_FQBN = "arduino:avr:nano:cpu=atmega328"  # Arduino Nano (ATmega328P)
 
 
 def arduino_setup(ctx: Context) -> None:
@@ -956,41 +956,6 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
     return size
 
 
-def arduino_upload(ctx: Context, port: str, debug_mode: bool = False, protocol_test: bool = False, release_log: bool = False) -> None:
-    """Compile and upload Arduino sketch"""
-    cli_exe = find_arduino_cli(ctx)
-    build_path, _ = prepare_arduino_cli_paths(ctx, "upload")
-
-    # Generate BuildConfig.h first
-    arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test, release_log=release_log)
-
-    mode_label = 'PROTOCOL_TEST' if protocol_test else ('ON' if debug_mode else ('RELEASE_LOG' if release_log else 'OFF'))
-    print("\n" + "="*70)
-    print("UPLOADING TO ARDUINO")
-    print("="*70)
-    print(f"  Sketch: {ctx.arduino_root}")
-    print(f"  Board: {ARDUINO_FQBN}")
-    print(f"  Port: {port}")
-    print(f"  DEBUG_SERIAL: {mode_label}")
-    print("="*70)
-
-    run_arduino_cli(cli_exe, [
-        "compile",
-        "--upload",
-        "--fqbn", ARDUINO_FQBN,
-        "--port", port,
-        "--verbose",
-        "--build-path", str(build_path),
-        str(ctx.arduino_root)
-    ])
-
-    print("\n" + "="*70)
-    print("UPLOAD COMPLETE!")
-    print("="*70)
-    print("\nOpen Serial Monitor @ 57600 baud to see output")
-    print(f"  python build.py arduino-monitor {port}")
-
-
 def find_avrdude(ctx: Context) -> tuple[Path, Path]:
     """Find avrdude executable and config in Arduino15 packages"""
     arduino15 = Path.home() / "AppData" / "Local" / "Arduino15"
@@ -1002,20 +967,6 @@ def find_avrdude(ctx: Context) -> tuple[Path, Path]:
             "Run: python build.py arduino-setup"
         )
     return avrdude_bins[-1], avrdude_confs[-1]
-
-
-def find_bootloader_hex(ctx: Context) -> Path:
-    """Find the ATmega328 bootloader hex in Arduino15 packages"""
-    arduino15 = Path.home() / "AppData" / "Local" / "Arduino15"
-    candidates = sorted(arduino15.glob(
-        "packages/arduino/hardware/avr/*/bootloaders/optiboot/optiboot_atmega328.hex"
-    ))
-    if not candidates:
-        raise SystemExit(
-            "ERROR: Bootloader hex not found in Arduino15 packages.\n"
-            "Run: python build.py arduino-setup"
-        )
-    return candidates[-1]
 
 
 def resolve_existing_arduino_hex(ctx: Context) -> Path:
@@ -1032,9 +983,14 @@ def resolve_existing_arduino_hex(ctx: Context) -> Path:
 
 
 def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = False,
-                       burn_bootloader: bool = False, release_log: bool = False,
-                       use_existing: bool = False) -> None:
-    """Upload Arduino sketch via ISP programmer (USBTinyISP)."""
+                       release_log: bool = False, use_existing: bool = False) -> None:
+    """Upload Arduino sketch via ISP programmer (USBTinyISP).
+
+    Always sets BOOTRST=1 (hfuse 0xDB) so the CPU starts from $0000 (application)
+    with no bootloader. Optiboot is intentionally unsupported — its ~1-2s boot
+    window leaves /RESET and EXROM floating, which breaks the EasySD cold-boot
+    sequence that must hold the C64 in reset until the AVR is fully initialised.
+    """
     if use_existing:
         hex_file = resolve_existing_arduino_hex(ctx)
         size = None
@@ -1057,7 +1013,6 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
     print(f"  Programmer: usbtinyisp")
     print(f"  SCK period: {sck_period} µs  ({1000 // sck_period} kHz)")
     print(f"  DEBUG_SERIAL: {'ON' if debug_mode else ('RELEASE_LOG' if release_log else 'OFF')}")
-    print(f"  Bootloader: {'YES (--optiboot, USB upload will work after)' if burn_bootloader else 'NO (default, no Optiboot)'}")
     print("="*70)
 
     run_cmd(
@@ -1073,58 +1028,25 @@ def arduino_upload_isp(ctx: Context, sck_period: int = 10, debug_mode: bool = Fa
         cwd=ctx.repo_root
     )
 
-    if not burn_bootloader:
-        # Default no-Optiboot mode: set hfuse BOOTRST=1 so CPU starts from $0000 (application)
-        # not from the boot section ($7E00). Without this fuse change, the chip would
-        # jump to $7E00 on reset even without a bootloader there → hang.
-        # Restoring Optiboot later: run arduino-upload-isp --optiboot.
-        print("\n" + "="*70)
-        print("SETTING FUSE: BOOTRST=1 (application start at $0000, no Optiboot delay)")
-        print("="*70)
-        run_cmd(
-            [
-                str(avrdude_exe),
-                f"-C{avrdude_conf}",
-                "-v",
-                "-p", "atmega328p",
-                "-c", "usbtiny",
-                f"-B{sck_period}",
-                "-D",
-                "-Uhfuse:w:0xDB:m",  # hfuse 0xDA→0xDB: flip BOOTRST bit (0→1 = start from $0000)
-            ],
-            cwd=ctx.repo_root
-        )
-        print("  NOTE: USB serial upload is now disabled.")
-        print("  To restore: python build.py arduino-upload-isp --optiboot")
-
-    if burn_bootloader:
-        bootloader_hex = find_bootloader_hex(ctx)
-        print("\n" + "="*70)
-        print("BURNING BOOTLOADER (USBTinyISP)")
-        print("="*70)
-        print(f"  Bootloader: {bootloader_hex.name}")
-        print(f"  (enabled with --optiboot)")
-        print("="*70)
-
-        run_cmd(
-            [
-                str(avrdude_exe),
-                f"-C{avrdude_conf}",
-                "-v",
-                "-p", "atmega328p",
-                "-c", "usbtiny",
-                f"-B{sck_period}",
-                "-D",  # no chip erase — preserve firmware
-                "-Uhfuse:w:0xDA:m",  # BOOTSZ=01 (1024 words = 2KB section) per Arduino Nano boards.txt
-                f"-Uflash:w:{bootloader_hex}:i",
-                "-Ulock:w:0x0F:m",
-            ],
-            cwd=ctx.repo_root
-        )
-
-        print("\n" + "="*70)
-        print("BOOTLOADER BURN COMPLETE! USB upload now available.")
-        print("="*70)
+    # Set BOOTRST=1 so CPU starts from $0000 (application), not from the boot
+    # section ($7E00). Without this fuse, the chip jumps to $7E00 on reset —
+    # if no bootloader is present there, it hangs.
+    print("\n" + "="*70)
+    print("SETTING FUSE: BOOTRST=1 (application start, no bootloader)")
+    print("="*70)
+    run_cmd(
+        [
+            str(avrdude_exe),
+            f"-C{avrdude_conf}",
+            "-v",
+            "-p", "atmega328p",
+            "-c", "usbtiny",
+            f"-B{sck_period}",
+            "-D",
+            "-Uhfuse:w:0xDB:m",  # BOOTRST=1: start from $0000
+        ],
+        cwd=ctx.repo_root
+    )
 
     print("\n" + "="*70)
     print("ISP UPLOAD COMPLETE!")
@@ -1193,10 +1115,8 @@ Examples:
   python build.py arduino-setup        # One-time setup
   python build.py arduino-compile      # Compile + upload bundle in build/upload
   python build.py arduino-compile --debug  # Compile (debug mode - SERIAL ON)
-    python build.py arduino-upload COM4               # Compile + Upload (USB)
-    python build.py arduino-upload-isp                # Compile + Upload (ISP/USBTinyISP, no Optiboot)
+    python build.py arduino-upload-isp                # Compile + Upload (ISP/USBTinyISP)
     python build.py arduino-upload-isp --use-existing # Upload existing build/_arduino-compile/EasySD.ino.hex
-    python build.py arduino-upload-isp --optiboot    # ISP upload + re-burn Optiboot bootloader
     python build.py arduino-upload-isp --isp-sck 10  # ISP with custom SCK period (µs)
     python build.py arduino-monitor COM4              # Serial monitor
 
@@ -1215,7 +1135,7 @@ Examples:
             "release", "debug-vice", "debug-arduino",
             "core", "plugins", "multiload", "clean", "prebuild",
             # Arduino operations
-            "arduino-setup", "arduino-compile", "arduino-upload", "arduino-upload-isp",
+            "arduino-setup", "arduino-compile", "arduino-upload-isp",
             "arduino-monitor", "arduino-list-ports", "arduino-clean",
             # Protocol echo test (Arduino-only, debug serial + protocol test flags)
             "protocol-test",
@@ -1245,11 +1165,6 @@ Examples:
                    help="Include SD self-test suite in debug builds (adds ~2KB flash)")
     p.add_argument("--release-log", action="store_true",
                    help="Enable lightweight serial logging in release builds (DIR/SYS/SD/ERR categories only)")
-    p.add_argument("--optiboot", action="store_true",
-                   help="After ISP upload, also burn the Optiboot bootloader so USB serial upload works again")
-    p.add_argument("--no-bootloader", action="store_true",
-                   help=argparse.SUPPRESS)
-
     return p.parse_args(list(argv))
 
 
@@ -1276,22 +1191,9 @@ def main(argv: Sequence[str]) -> int:
         stage_upload_bundle(ctx, compile_dir, mode_label=mode_label)
         return 0
 
-    if args.target == "arduino-upload":
-        if not args.port:
-            print("\nERROR: COM port required for arduino-upload")
-            arduino_list_ports(ctx)
-            print("\nUsage: python build.py arduino-upload COM4")
-            print("       python build.py arduino-upload COM4 --debug  (for debug mode)")
-            return 1
-        arduino_upload(ctx, args.port, debug_mode=args.debug, release_log=args.release_log)
-        return 0
-
     if args.target == "arduino-upload-isp":
-        if args.optiboot and args.no_bootloader:
-            print("\nERROR: Use either --optiboot or --no-bootloader, not both")
-            return 1
         arduino_upload_isp(ctx, sck_period=args.isp_sck, debug_mode=args.debug,
-                           burn_bootloader=args.optiboot, release_log=args.release_log,
+                           release_log=args.release_log,
                            use_existing=args.use_existing)
         return 0
 
@@ -1384,15 +1286,10 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if args.target == "protocol-test":
-        # Compile (and optionally upload) with EASYSD_PROTOCOL_TEST flags.
+        # Compile with EASYSD_PROTOCOL_TEST flags.
         # Disables LOG_ENABLE_DIR/FILE to reclaim ~600B flash vs normal debug build.
-        # Usage:
-        #   python build.py protocol-test           # compile only
-        #   python build.py protocol-test COM4      # compile + upload
-        if args.port:
-            arduino_upload(ctx, args.port, debug_mode=False, protocol_test=True)
-        else:
-            arduino_compile(ctx, debug_mode=False, protocol_test=True)
+        # Upload the resulting HEX via: arduino-upload-isp --use-existing
+        arduino_compile(ctx, debug_mode=False, protocol_test=True)
         return 0
 
     # ==================================================
@@ -1522,7 +1419,7 @@ def main(argv: Sequence[str]) -> int:
             print(f"  Release bundle: {ctx.build_dir / 'release'}")
         print("\nNext steps:")
         if not args.skip_arduino:
-            print(f"  python build.py arduino-upload COM4  # Upload firmware")
+            print(f"  python build.py arduino-upload-isp  # Upload firmware via ISP")
         else:
             print("  --skip-arduino was used; Arduino build/upload steps were skipped.")
         print("="*70)

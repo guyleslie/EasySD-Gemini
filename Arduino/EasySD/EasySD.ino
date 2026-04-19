@@ -229,9 +229,9 @@ void setup() {
   // which is only called on explicit SEL button press, not at boot.
   cartInterface.ResetReceive();
 
-  // SD card power-up settling time. Previously implicit from Optiboot bootloader
-  // delay or C64 BASIC boot time. Now explicit because /RESET hold means the AVR
-  // reaches this point within ~1ms of power-on.
+  // SD card power-up settling time. Without a bootloader the AVR reaches this
+  // point within ~1ms of power-on; SD cards need up to 300ms before accepting
+  // SPI commands (SD Physical Layer spec, section 6.4.1).
   delay(300);
 
   LOGI(SYS, "Boot: init SD");
