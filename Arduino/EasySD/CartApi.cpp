@@ -890,6 +890,9 @@ void CartApi::HandleInvokeWithName() {
 
   HandleResponse(SUCCESSFUL, 0);
   LoadAndLaunchFile(openName);
+  if (restoreCwd) {
+    dirFunc.NavigateToPath(savedPath);
+  }
 }
 
 void CartApi::HandleValueResponse(uint8_t value) {
@@ -1423,8 +1426,11 @@ void CartApi::TransferMenu() {
 
   LOGI(SYS, "TransferMenu");
 
-  cartInterface.EndListening();  
-   
+  cartInterface.EndListening();
+
+  if (workingFile && workingFile.isOpen()) {
+    workingFile.close();
+  }
   dirFunc.ReInit();
   
   unsigned char readFromFile = 0;  
@@ -1524,12 +1530,18 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   const size_t BUF_SIZE = 16;
   uint8_t buf[BUF_SIZE];
   char launchPath[64];
+  const bool preserveLaunchPath =
+      strcmp(selectedFileName, "EASYLOAD.PRG") == 0 ||
+      strcmp(selectedFileName, "easyload.prg") == 0;
   cartInterface.EndListening();
 
-  // Preserve the launch directory: MultiLoad queries it immediately after
-  // EASYLOAD.PRG starts, and plugin invokes may temporarily switch CWD.
-  strncpy(launchPath, dirFunc.currentPath, sizeof(launchPath) - 1);
-  launchPath[sizeof(launchPath) - 1] = '\0';
+  // Preserve the launch directory only for MultiLoad's EASYLOAD.PRG.
+  // Ordinary PRGs used to return to a root-based firmware state reliably, and
+  // restoring their launch folder regressed SEL/menu return after exit.
+  if (preserveLaunchPath) {
+    strncpy(launchPath, dirFunc.currentPath, sizeof(launchPath) - 1);
+    launchPath[sizeof(launchPath) - 1] = '\0';
+  }
 
   // If a TAP is selected, try to convert it to a PRG on the SD card first.
   // Only standard (KERNAL/CBM) tape blocks are supported.
@@ -1628,7 +1640,9 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     workingFile.close();               // close before chdir — prevents SdFat state corruption
     cartInterface.DisableCartridge();  // EXROM HIGH + data bus tristate — clean state after transfer
     Init();
-    dirFunc.NavigateToPath(launchPath);
+    if (preserveLaunchPath) {
+      dirFunc.NavigateToPath(launchPath);
+    }
 
     cartInterface.StartListening();
     //interrupts();
