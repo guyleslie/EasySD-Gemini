@@ -10,7 +10,7 @@ TYPE_CHECK_PLUGIN	= 1
 ;
 ; CHECKFILENAME extracts only the first 1..3 chars of the extension
 ; (after the last '.'). Plugin dispatch therefore expects 3-char media
-; extensions such as .WAV, .KOA, .MUS, .CVD.
+; extensions such as .WAV, .KOA, .CVD.
 ; If no valid extension -> TYPE_PROGRAM.
 ; ------------------------------------------------------------
 
