@@ -89,15 +89,6 @@ OPENINGCONT
 	;JMP FILEREAD
 	;RINTSTATUSANDWAIT STREAMINGFILE, 200
 
-	; Initialize Arduino streaming mode (parameters ignored by firmware)
-	; WavPlayer implements its own IRQ-based streaming loop (see PlayRoutine)
-	LDA #$00
-	LDX #$00
-	LDY #$00
-	JSR PROT_Stream
-
-	DELAYFRAMES 5
-
 	; Detect MK3 BEFORE mode selector so it can show/hide the MK3 option
 	JSR DIGI_Init
 	JSR NMIDIGI_InitNew
@@ -132,6 +123,13 @@ ERROR_OPENING_FILE
 STREAMFILE
 	LDA #0
 	STA PLAYSTATE
+	; Start Arduino IO2 streaming only when playback is about to begin.
+	; Starting it earlier lets the 100 ms IO2 inactivity timeout expire while
+	; the mode selector / MK3 detection screen is still active.
+	LDA #$00
+	LDX #$00
+	LDY #$00
+	JSR PROT_Stream
 	; PLAYINDEX is initialized inside SETUPMUSICTRANSFER
 	JSR SETUPMUSICTRANSFER
 	JSR PROT_DisableDisplay

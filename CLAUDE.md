@@ -116,7 +116,6 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 | KernalBridge (PRG loader, P2TK) | `.PRG` | ✅ working |
 | WavPlayer | `.WAV` | ❌ needs debug |
 | KoalaDisplayer | `.KOA` | ❌ needs debug |
-| MusPlayer | `.MUS` | ❌ needs debug |
 | PetsciiDisplayer | `.PET` | ❌ needs debug |
 | CvdPlayer (CVD video player) | `.CVD` | ❌ needs debug |
 | HWTest (signal diagnostic) | `.HWT` | ❌ needs debug |
@@ -125,7 +124,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 
 ## Critical Arduino Constraints
 
-**ATmega328P has only 2KB SRAM** (~774B local variable space, ~437B stack free at boot). Every byte matters.
+**ATmega328P has only 2KB SRAM** (~530B free at boot in release, ~353B in debug). Every byte matters.
 
 - **Never use `strtok()`** — causes static buffer corruption. Use manual token parsing (see `DirFunction.cpp`).
 - **Never use unbounded `strcpy()`** — always validate buffer sizes.
@@ -138,7 +137,8 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.
 - **Cartridge idle state must be truly BASIC-safe:** hide cartridge (`EXROM` HIGH), reset receive/session state, and tristate the data bus without leaving AVR pull-ups latched on D4-D7/A0-A3. Use the centralized `ReleaseToBasic()` / `EnterBasicSafeMode()` path instead of re-creating this sequence ad hoc.
 - **No active EEPROM persistence:** the current firmware does not use the Nano's internal EEPROM for boot, menu navigation, or last-directory restore. Treat any remaining EEPROM references as stale or legacy code unless reintroduced deliberately.
-- **Flash budget:** Release 25.2KB/30.7KB (82%, **~5.5KB free**). Debug 29.8KB (96%, ~950B free). Debug+selftest exceeds limit (~32.6KB) — self-test suite gated behind `EASYSD_SELFTEST`, enabled via `--selftest` flag.
+- **SRAM overlay:** IO2 streaming, NI streaming, and command argument buffers share a single union (`sharedBuf` in CartApi.cpp). These are mutually exclusive at runtime, so `max(128, 400, 130) = 400 B` instead of `658 B`. Never add a new static buffer without checking the SRAM budget.
+- **Flash budget:** Release 23.2KB/30.7KB (75%, **~7.6KB free**). Debug 27.7KB (90%, ~3KB free). Debug+selftest exceeds limit — self-test suite gated behind `EASYSD_SELFTEST`, enabled via `--selftest` flag.
 
 ## Key File Locations
 

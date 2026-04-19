@@ -3,7 +3,10 @@
 
 #include <Arduino.h>
 
-#define QUEUE_MAX_SIZE 63
+// 31 entries is sufficient: the modulated C64→Arduino receive protocol
+// delivers bytes one at a time and the main loop drains them promptly.
+// Reducing from 63 saves 32 bytes of scarce ATmega328P SRAM.
+#define QUEUE_MAX_SIZE 31
 
 class ByteQueue{
     private:

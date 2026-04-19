@@ -13,21 +13,60 @@ extern SdFat  sd;
 extern DirFunction dirFunc;
 extern CartInterface cartInterface;
 
-//volatile static uint8_t * streamBuffer;
-// Static buffers for streaming (fix dangling pointer issue)
-volatile static uint8_t streamingBuffer1[DOUBLE_BUFFER_SIZE];
-volatile static uint8_t streamingBuffer2[DOUBLE_BUFFER_SIZE];
+// Shared SRAM overlay — IO2 streaming, NI streaming, and command argument
+// parsing are mutually exclusive at runtime.  Their buffers live in one union
+// so only max(128, 400, 130) = 400 bytes are consumed instead of 658.
+// Safety: every Handle*() copies Arguments to locals BEFORE touching stream/NI
+// buffers, so the overlap never causes data loss.
+static union {
+  struct {
+    volatile uint8_t stream1[DOUBLE_BUFFER_SIZE];
+    volatile uint8_t stream2[DOUBLE_BUFFER_SIZE];
+  } io2;
+  uint8_t ni[NON_INTERRUPTED_BUFFER_SIZE];
+  uint8_t args[MAX_ARGUMENTS_LENGTH + 2];
+} sharedBuf;
 // Pointers initialized to static buffers (safe for ISR)
-volatile static uint8_t * streamBuffer1 = streamingBuffer1;
-volatile static uint8_t * streamBuffer2 = streamingBuffer2;
+volatile static uint8_t * streamBuffer1 = sharedBuf.io2.stream1;
+volatile static uint8_t * streamBuffer2 = sharedBuf.io2.stream2;
 //volatile static uint8_t streamBufferIndex;
 volatile static uint16_t streamBufferIndex;
 volatile static unsigned long lastStreamRequestTime = 0;
 //volatile static uint8_t chunkLength;
 //volatile static uint8_t inChunkDelay;
 
+static uint16_t ReadAndPadBuffer(File &file, uint8_t *buffer, uint16_t length, uint8_t padValue) {
+  int readCount = file.read(buffer, length);
+  if (readCount < 0) readCount = 0;
+
+  for (uint16_t i = (uint16_t)readCount; i < length; i++) {
+    buffer[i] = padValue;
+  }
+
+  return (uint16_t)readCount;
+}
+
+static bool OpenMenuFromSdRoot(File &outFile) {
+  static const char kName0[] PROGMEM = "easysd.prg";
+  static const char kName1[] PROGMEM = "EASYSD.PRG";
+  static const char * const kNames[] PROGMEM = { kName0, kName1 };
+  char buf[12];
+
+  for (uint8_t i = 0; i < 2; i++) {
+    strcpy_P(buf, (const char *)pgm_read_ptr(&kNames[i]));
+    if (!sd.exists(buf)) continue;
+    outFile = sd.open(buf, FILE_READ);
+    if (outFile) {
+      LOGI(PRG, "Menu from SD");
+      return true;
+    }
+  }
+
+  return false;
+}
 
 void CartApi::Init() {
+  Arguments = sharedBuf.args;
   m_argsOk = true;
   cartInterface.SetPage(0);
 
@@ -419,15 +458,14 @@ void CartApi::HandleChangeDirectory() {
     fileName[MAX_ARGUMENTS_LENGTH - 1] = '\0';
   }
 
-  LOGI(DIR, "CD: ");
-  LOG_PRINTLN(fileName);
-
   bool success = dirFunc.ChangeDirectoryBasename(fileName);
 
   if (success) {
-    LOGI(DIR, "CD OK: ");
-    LOG_PRINT(dirFunc.currentPath);
-    LOG_PRINT_F(" cnt="); LOG_PRINTLN(dirFunc.GetCount());
+    // Restore the proven post-chdir refresh path: after a successful basename
+    // change, rebuild the directory handle/count before the menu asks for the
+    // next page. This matches the older stable flow more closely than relying
+    // on the deeper ChangeDirectory chain alone.
+    dirFunc.Prepare();
     HandleResponse(SUCCESSFUL, 1);
   } else {
     LOGE(DIR, "CD FAIL");
@@ -529,7 +567,7 @@ void CartApi::HandleCreateDirectory() {
 }
 
 // ============================================================================
-// HELPER FUNCTIONS: File matching and TAP conversion
+// HELPER FUNCTIONS: File matching
 // ============================================================================
 
 unsigned char IsMatchLast(char * container, char * val) {
@@ -546,287 +584,16 @@ unsigned char IsMatchLast(char * container, char * val) {
 
 }
 
-// ------------------------------------------------------------
-// Standard TAP -> PRG conversion (KERNAL/CBM tape blocks only)
-// ------------------------------------------------------------
-//
-// This is intentionally NOT a universal TAP decoder. It supports only the
-// standard Commodore KERNAL tape format wrapped in a .TAP container.
-//
-// References (format/encoding):
-// - TAP header and pulse encoding: C64-Wiki / VICE docs
-// - Datassette pulse-length encoding: byte marker = LONG+MEDIUM,
-//   bit0 = SHORT+MEDIUM, bit1 = MEDIUM+SHORT, LSB-first + odd parity
-//
-// Turbo/custom loaders are expected to fail fast.
-
-enum TapPulseClass : uint8_t { TAP_PULSE_SHORT = 0, TAP_PULSE_MEDIUM = 1, TAP_PULSE_LONG = 2 };
-
-static TapPulseClass ClassifyTapPulseUnit(uint16_t unit) {
-  // TAP payload units are cycles/8. VICE default classification ranges:
-  // short: 0x24-0x36, medium: 0x37-0x49, long: 0x4A-0x64.
-  // We use a relaxed thresholding to tolerate motor speed variations.
-  if (unit < 0x37) return TAP_PULSE_SHORT;
-  if (unit < 0x4A) return TAP_PULSE_MEDIUM;
-  return TAP_PULSE_LONG;
-}
-
-struct TapPulseReader {
-  File *f;
-  uint8_t version;
-
-  bool readPulseUnit(uint16_t &outUnit) {
-    int b = f->read();
-    if (b < 0) return false;
-    uint8_t ub = (uint8_t)b;
-
-    if (ub != 0) {
-      outUnit = ub;
-      return true;
-    }
-
-    // ub == 0: special handling
-    if (version == 0) {
-      // v0: 0 is treated as 256 (or overflow); good enough for classification
-      outUnit = 256;
-      return true;
-    }
-
-    // v1: next 3 bytes = exact cycle count (LSB first)
-    int b0 = f->read();
-    int b1 = f->read();
-    int b2 = f->read();
-    if (b0 < 0 || b1 < 0 || b2 < 0) return false;
-    uint32_t cycles = (uint32_t)(uint8_t)b0 | ((uint32_t)(uint8_t)b1 << 8) | ((uint32_t)(uint8_t)b2 << 16);
-    // Convert cycles to units of cycles/8 (rounded)
-    outUnit = (uint16_t)((cycles + 4) / 8);
-    if (outUnit == 0) outUnit = 1;
-    return true;
-  }
-};
-
-static bool TapReadNextByte(TapPulseReader &pr, uint8_t &outByte, uint32_t maxPulsesToScan = 500000) {
-  // Scan for byte marker: LONG + MEDIUM
-  uint16_t u1 = 0, u2 = 0;
-  TapPulseClass p1, p2;
-
-  for (uint32_t scanned = 0; scanned < maxPulsesToScan; scanned++) {
-    if (!pr.readPulseUnit(u1)) return false;
-    if (!pr.readPulseUnit(u2)) return false;
-    p1 = ClassifyTapPulseUnit(u1);
-    p2 = ClassifyTapPulseUnit(u2);
-    if (p1 == TAP_PULSE_LONG && p2 == TAP_PULSE_MEDIUM) {
-      // decode 8 bits + parity, LSB first
-      uint8_t v = 0;
-      uint8_t ones = 0;
-      for (uint8_t bit = 0; bit < 8; bit++) {
-        uint16_t a, b;
-        if (!pr.readPulseUnit(a)) return false;
-        if (!pr.readPulseUnit(b)) return false;
-        TapPulseClass pa = ClassifyTapPulseUnit(a);
-        TapPulseClass pb = ClassifyTapPulseUnit(b);
-
-        uint8_t bitval;
-        if (pa == TAP_PULSE_SHORT && (pb == TAP_PULSE_MEDIUM || pb == TAP_PULSE_LONG)) {
-          bitval = 0;
-        } else if ((pa == TAP_PULSE_MEDIUM || pa == TAP_PULSE_LONG) && pb == TAP_PULSE_SHORT) {
-          bitval = 1;
-        } else {
-          // not standard encoding
-          return false;
-        }
-
-        v |= (bitval << bit);
-        ones += bitval;
-      }
-
-      // parity bit (odd)
-      {
-        uint16_t a, b;
-        if (!pr.readPulseUnit(a)) return false;
-        if (!pr.readPulseUnit(b)) return false;
-        TapPulseClass pa = ClassifyTapPulseUnit(a);
-        TapPulseClass pb = ClassifyTapPulseUnit(b);
-        uint8_t parity;
-        if (pa == TAP_PULSE_SHORT && (pb == TAP_PULSE_MEDIUM || pb == TAP_PULSE_LONG)) {
-          parity = 0;
-        } else if ((pa == TAP_PULSE_MEDIUM || pa == TAP_PULSE_LONG) && pb == TAP_PULSE_SHORT) {
-          parity = 1;
-        } else {
-          return false;
-        }
-        ones += parity;
-        if ((ones & 1) == 0) {
-          // not odd parity => likely not standard
-          return false;
-        }
-      }
-
-      outByte = v;
-      return true;
-    }
-  }
-
-  return false;
-}
-
-static bool TapFindCountdown(TapPulseReader &pr, uint8_t startVal, uint32_t maxBytesToScan = 200000) {
-  // Find sequence startVal, startVal-1, ..., startVal-8 (9 bytes)
-  uint8_t window[9];
-  for (uint8_t i = 0; i < 9; i++) window[i] = 0;
-  uint32_t filled = 0;
-
-  for (uint32_t i = 0; i < maxBytesToScan; i++) {
-    uint8_t b;
-    if (!TapReadNextByte(pr, b)) return false;
-    // shift
-    for (uint8_t k = 0; k < 8; k++) window[k] = window[k + 1];
-    window[8] = b;
-    if (filled < 9) filled++;
-    if (filled < 9) continue;
-
-    bool match = true;
-    for (uint8_t k = 0; k < 9; k++) {
-      if (window[k] != (uint8_t)(startVal - k)) { match = false; break; }
-    }
-    if (match) return true;
-  }
-  return false;
-}
-
-static bool TapReadStandardBlock(TapPulseReader &pr, uint8_t *payload192) {
-  // Countdown (copy 1): $89..$81
-  if (!TapFindCountdown(pr, 0x89)) return false;
-
-  uint8_t checksum = 0;
-  for (uint16_t i = 0; i < 192; i++) {
-    uint8_t b;
-    if (!TapReadNextByte(pr, b)) return false;
-    payload192[i] = b;
-    checksum ^= b;
-  }
-
-  uint8_t chk1;
-  if (!TapReadNextByte(pr, chk1)) return false;
-  // If checksum mismatch, still continue (tapes can be noisy), but it's a strong signal.
-  // We'll fail here to keep scope strict.
-  if (chk1 != checksum) return false;
-
-  // Countdown (copy 2): $09..$01
-  if (!TapFindCountdown(pr, 0x09)) return false;
-  uint8_t checksum2 = 0;
-  for (uint16_t i = 0; i < 192; i++) {
-    uint8_t b;
-    if (!TapReadNextByte(pr, b)) return false;
-    checksum2 ^= b;
-  }
-  uint8_t chk2;
-  if (!TapReadNextByte(pr, chk2)) return false;
-  if (chk2 != checksum2) return false;
-
-  return true;
-}
-
-static bool MakeOutputPrgName(const char *tapName, char *outPrgName, size_t outLen) {
-  size_t n = strlen(tapName);
-  if (n + 1 >= outLen) return false;
-  strncpy(outPrgName, tapName, outLen);
-  outPrgName[outLen - 1] = 0;
-
-  // find last '.'
-  int lastDot = -1;
-  for (size_t i = 0; i < n; i++) {
-    if (tapName[i] == '.') lastDot = (int)i;
-  }
-  if (lastDot < 0) {
-    if (n + 4 >= outLen) return false;
-    strcat(outPrgName, ".prg");
-    return true;
-  }
-  if ((size_t)lastDot + 4 >= outLen) return false;
-  outPrgName[lastDot] = 0;
-  strcat(outPrgName, ".prg");
-  return true;
-}
-
-// Returns one of: SUCCESSFUL, TAP_BAD_TAP, TAP_UNSUPPORTED, TAP_WRITE_FAILED
-static uint8_t ConvertStandardTapToPrg(SdFat &sd, const char *tapName, char *outPrgName, size_t outLen) {
-  if (!MakeOutputPrgName(tapName, outPrgName, outLen)) return TAP_WRITE_FAILED;
-
-  File tap = sd.open(tapName, FILE_READ);
-  if (!tap) return FILE_CANNOT_BE_OPENED;
-
-  // Read TAP header (20 bytes)
-  uint8_t header[20];
-  if (tap.read(header, 20) != 20) { tap.close(); return TAP_BAD_TAP; }
-  const char sig[] = "C64-TAPE-RAW";
-  if (memcmp(header, sig, 12) != 0) { tap.close(); return TAP_BAD_TAP; }
-  uint8_t version = header[12];
-  if (!(version == 0 || version == 1)) { tap.close(); return TAP_BAD_TAP; }
-
-  TapPulseReader pr;
-  pr.f = &tap;
-  pr.version = version;
-
-  // Read first standard block = header block
-  uint8_t block[192];
-  if (!TapReadStandardBlock(pr, block)) { tap.close(); return TAP_UNSUPPORTED; }
-
-  uint8_t fileType = block[0];
-  uint16_t startAddr = (uint16_t)block[1] | ((uint16_t)block[2] << 8);
-  uint16_t endAddrPlus1 = (uint16_t)block[3] | ((uint16_t)block[4] << 8);
-
-  // Only PRG-like types
-  if (!(fileType == 0x01 || fileType == 0x03)) { tap.close(); return TAP_UNSUPPORTED; }
-  if (endAddrPlus1 <= startAddr) { tap.close(); return TAP_BAD_TAP; }
-  uint32_t remaining = (uint32_t)endAddrPlus1 - (uint32_t)startAddr;
-
-  // Create output PRG
-  if (sd.exists(outPrgName)) sd.remove(outPrgName);
-  File prg = sd.open(outPrgName, FILE_WRITE);
-  if (!prg) { tap.close(); return TAP_WRITE_FAILED; }
-
-  // PRG header: load address
-  if (prg.write((uint8_t)(startAddr & 0xFF)) != 1) { prg.close(); tap.close(); return TAP_WRITE_FAILED; }
-  if (prg.write((uint8_t)(startAddr >> 8)) != 1) { prg.close(); tap.close(); return TAP_WRITE_FAILED; }
-
-  // Read subsequent blocks and dump sequential data until remaining == 0
-  while (remaining > 0) {
-    if (!TapReadStandardBlock(pr, block)) { prg.close(); tap.close(); return TAP_UNSUPPORTED; }
-    uint16_t toWrite = (remaining > 192) ? 192 : (uint16_t)remaining;
-    if (prg.write(block, toWrite) != toWrite) { prg.close(); tap.close(); return TAP_WRITE_FAILED; }
-    remaining -= toWrite;
-  }
-
-  prg.flush();
-  prg.close();
-  tap.close();
-  return SUCCESSFUL;
-}
-
 // ============================================================================
 // CartApi PUBLIC METHODS
 // ============================================================================
 
 void CartApi::HandleInvokeWithName() {
   GetArgumentsDynamic(1);
-  uint8_t flags = Arguments[0];
   unsigned int fileNameLength = Arguments[1];
   char * fileName = (char *) &Arguments[2];
   char savedPath[64];
   bool restoreCwd = false;
-
-  // Flags are passed from the C64 in X register.
-  // Bit0: 1=auto-run (default), 0=convert/save only (TAP only)
-  const uint8_t FLAG_AUTORUN = 0x01;
-
-  // Special case: TAP convert & save only.
-  if ((IsMatchLast(fileName, ".tap") || IsMatchLast(fileName, ".TAP")) && ((flags & FLAG_AUTORUN) == 0)) {
-    char outPrg[64];
-    uint8_t tapRes = ConvertStandardTapToPrg(sd, fileName, outPrg, sizeof(outPrg));
-    HandleResponse(tapRes, 0);
-    return;
-  }
 
   // NUL-terminate the received filename (GetArgumentsDynamic does not do this).
   Arguments[2 + fileNameLength] = '\0';
@@ -873,7 +640,9 @@ void CartApi::HandleInvokeWithName() {
   // LFN that starts with the received prefix (case-insensitive).
   if (!sd.exists(openName)) {
     // Static: avoids large stack allocation inside a path that may be hot.
-    static char matchBuf[128];
+    // 64 bytes matches the firmware's absolute-path budget and keeps SRAM use
+    // aligned with the rest of the directory/path handling code.
+    static char matchBuf[64];
     uint8_t len = strlen(openName);
     if (!dirFunc.FindByPrefix(openName, len, matchBuf, sizeof(matchBuf))) {
       if (restoreCwd) {
@@ -947,8 +716,8 @@ void CartApi::SingleBufferedStreaming() {
 void CartApi::HandleStream() {
   #define STREAM_TIMEOUT_MS 100 // 100 milliseconds timeout for streaming
 
-  // Note: streamingBuffer1/2 are now static (file scope), not local
-  // This fixes the dangling pointer bug where ISR would access stack memory
+  // IO2 stream uses the shared static backing storage via streamBuffer1/2.
+  // The buffers are never active at the same time as NI streaming.
 
   GetArgumentsStatic(3);
   uint8_t initialDelay = Arguments[0];
@@ -959,13 +728,14 @@ void CartApi::HandleStream() {
   if (!workingFile.isOpen()) {
     HandleResponse(FILE_IS_NOT_OPENED, 0);
   } else {
-      workingFile.read(streamingBuffer1, DOUBLE_BUFFER_SIZE);
+      ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer1, DOUBLE_BUFFER_SIZE, 0x00);
+      ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer2, DOUBLE_BUFFER_SIZE, 0x00);
       HandleResponse(SUCCESSFUL, 0);
       
       // Reset state for new stream
       streamBufferIndex = 0;
       usedBuffer = 0;
-      currentByte = streamingBuffer1[0]; // Pre-load first byte
+      currentByte = streamBuffer1[0];    // Pre-load first byte
       streamBufferIndex = 1;             // Next request will get buffer[1]
       lastStreamRequestTime = millis();  // Initialize timeout timer
 
@@ -979,15 +749,13 @@ void CartApi::HandleStream() {
      
       while(1) {
         while(usedBuffer == 0) {
-          if (!selRead()) goto out; // Original check
           if (millis() - lastStreamRequestTime > STREAM_TIMEOUT_MS) goto out; // Timeout check
         }
-        workingFile.read(streamingBuffer1, DOUBLE_BUFFER_SIZE);
+        ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer1, DOUBLE_BUFFER_SIZE, 0x00);
         while(usedBuffer == 1) {
-          if (!selRead()) goto out; // Original check
           if (millis() - lastStreamRequestTime > STREAM_TIMEOUT_MS) goto out; // Timeout check
         }
-        workingFile.read(streamingBuffer2, DOUBLE_BUFFER_SIZE);         
+        ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer2, DOUBLE_BUFFER_SIZE, 0x00);
       }
       /*
        * ==============================================================================
@@ -1084,7 +852,6 @@ void CartApi::HandleHwTest() {
 void CartApi::HandleNonInterruptedStream() {
   uint16_t bufferIndex = 0;
   uint16_t bufferLength;
-  uint8_t currentBuffer = 0; // 0 for buffer1, 1 for buffer2
   // Busy-loop guard while global interrupts are disabled. If IO2 gets stuck
   // high/low (noise or aborted transfer), we must escape instead of wedging.
   const uint16_t IO2_EDGE_TIMEOUT_LOOPS = 0xFFFF;
@@ -1093,7 +860,7 @@ void CartApi::HandleNonInterruptedStream() {
   if (!m_argsOk) return;
   uint8_t countOf8Bytes = Arguments[0];  
 
-  if (countOf8Bytes > DOUBLE_BUFFER_SIZE / 8) {
+  if (countOf8Bytes > NON_INTERRUPTED_BUFFER_SIZE / 8) {
     HandleResponse(INVALID_ARGUMENT, 0);
   } else if (!workingFile.isOpen()) {
     HandleResponse(FILE_IS_NOT_OPENED, 0);
@@ -1103,43 +870,35 @@ void CartApi::HandleNonInterruptedStream() {
       // Disable receiving interrupt but keep the state of the communication channel on.
       cartInterface.SoftEndListening(); 
       bufferLength = countOf8Bytes * 8;
-           
-      // Pre-load BOTH buffers to ensure a smooth start
-      workingFile.read((uint8_t*)streamBuffer1, bufferLength);      
-      workingFile.read((uint8_t*)streamBuffer2, bufferLength);      
+      bool stopAfterCurrentBuffer = ReadAndPadBuffer(workingFile, sharedBuf.ni, bufferLength, 0x00) < bufferLength;
       
       TIMSK2 = 0; // Disable timer 2 interrupts (millis etc.) for maximum timing precision
 
       noInterrupts();
       uint8_t portDVal = (PORTD & 0x0F);
       uint8_t portCVal = (PORTC & 0xF0);
-      uint8_t * activeBuffer;
 
       while(1) {
-        // Select current buffer to transmit
-        activeBuffer = (currentBuffer == 0) ? (uint8_t*)streamBuffer1 : (uint8_t*)streamBuffer2;
-
         for (bufferIndex = 0; bufferIndex < bufferLength; bufferIndex++) {
             /* Synchronization block for each byte */
-            // Note: We don't use millis() inside the inner loop for speed, 
-            // but we need a way to detect timeout or reset.
-            // A simple cycle counter could work, but selRead() is safer.
+            // Note: We don't use millis() inside the inner loop for speed.
+            // If IO2 stops toggling, the loop counter below aborts the stream.
             uint16_t waitLoops = 0;
 
             while (PIND & 0x08) {
-               if (!selRead()) goto ni_out; // Exit on C64 Reset
                if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) goto ni_out;
             }
             waitLoops = 0;
             while ((PIND & 0x08) == 0) {
-              if (!selRead()) goto ni_out;
               if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) goto ni_out;
             }  // Wait for rising edge
             
-            uint8_t val = activeBuffer[bufferIndex];
+            uint8_t val = sharedBuf.ni[bufferIndex];
             PORTD = portDVal | (val & 0xF0);
             PORTC = portCVal | (val & 0x0F);            
         }   
+
+        if (stopAfterCurrentBuffer) goto ni_out;
         
         // --- Refill the buffer we just finished sending ---
         // C64 is currently busy processing the 400 bytes we just sent.
@@ -1148,13 +907,7 @@ void CartApi::HandleNonInterruptedStream() {
         // The C64 detects end-of-stream via its CVD_SIZE frame counter and will
         // call PROT_StartTalking to re-establish the session after this exit.
         interrupts();
-        if (currentBuffer == 0) {
-            if (workingFile.read((uint8_t*)streamBuffer1, bufferLength) == 0) goto ni_out;
-            currentBuffer = 1; // Next time we send buffer 2
-        } else {
-            if (workingFile.read((uint8_t*)streamBuffer2, bufferLength) == 0) goto ni_out;
-            currentBuffer = 0; // Next time we send buffer 1
-        }
+        stopAfterCurrentBuffer = ReadAndPadBuffer(workingFile, sharedBuf.ni, bufferLength, 0x00) < bufferLength;
         noInterrupts();
       } 
 
@@ -1362,13 +1115,6 @@ void CartApi::SendHeader(unsigned char startLow, unsigned char startHigh, unsign
 }
 
 void CartApi::TransferMenu() {
-  static const unsigned char PROGMEM p_easysd[11] = {'e', 'a', 's', 'y', 's', 'd', '.', 'p', 'r', 'g', 0};
-  char easysd[11];
-
-  for (uint8_t i = 0;i<11;i++) {
-    easysd[i] = pgm_read_byte(p_easysd+i);
-  }
-
   LOGI(SYS, "TransferMenu");
 
   cartInterface.EndListening();
@@ -1380,12 +1126,8 @@ void CartApi::TransferMenu() {
   
   unsigned char readFromFile = 0;  
   
-  if (sd.exists(easysd)) {
-    workingFile = sd.open(easysd);
-    if (workingFile) {
-      LOGI(PRG, "Menu from SD");
-      readFromFile = 1;
-    } 
+  if (OpenMenuFromSdRoot(workingFile)) {
+    readFromFile = 1;
   }
 
   //int menu_data_length = (readFromFile? workingFile.size() : data_len) ;
@@ -1486,24 +1228,6 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   if (preserveLaunchPath) {
     strncpy(launchPath, dirFunc.currentPath, sizeof(launchPath) - 1);
     launchPath[sizeof(launchPath) - 1] = '\0';
-  }
-
-  // If a TAP is selected, try to convert it to a PRG on the SD card first.
-  // Only standard (KERNAL/CBM) tape blocks are supported.
-  if (IsMatchLast(selectedFileName, ".tap") || IsMatchLast(selectedFileName, ".TAP")) {
-    char outPrg[64];
-    LOGI(PRG, "TAP: converting...");
-    uint8_t tapRes = ConvertStandardTapToPrg(sd, selectedFileName, outPrg, sizeof(outPrg));
-    if (tapRes == SUCCESSFUL) {
-      LOGI(PRG, "TAP->PRG OK");
-      // Load the converted PRG immediately
-      LoadAndLaunchFile(outPrg);
-    } else {
-      LOGE(PRG, "TAP FAIL");
-      // Go back to menu so the C64 isn't left waiting for a transfer.
-      TransferMenu();
-    }
-    return;
   }
 
   unsigned char crtFile = 0;

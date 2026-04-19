@@ -25,10 +25,6 @@
 #define FILE_INFO_FAILED      0x0F  // reserved; kept for protocol completeness
 #define INVALID_SOURCE_TYPE   0x10
 #define INVALID_CONTENT       0x11
-#define TAP_UNSUPPORTED       0x12  // TAP format not standard KERNAL
-#define TAP_BAD_TAP           0x13  // TAP header/checksum invalid
-#define TAP_WRITE_FAILED      0x14  // TAP->PRG SD write error
-
 #define SUCCESSFUL            0x80
 
 // ============================================================================
@@ -68,20 +64,31 @@
 #define SEEK_FROM_END       2
 
 // ============================================================================
-// Buffer sizes — 64B each fits ATmega328P SRAM budget (2KB total).
-// Streaming is double-buffered: two 64B buffers alternate during IO2 ISR.
+// Buffer sizes and SRAM budget
+// ----------------------------------------------------------------------------
+// EasySD runs on ATmega328P with only 2 KB SRAM. Cold boot stability depends on
+// keeping enough stack/slack for SD init, logging, and C64 reset release.
+//
+// IO2 streaming, NI streaming, and command argument parsing are mutually
+// exclusive at runtime. Their backing buffers are overlaid in a single union
+// in CartApi.cpp (sharedBuf) so only max(128, 400, 130) = 400 bytes of SRAM
+// are consumed instead of 128+400+130 = 658 bytes.
+//
+// Treat roughly 350 B free SRAM as the practical warning floor.
 // ============================================================================
 #define WRITE_BUFFER_SIZE       32
 #define MAX_ARGUMENTS_LENGTH   128
 #define STREAMING_BUFFER_SIZE   64
 #define DOUBLE_BUFFER_SIZE      64
-#define NON_INTERRUPTED_BUFFER_SIZE 64
+#define NON_INTERRUPTED_BUFFER_SIZE 400
 
 class CartApi {
 
  protected:
   File    workingFile;
-  uint8_t Arguments[MAX_ARGUMENTS_LENGTH + 2];
+  // Arguments buffer lives in the file-scope sharedBuf union (CartApi.cpp).
+  // Declared here as a pointer so all Handle* methods can access it unchanged.
+  uint8_t *Arguments;
   bool    m_argsOk;   // false after GetArguments* timeout — handler should bail
 
   // Keep per-byte command argument timeout short so line noise / partial frames

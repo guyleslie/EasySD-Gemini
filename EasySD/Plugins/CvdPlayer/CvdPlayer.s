@@ -56,15 +56,15 @@
 ; 2. Arduino enters HandleNonInterruptedStream(): disables all interrupts,
 ;    pre-loads two 400-byte SD buffers (double-buffering on Arduino side), then
 ;    streams bytes synchronised to IO2 strobes from C64 NMI handlers.
-;    Infinite loop until SEL (GAME) line goes low.
+;    Streaming continues until EOF or an Arduino-side IO2 edge timeout.
 ; 3. NMI handlers (NMI_000..NMI_031 in NMI.s) fire at STARTRASTER=241 (VBlank),
 ;    each receiving 8 bytes via READCART_MODULATED into $A000+.
 ;    32 handlers × 8 bytes = 256 bytes, remaining 144 bytes from a second pass.
 ; 4. Foreground (FGStuff.s) decompresses the 400-byte block:
 ;    copies the 4 bitmap quadrants to the inactive bank, writes screen color
 ;    data, and accumulates D800 colors in COLORBUFFER for all 10 rows.
-; 5. Playback stops when the CVD file is exhausted and the plugin calls
-;    PROT_ExitToMenu (drives SEL low, terminating the NI stream on Arduino).
+; 5. Playback stops when the CVD file is exhausted; Arduino exits the NI stream,
+;    then the plugin closes the file/session and returns to the menu.
 ;
 ; VIDEO FILE: path provided by the EasySD menu via FILE_PATH_BUF (null-terminated).
 ;   The user selects any .CVD file from the menu and presses Enter.

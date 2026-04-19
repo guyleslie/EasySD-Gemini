@@ -43,6 +43,8 @@ const unsigned long BUTTON_LONG_PRESS_MS = 1000;
 const unsigned long SEL_STABLE_MS = 8;
 const int SEL_PRESSED_THRESHOLD = 256;
 const int SEL_RELEASED_THRESHOLD = 768;
+static constexpr uint16_t SRAM_WARN_FREE_BYTES = 350;
+static constexpr uint16_t SRAM_CRITICAL_FREE_BYTES = 300;
 
 static void suppressButtonsFor(unsigned long delayMs) {
   buttonEnableAtMs = millis() + delayMs;
@@ -114,9 +116,25 @@ void ShowMem() {
   Serial.print(F("RAM: ")); Serial.print(fr);
   Serial.print(F("/2048 (used:")); Serial.print(2048 - fr);
   Serial.print(F(") "));
-  Serial.println(fr > 400 ? F("OK") : (fr > 300 ? F("LOW") : F("CRIT!")));
+  Serial.println(fr >= SRAM_WARN_FREE_BYTES ? F("OK")
+                 : (fr >= SRAM_CRITICAL_FREE_BYTES ? F("LOW") : F("CRIT!")));
 }
 #endif
+
+static void logRamBudget(const __FlashStringHelper* phase) {
+  uint16_t freeBytes = FreeStack();
+  LOG_PRINT(phase);
+  LOG_PRINT_F(" RAM free=");
+  LOG_PRINT(freeBytes);
+
+  if (freeBytes < SRAM_CRITICAL_FREE_BYTES) {
+    LOG_PRINTLN_F(" CRITICAL");
+  } else if (freeBytes < SRAM_WARN_FREE_BYTES) {
+    LOG_PRINTLN_F(" LOW");
+  } else {
+    LOG_PRINTLN_F(" OK");
+  }
+}
 
 // Cold Boot SD Initialization with Retry Logic
 bool initSD() {
@@ -193,8 +211,7 @@ void printStartupBanner() {
 void printSDStatus(bool sdInitSuccess) {
   if (sdInitSuccess) {
     LOGI(SD, "SD OK");
-    LOG_PRINT_F("RAM: ");
-    LOG_PRINTLN(FreeStack());
+    logRamBudget(F("Boot"));
   } else {
     LOGE(SD, "SD FAIL - check card");
   }
@@ -247,6 +264,8 @@ void setup() {
 
     // Release C64 to BASIC — cartridge stays hidden (EXROM HIGH, bus tristate).
     // /RESET was held LOW by IOSetup(); releasing it lets C64 boot to BASIC.
+    // If the AVR resets or corrupts RAM before this point, the C64 stays held in
+    // reset, so maintaining a boot-safe SRAM margin is a functional requirement.
     // Menu is NOT loaded automatically; user must press SEL to invoke TransferMenu().
     LOGI(SYS, "Boot: release to BASIC");
     bootState = BOOT_RELEASE_BASIC;
@@ -254,6 +273,7 @@ void setup() {
 
     bootState = RUNNING_READY;
     LOGI(SYS, "Boot: ready (BASIC)");
+    logRamBudget(F("Ready"));
   } else {
     // SD failed: release C64 to BASIC so the user isn't stuck at a black screen.
     // SEL button will retry SD init + TransferMenu on press.

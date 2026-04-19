@@ -494,24 +494,6 @@ def create_eprom_loader(input_file: Path, output_file: Path, positions: list[int
     output_file.write_bytes(eprom_data)
 
 
-def stage_sidplayer_asset(ctx: Context) -> None:
-    """
-    Stage the canonical external SID player binary used by MusPlayer.
-
-    The authoritative source in this repository is Tools/ComputeSidPlayer.prg,
-    which is already assembled for load address $9000 and matches the symbol
-    offsets in EasySD/Plugins/MusPlayer/ComputePlayerSymbols.inc.
-    """
-    src = ctx.tools_dir / "ComputeSidPlayer.prg"
-    dst = ctx.plugins_out_dir / "sidplayer.prg"
-
-    if not src.exists():
-        print(f"WARNING: {src} not found — SIDPLAYER.PRG will not be staged")
-        return
-
-    shutil.copyfile(src, dst)
-    print(f"  - Tools/{src.name} -> build/plugins/{dst.name}")
-
 
 # ============================================================================
 # Prebuild Checks
@@ -596,7 +578,6 @@ PLUGIN_MATRIX = [
     ("Plugins/KoalaDisplayer",          "KoalaDisplayer.s",   "koaplugin"),
     ("Plugins/PetsciiDisplayer",        "PetsciiDisplayer.s", "petgplugin"),
     ("Plugins/WavPlayer",               "WavPlayer.s",        "wavplugin"),
-    ("Plugins/MusPlayer",               "MusPlayer.s",        "musplugin"),
     ("Loader/Bridges/KernalBridge",     "KernalBridge.s",     "prgplugin"),
     ("Loader/Bridges/MultiLoad",        "MultiLoad.s",        "bootplugin"),
     ("Plugins/HWTest",                  "HWTest.s",           "hwtplugin"),
@@ -772,8 +753,6 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
             ],
             cwd=ctx.irq_root
         )
-
-    stage_sidplayer_asset(ctx)
 
     print("[PLUGINS] OK")
 

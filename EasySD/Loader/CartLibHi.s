@@ -487,9 +487,9 @@ PROT_Stream
 ; the foreground with all interrupts disabled for maximum throughput.
 ;
 ; Fragment count controls the per-iteration buffer size only, NOT total frames.
-; Streaming continues indefinitely until the C64 drives the SEL (GAME) line low.
-; To stop: call PROT_ExitToMenu, which resets the cartridge interface via SEL.
-; There is no partial-transfer stop — this is by design for real-time streaming.
+; Streaming continues until Arduino hits EOF or its IO2 edge timeout.
+; There is no in-band partial-transfer stop on this path.
+; Exiting the plugin later returns the cartridge interface to menu mode.
 ;
 ; Max fragment count: 50 (= 400 bytes per burst). Larger values are rejected.
 ;-----------------------------------------
