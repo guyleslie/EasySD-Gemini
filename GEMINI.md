@@ -6,7 +6,7 @@ constraints that are not obvious from the code. Always check the code itself —
 
 - **Current Version**: Post-v3.1.3 / v0.5-era firmware baseline (BASIC-first cold boot, PCB v3, 2026-04-18)
 - **Current stable hardware baseline**: boot to BASIC ✅, SEL -> menu ✅, directory navigation ✅, PRG loading ✅
-- **Current plugin status note**: non-PRG plugins are not yet re-verified on the present hardware baseline; current bench feedback says the HWTest / hardware-test plugin path is not working correctly
+- **Current plugin status note**: the remaining known hardware fault is the plugin-class return path. Current bench tests for `CVID`, `MultiLoad` (`EASYLOAD.PRG`), and `HWTest` clear the screen and fall through to top-line `READY.` instead of returning cleanly to the EasySD menu. Other non-PRG plugins should still be treated as not yet re-verified on the present hardware baseline.
 
 ---
 
@@ -179,7 +179,7 @@ dirFunc.ForceReset();
 
 ### Hardware Notes (PCB v3)
 - **Pin swap vs breadboard**: IO2=D3 (INT1), EXROM=D2 (PD2). Previously IO2=D2/INT0. PIND bitmask: IO2→0x08
-- **SEL button**: A6 (analog-only — no `digitalRead`). Read via `analogRead(A6) >= 512`. Short press (≤500ms) → TransferMenu(); long press (>500ms) → ResetNoCartridge()
+- **SEL button**: A6 (analog-only — no `digitalRead`). Debounced in `EasySD.ino` with separate press/release thresholds. Release at or before the 1000 ms threshold → `TransferMenu()`. Release strictly after 1000 ms → `ResetNoCartridge()`.
 - **Cold boot policy**: AVR holds C64 `/RESET` LOW during startup, then releases to BASIC through a centralized BASIC-safe idle path. Menu is not auto-loaded on cold boot.
 - **STATUS_LED**: A7 (NC on PCB — LED is hardware-driven from cartridge 5V rail, always on when powered)
 - **Data bus**: D4-D7 + A0-A3 (PORTD[4:7]/PORTC[0:3]) drive the C64 data bus only while the cartridge transfer path is enabled. Idle state must be true tristate (no AVR pull-ups left latched on the bus). IO1 is NOT connected.
@@ -189,9 +189,10 @@ dirFunc.ForceReset();
 - **A5=IRQ, A4=PHI2**: A5 remains reserved; A4/PHI2 is actively read in firmware to synchronize cartridge visibility and bus-drive changes.
 - **Bench hardware caveat**: On the current repeatedly re-seated test unit, intermittent cartridge-edge or module-header contact can mimic boot/reset firmware faults. If touching the cartridge changes startup behavior or blinks the Arduino LED, treat that as hardware integrity first.
 
-### EEPROM (Last Directory Persistence)
-- Layout: bytes 0-1 = magic (`0xE5`, `0xD0`); bytes 2-65 = null-terminated path
-- API: `eeprom_update_block()` / `eeprom_read_block()` (avr-libc) — prefer over byte-by-byte loops
+### EEPROM
+- Last-directory persistence is not an active feature.
+- Startup begins from root; session-local path restore is handled only where explicitly needed at runtime (for example MultiLoad).
+- The MCU EEPROM is currently reserved for future use and must not be documented as a live boot/navigation dependency.
 
 ---
 

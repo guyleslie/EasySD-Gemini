@@ -38,12 +38,12 @@ Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 | File browser: folder navigation | ✅ Verified |
 | File browser: directory header (`ROOT` / current folder) | ✅ Verified |
 | PRG file loading | ✅ Verified |
-| Non-PRG media plugins (`.WAV`, `.KOA`, `.MUS`, `.PET`, `.CVD`) | ⚠️ Not yet re-verified on current real HW firmware baseline |
-| HWTest / hardware-test plugin path | ❌ Current bench report: not working correctly |
+| Plugin-class return path (`.CVD`, `EASYLOAD.PRG`, `HWTEST.HWT`) | ❌ Current bench report: returns to cleared screen / top-line `READY.` instead of stable EasySD menu |
+| Other non-PRG plugins (`.WAV`, `.KOA`, `.MUS`, `.PET`) | ⚠️ Not yet re-verified on current real HW firmware baseline |
 
 **Current field note:** recent hardware sessions point to an intermittent mechanical/contact issue on the EasySD PCB assembly (cartridge edge / module headers), which can mimic boot or reset faults. The firmware now boots to BASIC on cold boot and only enters the menu on explicit `SEL` press; if startup behavior changes when the cartridge or SD module is physically moved, treat that as a hardware integrity issue first.
 
-**Status interpretation:** the verified baseline is currently boot -> BASIC, SEL -> menu, directory browsing, and PRG loading. Plugin status should be treated separately from that baseline until each plugin is re-tested on hardware.
+**Status interpretation:** the verified baseline is currently boot -> BASIC, SEL -> menu, directory browsing, and PRG loading. The remaining fault is in the plugin-class return path: current bench tests for `CVID`, `MultiLoad` (`EASYLOAD.PRG`), and `HWTest` all fall through to a cleared-screen `READY.` state instead of returning cleanly to the EasySD menu.
 
 ---
 
@@ -56,7 +56,9 @@ The cartridge has two parts working together:
 
 When you select a file, the menu loads the matching plugin from the SD card's `/PLUGINS/` folder, which handles playback or display. This keeps the ROM small and lets new file types be added without reprogramming the cartridge ROML chip.
 
-**Boot sequence:** The Arduino holds the C64 in reset while initialising the SD card and runtime state. Once ready, it returns the cartridge interface to a BASIC-safe idle state and releases the C64 to normal BASIC startup. Press the SEL button to open the EasySD menu at any time.
+**Boot sequence:** The Arduino holds the C64 in reset while initialising the SD card and runtime state. Once ready, it returns the cartridge interface to a BASIC-safe idle state and releases the C64 to normal BASIC startup.
+
+**SEL button policy:** A short press opens the EasySD menu. A long press returns the machine to BASIC. In the current firmware a press is treated as "long" only when the button is released strictly after the 1000 ms threshold.
 
 ---
 

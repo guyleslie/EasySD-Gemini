@@ -15,13 +15,13 @@ The remaining uncertainty is plugin behavior on real C64 hardware. VICE still pa
 | Plugin | Extension | VICE | Real HW |
 |--------|-----------|------|---------|
 | KernalBridge (PRG loader) | `.PRG` | ✅ | ✅ working |
-| HWTest (signal test) | `.HWT` | ✅ | ❌ current bench report: not working correctly |
+| HWTest (signal test) | `.HWT` | ✅ | ❌ current bench report: clears screen and falls through to top-line `READY.` instead of returning to EasySD menu |
 | WavPlayer | `.WAV` | ✅ | ⚠️ not yet re-verified on current stable firmware baseline |
 | KoalaDisplayer | `.KOA` | ✅ | ⚠️ not yet re-verified on current stable firmware baseline |
 | MusPlayer | `.MUS` | ✅ | ⚠️ not yet re-verified on current stable firmware baseline |
 | PetsciiDisplayer | `.PET` | ✅ | ⚠️ not yet re-verified on current stable firmware baseline |
-| CvdPlayer | `.CVD` | ✅ | ⚠️ not yet re-verified on current stable firmware baseline |
-| MultiLoad | `.PRG` (EASYLOAD) | ✅ | ⚠️ historical hang on older build; current code needs hardware re-test |
+| CvdPlayer | `.CVD` | ✅ | ❌ current bench report: clears screen and falls through to top-line `READY.` instead of returning to EasySD menu |
+| MultiLoad | `.PRG` (EASYLOAD) | ✅ | ❌ current bench report: clears screen and falls through to top-line `READY.` instead of returning to EasySD menu |
 
 **Historical MultiLoad failure:** on the older hardware-debug build, black outer border + dark blue inner border appeared immediately, then the system hung indefinitely.
 

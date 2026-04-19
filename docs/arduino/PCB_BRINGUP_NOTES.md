@@ -212,7 +212,7 @@ The current firmware model is **BASIC-first on cold boot**:
 - Release: firmware returns the cartridge interface to a BASIC-safe idle state
 - Result: C64 boots to BASIC, not directly to the menu
 - Short MENU/SEL press: `TransferMenu()`
-- Long MENU/SEL press: `ResetNoCartridge()` → BASIC
+- Long MENU/SEL press: release strictly after the 1000 ms threshold → `ResetNoCartridge()` → BASIC
 
 Recent firmware cleanups on top of the earlier bus fixes:
 
@@ -229,8 +229,8 @@ Recent firmware cleanups on top of the earlier bus fixes:
 | Action | Result |
 |---|---|
 | Cold boot (C64 + Arduino power on together) | Intended behavior: C64 boots to BASIC after AVR init |
-| Short MENU button press (≤500 ms) | C64 resets, EasySD menu loads |
-| Long MENU button press (>500 ms) | `ResetNoCartridge()` — C64 resets to BASIC |
+| Short MENU button press (≤1000 ms) | C64 resets, EasySD menu loads |
+| Long MENU button press (>1000 ms) | `ResetNoCartridge()` — C64 resets to BASIC |
 | Cold boot without cartridge ROML chip | BASIC `READY.` — no freeze; MENU button resets to BASIC only |
 
 Current startup policy:
@@ -278,8 +278,8 @@ ATmega328P, 5V Vcc, ADC range 0–1023:
 ```
 !selRead() + stateNone   → statePressed    (button down)
  selRead() + statePressed → stateReleased  (button up)
-   elapsed > 5  (>500ms) → ResetNoCartridge()
-   elapsed ≤ 5  (≤500ms) → TransferMenu()
+   elapsed > 1000 ms → ResetNoCartridge()
+   elapsed ≤ 1000 ms → TransferMenu()
 ```
 
 **Verdict: implementation is correct.** Full analysis:

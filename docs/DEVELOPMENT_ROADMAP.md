@@ -28,13 +28,13 @@ The following points are directly supported by the current codebase:
 These are the areas where the source shows active complexity or recently changed behavior, and where current bench status is still narrower than the stable firmware baseline:
 
 - The stable real-hardware baseline is currently boot to BASIC, SEL-triggered menu load, directory browsing, and PRG loading.
-- Non-PRG plugin behavior is not yet re-verified as a group on the current hardware/firmware baseline.
-- Current bench feedback says the HWTest / hardware-test plugin path is not working correctly, so older notes marking it working should not be treated as current status.
+- The current known remaining regression is the plugin-class return path: `CVID`, `MultiLoad` (`EASYLOAD.PRG`), and `HWTest` currently clear the screen and fall through to top-line `READY.` instead of returning cleanly to the EasySD menu.
+- Other non-PRG plugin behavior is not yet re-verified as a group on the current hardware/firmware baseline, so older notes marking broad plugin success should not be treated as current status.
 
 - WavPlayer remains one of the highest-risk plugins because of its timing-sensitive playback paths and multiple hardware modes.
 - MusPlayer depends on the external SID player binary and symbol alignment in addition to the plugin code itself.
-- CvdPlayer contains the newer EOF-driven NI-stream exit path, but this should still be treated as a path that benefits from dedicated hardware confirmation.
-- MultiLoad support is present, but current repository docs do not establish one clean, final status statement for hardware behavior.
+- CvdPlayer contains the newer EOF-driven NI-stream exit path, but current bench feedback shows that the return-to-menu path is still faulty on hardware.
+- MultiLoad support is present, but current bench feedback shows the same cleared-screen `READY.` return signature as other failing plugin-class paths.
 
 ---
 

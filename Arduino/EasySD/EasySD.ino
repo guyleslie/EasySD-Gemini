@@ -287,11 +287,11 @@ void loop() {
       // Ignore switch bounce / accidental micro taps.
       if (elapsedMs >= BUTTON_DEBOUNCE_MS) {
         if (elapsedMs > BUTTON_LONG_PRESS_MS) {
-          // Long press: hold >1s, then release -> reset to BASIC only.
+          // Long press: release strictly after the 1000 ms threshold -> BASIC.
           LOGI(SYS, "SEL long press -> reset");
           cartApi.ResetNoCartridge();
         } else {
-          // Short press: release under 1s -> load EasySD menu.
+          // Short press: release at or before the 1000 ms threshold -> menu.
           LOGI(SYS, "SEL press -> menu");
           if (ensureRuntimeReady()) {
             cartApi.TransferMenu();
