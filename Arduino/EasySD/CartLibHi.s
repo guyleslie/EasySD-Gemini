@@ -35,10 +35,6 @@ COMMAND_CHANGE_DIR = 11
 COMMAND_DELETE_DIR = 12
 COMMAND_CREATE_DIR = 13
 
-COMMAND_READ_EEPROM = 15
-COMMAND_SEEK_EEPROM = 16
-COMMAND_WRITE_EEPROM = 17
-
 COMMAND_SET_PORT  = 20
 COMMAND_SET_IO  = 21
 COMMAND_SET_SOURCE  = 22
@@ -456,50 +452,6 @@ IRQ_DeleteDirectory
 	JSR IRQ_Send
 	IRQ_ProcessFileCommand	
 	RTS
-
-
-;----------- Other functions ----------
-
-
-;-----------------------------------------
-; Registers in : A (low most 2 bits A9-A8 of address) X (A7-A0 part of address)
-; Registers used : A, X
-;-----------------------------------------
-IRQ_SeekEeprom	
-	PHA
-	LDA #COMMAND_SEEK_EEPROM	
-	JSR IRQ_Send
-	PLA
-	JSR IRQ_Send	
-	TXA
-	JSR IRQ_Send
-	JSR IRQ_WaitProcessing	
-	RTS
-
-; Eeprom is read from the last address that is set by IRQ_SeekEeprom
-; Micro increases the location by 1 wrapping at the end of the address space for eeprom
-;-----------------------------------------
-; Registers in : None
-; Registers used : A
-;-----------------------------------------
-IRQ_ReadEeprom
-	LDA #COMMAND_READ_EEPROM
-	JSR IRQ_Send
-	JSR IRQ_ReadErrorOrByte
-	RTS
-
-;-----------------------------------------
-; Registers in : X (Value to write to Eeprom)
-; Registers used : A
-;-----------------------------------------
-IRQ_WriteEeprom
-	LDA #COMMAND_WRITE_EEPROM
-	JSR IRQ_Send
-	TXA
-	JSR IRQ_Send
-	JSR IRQ_WaitProcessing		
-	RTS
-
 
 ; Caller should call IRQ_SetName to set the path to the resource
 ;-----------------------------------------

@@ -45,17 +45,7 @@ The Arduino cannot write to this chip at runtime.
 
 The ATmega328P's built-in 1 KB EEPROM, readable and writable at runtime by firmware.
 
-**Current status:** Not in active use. Last-directory persistence was removed; startup always begins from root. All 1 KB is available for future use.
-
-**C64-accessible commands:**
-
-| Command | ID | Description |
-|---------|----|-------------|
-| `COMMAND_SEEK_EEPROM` | 16 | Set read/write pointer (10-bit address, wraps at 1024) |
-| `COMMAND_READ_EEPROM` | 15 | Read byte at pointer, auto-increment |
-| `COMMAND_WRITE_EEPROM` | 17 | Write byte at pointer, auto-increment |
-
-C64 side: `PROT_SeekEeprom` (A=high, X=low), `PROT_ReadEeprom` (→ A), `PROT_WriteEeprom` (X=value).
+**Current status:** Not in active use. Last-directory persistence was removed, startup always begins from root, and the old C64-visible EEPROM protocol commands were removed from the active firmware and loader code. All 1 KB is available for future use if a new feature deliberately reintroduces it.
 
 ---
 
@@ -66,5 +56,5 @@ C64 side: `PROT_SeekEeprom` (A=high, X=low), `PROT_ReadEeprom` (→ A), `PROT_Wr
 | Size | 64 KB | 1 KB |
 | Arduino can write | No | Yes |
 | Purpose | Loader ROM + NMI data transfer | Persistent settings (currently unused) |
-| C64 access | `LDA $80AB` via SetPage | `PROT_ReadEeprom` / `PROT_WriteEeprom` |
+| C64 access | `LDA $80AB` via SetPage | No active C64 protocol path |
 | Build artifact | `build/IRQLoaderRom.bin` | N/A |

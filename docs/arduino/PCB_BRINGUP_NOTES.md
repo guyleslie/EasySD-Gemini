@@ -21,11 +21,11 @@ Terminology used here:
 
 **Symptom:** `text section exceeds available space in board` (30860B > 30720B limit)
 
-**Root cause:** Two recent commits added 612B to the debug build:
+**Historical root cause at the time:** Two then-recent commits added 612B to the debug build:
 - `ead0c4d` — EEPROM last-dir persistence (`SaveLastDir` + `RestoreLastDir`): +500B
 - `6daf01c` — `COMMAND_GET_PATH` handler (`HandleGetPath`): +112B
 
-**Fix applied in `Arduino/EasySD/CartApi.cpp`:**
+**Historical fix applied in `Arduino/EasySD/CartApi.cpp`:**
 1. Replace byte-by-byte `EEPROM.update()` loop → `eeprom_update_block()` (avr-libc)
 2. Replace byte-by-byte `EEPROM.read()` loop → `eeprom_read_block()` (avr-libc)
 3. Remove `strlen`/validation from `SaveLastDir` — always write 64 bytes, `RestoreLastDir` handles edge cases
@@ -34,9 +34,9 @@ Terminology used here:
 6. Split `HandleGetPath` 256-byte transmit loop into two loops (eliminates per-iteration conditional)
 7. Remove low-value `LOGD(SYS, "Done")` from transfer completion
 
-**Result:** 30684B (99%), 36B margin. Fits.
+**Result at the time:** 30684B (99%), 36B margin. Fits.
 
-**Lesson:** Debug build margin is razor-thin (~36B). Every new feature that adds debug logs risks overflow. Use `eeprom_update_block`/`eeprom_read_block` instead of inline loops — they are smaller and already in avr-libc.
+**Current note:** EEPROM last-directory persistence is no longer part of the active firmware. Keep this section only as a historical flash-budget lesson, not as a description of current code.
 
 ---
 
@@ -233,11 +233,13 @@ Recent firmware cleanups on top of the earlier bus fixes:
 | Long MENU button press (>1000 ms) | `ResetNoCartridge()` — C64 resets to BASIC |
 | Cold boot without cartridge ROML chip | BASIC `READY.` — no freeze; MENU button resets to BASIC only |
 
+**Arduino module caveat:** A Nano 3.x can still pass ISP write/verify and yet fail in EasySD runtime use. Bench testing has already shown one long-used Nano that programmed successfully but would not bring up the C64 screen in EasySD, while a different Nano with the same firmware worked correctly on the same PCB. So "ISP verify passed" must not be treated as proof that the Nano is healthy for EasySD timing and I/O use.
+
 Current startup policy:
 - Cold boot always targets BASIC first; menu is explicit, not automatic.
 - Menu loads from root when invoked.
 - Do not restore the saved last directory during `CartApi::Init()`.
-- Keep MCU internal EEPROM path storage for later/manual reuse, but exclude it from the cold-boot path.
+- MCU internal EEPROM is not part of the active boot/navigation path.
 
 **Flash:** 23708 / 30720 B (77%, 7012 B free). **RAM:** 1284 / 2048 B (764 B free).
 

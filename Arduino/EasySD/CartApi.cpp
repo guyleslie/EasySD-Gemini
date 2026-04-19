@@ -1,6 +1,4 @@
 #include <SdFat.h>
-#include <avr/eeprom.h>
-#include <EEPROM.h>
 #include "Arduino.h"
 #include "CartApi.h"
 #include "CartInterface.h"
@@ -30,7 +28,6 @@ volatile static unsigned long lastStreamRequestTime = 0;
 
 
 void CartApi::Init() {
-  eepromIndex = 0;
   m_argsOk = true;
   cartInterface.SetPage(0);
 
@@ -902,55 +899,6 @@ void CartApi::HandleValueResponse(uint8_t value) {
   HandleResponse( (value & 0xFE)>>1, 1); //Embed rest of the value
 }
 
-// ============================================================================
-// MCU INTERNAL EEPROM command handlers (COMMAND_READ/SEEK/WRITE_EEPROM)
-// These access the ATmega328P's built-in 1 KB EEPROM via EEPROM.h / avr/eeprom.h.
-// They have NO connection to the cartridge ROML chip (external AT28C64B /
-// M27C64A on the PCB) — that chip is programmed externally and is read-only at
-// runtime via the ROML ($8000-$9FFF) address space.
-// ============================================================================
-
-void CartApi::IncrementEepromAddress() {
-    eepromIndex++;
-    if (eepromIndex>1024) eepromIndex = 0;
-}
-
-void CartApi::HandleReadEeprom() {
-  #ifndef __AVR__    
-  EEPROM.begin(EEPROM_SIZE);
-  #endif
-  uint8_t value = EEPROM.read(eepromIndex);
-  #ifndef __AVR__    
-  EEPROM.end();
-  #endif  
-  HandleValueResponse( value );
-  IncrementEepromAddress();
-}
-
-void CartApi::HandleSeekEeprom() {
-  GetArgumentsStatic(2);    
-  uint8_t hi = Arguments[0];
-  uint8_t low = Arguments[1];
-  eepromIndex = (hi<<8) | low;  
-  HandleResponse(SUCCESSFUL, 0);   
-}
-
-void CartApi::HandleWriteEeprom() {
-  #ifndef __AVR__    
-  EEPROM.begin(EEPROM_SIZE);
-  #endif
-  GetArgumentsStatic(1);    
-  uint8_t value = Arguments[0];  
-  EEPROM.write(eepromIndex, value); 
-
-  #ifndef __AVR__    
-  EEPROM.end();
-  #endif  
-  
-  IncrementEepromAddress();
-  HandleResponse(SUCCESSFUL, 0); 
-}
-
 void CartApi::HandleEndTalking() {
   // End session cleanly: hide cartridge and reset receiver state.
   cartInterface.DisableCartridge();
@@ -1313,9 +1261,6 @@ void CartApi::HandleApi() {
           case COMMAND_CHANGE_DIR_INDEX : HandleChangeDirectoryIndex(); break;
           case COMMAND_DELETE_DIR : HandleDeleteDirectory(); break;
           case COMMAND_CREATE_DIR : HandleCreateDirectory(); break;      
-          case COMMAND_READ_EEPROM : HandleReadEeprom(); break;
-          case COMMAND_SEEK_EEPROM : HandleSeekEeprom(); break;
-          case COMMAND_WRITE_EEPROM : HandleWriteEeprom(); break;
           case COMMAND_END_TALKING : HandleEndTalking(); break;
           case COMMAND_INVOKE_WITH_NAME : HandleInvokeWithName();break;
           case COMMAND_STREAM : HandleStream();break;          

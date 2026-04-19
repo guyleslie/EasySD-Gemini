@@ -139,7 +139,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail on nested paths.
 - **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.
 - **Cartridge idle state must be truly BASIC-safe:** hide cartridge (`EXROM` HIGH), reset receive/session state, and tristate the data bus without leaving AVR pull-ups latched on D4-D7/A0-A3. Use the centralized `ReleaseToBasic()` / `EnterBasicSafeMode()` path instead of re-creating this sequence ad hoc.
-- **EEPROM persistence:** `SaveLastDir()` / `RestoreLastDir()` use `eeprom_update_block()` / `eeprom_read_block()` (avr-libc). Prefer these over byte-by-byte loops — smaller flash footprint. EEPROM layout: bytes 0-1 magic (`0xE5`, `0xD0`), bytes 2-65 null-terminated path. Current firmware still writes the last visited directory, but startup always begins from root instead of restoring it.
+- **No active EEPROM persistence:** the current firmware does not use the Nano's internal EEPROM for boot, menu navigation, or last-directory restore. Treat any remaining EEPROM references as stale or legacy code unless reintroduced deliberately.
 - **Flash budget:** Release 25.2KB/30.7KB (82%, **~5.5KB free**). Debug 29.8KB (96%, ~950B free). Debug+selftest exceeds limit (~32.6KB) — self-test suite gated behind `EASYSD_SELFTEST`, enabled via `--selftest` flag.
 
 ## Key File Locations

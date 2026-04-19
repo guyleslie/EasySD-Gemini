@@ -104,8 +104,8 @@ The protocol dispatch core:
 - `GetArgumentsStatic()` / `GetArgumentsDynamic()` — argument receivers
 - `HandleResponse()` / `HandleValueResponse()` — response senders
 - `AwaitByte()` / `GetByte()` — low-level byte reception
-- All `Handle*()` file, directory, MCU-internal-EEPROM, and stream handlers
-- `Init()`, `SaveLastDir()`, `RestoreLastDir()`
+- All `Handle*()` file, directory, and stream handlers
+- `Init()`
 
 ---
 
@@ -124,14 +124,14 @@ CartLibStream.s → CartLibHi.s → CartLib.s → CartLibCommon.s → System.inc
 
 Reasons:
 1. Splitting requires a new umbrella include file and updating every plugin — high churn, low gain.
-2. The VIC-display, directory, stream, and MCU-internal-EEPROM helpers are all part of one protocol-facing layer.
+2. The VIC-display, directory, and stream helpers are all part of one protocol-facing layer.
 3. The current size alone does not justify structural churn.
 
 ### What IS worth doing in CartLibHi.s
 - Improve English comments (many are outdated or missing)
 - Document the protocol invariants (`PROT_StartTalking` / `PROT_EndTalking` contract)
   at the top of the file
-- Add a clear section header for each functional group (file ops, dir ops, EEPROM, stream)
+- Add a clear section header for each functional group (file ops, dir ops, stream)
 
 ### Plugin template / checklist
 To avoid future protocol bugs, add a plugin skeleton or checklist comment at the top
@@ -211,9 +211,6 @@ Phase 3 — C64 library comment cleanup
 | COMMAND_DELETE_DIR | 12 | HandleDeleteDirectory | |
 | COMMAND_CREATE_DIR | 13 | HandleCreateDirectory | |
 | COMMAND_GOTO_PATH | 14 | HandleGotoPath | MultiLoad absolute path |
-| COMMAND_READ_EEPROM | 15 | HandleReadEeprom | |
-| COMMAND_SEEK_EEPROM | 16 | HandleSeekEeprom | |
-| COMMAND_WRITE_EEPROM | 17 | HandleWriteEeprom | |
 | COMMAND_SET_PORT | 20 | HandleSetPort | set IO port value |
 | COMMAND_INVOKE_WITH_NAME | 23 | HandleInvokeWithName | loads + launches plugin/prg |
 | COMMAND_STREAM | 25 | HandleStream | IRQ double-buffered, IO2 sync |

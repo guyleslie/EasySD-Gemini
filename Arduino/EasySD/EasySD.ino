@@ -3,7 +3,6 @@
 #include "CartApi.h"
 #include "EasySDLog.h"
 #include <Arduino.h>
-#include <EEPROM.h>
 #include <SPI.h>
 #include <SdFat.h>
 #include <FreeStack.h>

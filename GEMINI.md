@@ -187,7 +187,7 @@ dirFunc.ForceReset();
 - **CBM80 detection window**: Data bus pins must be INPUT (tristate) during CBM80 check so EEPROM drives bus undisturbed.
 - **Transfer speeds**: NMI ~40 KB/s; IO2 streaming ~13.5 KB/s; CvdPlayer: NMI at STARTRASTER=241 via READCART_MODULATED
 - **A5=IRQ, A4=PHI2**: A5 remains reserved; A4/PHI2 is actively read in firmware to synchronize cartridge visibility and bus-drive changes.
-- **Bench hardware caveat**: On the current repeatedly re-seated test unit, intermittent cartridge-edge or module-header contact can mimic boot/reset firmware faults. If touching the cartridge changes startup behavior or blinks the Arduino LED, treat that as hardware integrity first.
+- **Bench hardware caveat**: On the current repeatedly re-seated test unit, intermittent cartridge-edge or module-header contact can mimic boot/reset firmware faults. In addition, a Nano 3.x can still pass ISP write/verify and yet fail in EasySD runtime use; bench testing has already shown one long-used Nano that would no longer bring up the C64 screen in EasySD while another Nano with the same firmware worked correctly. If touching the cartridge changes startup behavior, or if swapping only the Nano changes the result, treat that as hardware integrity first.
 
 ### EEPROM
 - Last-directory persistence is not an active feature.

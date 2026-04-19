@@ -426,50 +426,6 @@ PROT_DeleteDirectory
 	PROT_ProcessFileCommand	
 	RTS
 
-
-;----------- Other functions ----------
-
-
-;-----------------------------------------
-; Registers in : A (low most 2 bits A9-A8 of address) X (A7-A0 part of address)
-; Registers used : A, X
-;-----------------------------------------
-PROT_SeekEeprom	
-	PHA
-	LDA #COMMAND_SEEK_EEPROM	
-	JSR PROT_Send
-	PLA
-	JSR PROT_Send	
-	TXA
-	JSR PROT_Send
-	JSR PROT_WaitProcessing	
-	RTS
-
-; Eeprom is read from the last address that is set by PROT_SeekEeprom
-; Micro increases the location by 1 wrapping at the end of the address space for eeprom
-;-----------------------------------------
-; Registers in : None
-; Registers used : A
-;-----------------------------------------
-PROT_ReadEeprom
-	LDA #COMMAND_READ_EEPROM
-	JSR PROT_Send
-	JSR PROT_ReadErrorOrByte
-	RTS
-
-;-----------------------------------------
-; Registers in : X (Value to write to Eeprom)
-; Registers used : A
-;-----------------------------------------
-PROT_WriteEeprom
-	LDA #COMMAND_WRITE_EEPROM
-	JSR PROT_Send
-	TXA
-	JSR PROT_Send
-	JSR PROT_WaitProcessing		
-	RTS
-
-
 ; Caller should call PROT_SetName to set the path to the resource
 ;-----------------------------------------
 ; Registers In : X (Reserved)
