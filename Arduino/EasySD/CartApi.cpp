@@ -598,14 +598,12 @@ void CartApi::HandleInvokeWithName() {
   // NUL-terminate the received filename (GetArgumentsDynamic does not do this).
   Arguments[2 + fileNameLength] = '\0';
 
-  // For absolute paths (e.g. "/PLUGINS/CVDPLUGIN.PRG"), sd.exists() with an
-  // absolute path containing LFN components can fail in SdFat 2.x. Move CWD to
-  // the parent directory first, then use the basename there.
+  // For absolute paths (e.g. "/PLUGINS/PRGPLUGIN.PRG"), the target file is NOT
+  // in the current CWD — temporarily navigate to the parent directory, open by
+  // basename, then restore CWD afterwards.  Same pattern as HandleOpenFile.
   const char* openName = fileName;
   if (fileName[0] == '/') {
     const char* lastSlash = strrchr(fileName, '/');
-    char parentPath[64];
-
     if (lastSlash == NULL || lastSlash[1] == '\0') {
       HandleResponse(INVALID_ARGUMENT, 0);
       return;
@@ -613,23 +611,25 @@ void CartApi::HandleInvokeWithName() {
 
     strncpy(savedPath, dirFunc.currentPath, sizeof(savedPath) - 1);
     savedPath[sizeof(savedPath) - 1] = '\0';
-
-    strncpy(parentPath, fileName, sizeof(parentPath) - 1);
-    parentPath[sizeof(parentPath) - 1] = '\0';
-    char* parentLastSlash = strrchr(parentPath, '/');
-    if (parentLastSlash == parentPath) {
-      parentPath[1] = '\0';
-    } else if (parentLastSlash) {
-      *parentLastSlash = '\0';
-    }
-
-    if (!dirFunc.NavigateToPath(parentPath)) {
-      HandleResponse(DIR_NOT_FOUND, 0);
-      return;
-    }
-
     openName = lastSlash + 1;
     restoreCwd = true;
+
+    if (lastSlash == fileName) {
+      // Parent is root "/"
+      if (strcmp(savedPath, "/") != 0 && !dirFunc.NavigateToPath("/")) {
+        HandleResponse(DIR_NOT_FOUND, 0);
+        return;
+      }
+    } else {
+      // Temporarily NUL-terminate to get parent path, then restore
+      *const_cast<char*>(lastSlash) = '\0';
+      bool navOk = dirFunc.NavigateToPath(fileName);
+      *const_cast<char*>(lastSlash) = '/';
+      if (!navOk) {
+        HandleResponse(DIR_NOT_FOUND, 0);
+        return;
+      }
+    }
   }
 
   // Verify file exists before committing to C64 — once SUCCESSFUL is sent,
@@ -639,26 +639,24 @@ void CartApi::HandleInvokeWithName() {
   // sd.exists() fails, scan the CWD using SdFat's getName() to find the full
   // LFN that starts with the received prefix (case-insensitive).
   if (!sd.exists(openName)) {
-    // Static: avoids large stack allocation inside a path that may be hot.
-    // 64 bytes matches the firmware's absolute-path budget and keeps SRAM use
-    // aligned with the rest of the directory/path handling code.
     static char matchBuf[64];
     uint8_t len = strlen(openName);
     if (!dirFunc.FindByPrefix(openName, len, matchBuf, sizeof(matchBuf))) {
-      if (restoreCwd) {
-        dirFunc.NavigateToPath(savedPath);
-      }
+      if (restoreCwd) dirFunc.NavigateToPath(savedPath);
       HandleResponse(FILE_NOT_FOUND, 0);
       return;
     }
     openName = matchBuf;
   }
 
-  HandleResponse(SUCCESSFUL, 0);
-  LoadAndLaunchFile(openName);
+  // Restore CWD before launch — LoadAndLaunchFile needs the game directory
+  // as CWD (not /PLUGINS/) so that preserveLaunchPath captures the right path.
   if (restoreCwd) {
     dirFunc.NavigateToPath(savedPath);
   }
+
+  HandleResponse(SUCCESSFUL, 0);
+  LoadAndLaunchFile(openName);
 }
 
 void CartApi::HandleValueResponse(uint8_t value) {
@@ -1217,14 +1215,12 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   const size_t BUF_SIZE = 16;
   uint8_t buf[BUF_SIZE];
   char launchPath[64];
-  const bool preserveLaunchPath =
-      strcmp(selectedFileName, "EASYLOAD.PRG") == 0 ||
-      strcmp(selectedFileName, "easyload.prg") == 0;
+  const bool preserveLaunchPath = (dirFunc.pathDepth > 0);
   cartInterface.EndListening();
 
-  // Preserve the launch directory only for MultiLoad's EASYLOAD.PRG.
-  // Ordinary PRGs used to return to a root-based firmware state reliably, and
-  // restoring their launch folder regressed SEL/menu return after exit.
+  // Preserve the launch directory for any subdir launch — MultiLoad's
+  // EASYLOAD.PRG needs it for level-loading, and ordinary subdir PRGs are
+  // harmless to preserve (SEL/TransferMenu calls ReInit → root anyway).
   if (preserveLaunchPath) {
     strncpy(launchPath, dirFunc.currentPath, sizeof(launchPath) - 1);
     launchPath[sizeof(launchPath) - 1] = '\0';
