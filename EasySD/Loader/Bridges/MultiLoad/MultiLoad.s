@@ -245,7 +245,12 @@ ml_close:
 	LDA ML_HDRBUF + 1
 	STA $8C
 
-	; Jump to game — resident hook handles all future LOAD "...",8,x calls
+	; Jump to game — resident hook handles all future LOAD "...",8,x calls.
+	; Real-HW hang fingerprint observed at this point: outer border = black,
+	; inner area = blue.  These colors come from the loaded first part starting
+	; up (not from this plugin), so a hang at this fingerprint means MAIN
+	; finished cleanly and the game began executing — narrow further debug to
+	; the resident hook (RL_HANDLER) or game-side loader code, not to MAIN.
 	JMP ($008B)
 
 ;================================================================================
