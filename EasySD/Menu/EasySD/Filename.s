@@ -142,19 +142,29 @@ _done_bin
 	RTS
 
 
+; Case-insensitive PRG check: accepts .prg, .PRG, .Prg, etc.
+; ORA #$20 forces ASCII uppercase → lowercase before comparing.
+; A is preserved on the SEC (not-PRG) path because the caller
+; needs the CHECKFILENAME return value for TYPE_PROGRAM/TYPE_CHECK_PLUGIN dispatch.
 ISPRG
-	LDX EXTBUF
-	CPX #$70			; 'p'
-	BNE +
-	LDX EXTBUF+1
-	CPX #$72			; 'r'
-	BNE +
-	LDX EXTBUF+2
-	CPX #$67			; 'g'
-	BNE +
+	PHA			; save A (CHECKFILENAME result)
+	LDA EXTBUF
+	ORA #$20		; force lowercase ('P'→'p', 'p'→'p')
+	CMP #$70		; 'p'
+	BNE _isprg_no
+	LDA EXTBUF+1
+	ORA #$20
+	CMP #$72		; 'r'
+	BNE _isprg_no
+	LDA EXTBUF+2
+	ORA #$20
+	CMP #$67		; 'g'
+	BNE _isprg_no
+	PLA			; discard saved A (balance stack)
 	CLC
 	RTS
-+
+_isprg_no
+	PLA			; restore A (CHECKFILENAME result)
 	SEC
 	RTS
 

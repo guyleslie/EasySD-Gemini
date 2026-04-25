@@ -227,7 +227,15 @@ MAIN
 	JSR PROT_DisableDisplay
 	; CRITICAL: Start protocol session - MUST call PROT_EndTalking on ALL exit paths
 	JSR PROT_StartTalking
-	#OPENFILE FILE_PATH_BUF, #31, #01
+	; Use PROT_SetNameZ for null-terminated path (supports paths longer than 31 bytes).
+	; The old #OPENFILE with fixed #31 length truncated multiload paths like
+	; "/MULTILOAD/IOWA JACK/IOWA JACK.PRG" (34 bytes) causing open failures.
+	LDX #<FILE_PATH_BUF
+	LDY #>FILE_PATH_BUF
+	JSR PROT_SetNameZ
+	BCS MAIN_ERROR_EXIT	; unterminated path → error
+	LDX #01			; Flags=read
+	JSR PROT_OpenFile
 	BCC OPENINGCONT
 	JMP MAIN_ERROR_EXIT
 OPENINGCONT
