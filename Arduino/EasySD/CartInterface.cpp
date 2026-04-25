@@ -21,7 +21,6 @@ volatile unsigned long interruptTime = 0;
 static unsigned long identifierStateChangeMs = 0;
 static constexpr unsigned long IDENTIFIER_STALE_TIMEOUT_MS = 200;
 static unsigned long lastStaleIdentLogMs = 0;
-//volatile uint8_t toggle = 1;
 
 namespace {
 
@@ -202,19 +201,18 @@ uint8_t CartInterface::ReceiveHandler() {
         }
         break;
         
-        case IDENTIFIER_3_OK :                    
+        case IDENTIFIER_3_OK :
           if (!readQueue.IsFull()) {
             readQueue.Enqueue(currentByte);
-          }          
-          receiveState = IN_TRANSMISSION;      
-          EnableCartridge(); 
-        break;         
+          }
+          receiveState = IN_TRANSMISSION;
+          EnableCartridge();
+        break;
 
-        case IN_TRANSMISSION : break;     
-          if (!readQueue.IsFull()) {
-            readQueue.Enqueue(currentByte);
-            //Serial.println(currentByte);
-          }          
+        case IN_TRANSMISSION :
+          // Bytes during a transmission are enqueued by ReceiveInterrupt() (ISR);
+          // ReceiveHandler() must not enqueue here or the byte would be duplicated.
+          break;
       }
       
       bitMask = 1;
@@ -354,11 +352,9 @@ void CartInterface::SetPage(unsigned char value) {
 }
 
 void CartInterface::ResetC64() {
-  //Serial.println(F("Resetting"));
   ResetLow();
-  delayMicroseconds(1000);  
+  delayMicroseconds(1000);
   ResetHigh();
-  //Serial.println(F("Reset"));  
 }
 
 void CartInterface::TransmitByteSlow(unsigned char val) {
@@ -380,7 +376,6 @@ void CartInterface::TransmitByteBlockEnd(unsigned char val) {
 void CartInterface::ResetIndex() {
   transferIndex = 0;
   blockIndex = 0;
-  //transferBufferIndex=0;
 }
 
 void CartInterface::EnableCartridge() {

@@ -29,11 +29,8 @@ static union {
 // Pointers initialized to static buffers (safe for ISR)
 volatile static uint8_t * streamBuffer1 = sharedBuf.io2.stream1;
 volatile static uint8_t * streamBuffer2 = sharedBuf.io2.stream2;
-//volatile static uint8_t streamBufferIndex;
 volatile static uint16_t streamBufferIndex;
 volatile static unsigned long lastStreamRequestTime = 0;
-//volatile static uint8_t chunkLength;
-//volatile static uint8_t inChunkDelay;
 
 static uint16_t ReadAndPadBuffer(File &file, uint8_t *buffer, uint16_t length, uint8_t padValue) {
   int readCount = file.read(buffer, length);
@@ -78,11 +75,12 @@ inline void HandleResponse(unsigned char response, uint16_t waitAfterResponse) {
   #ifdef TEST_TERMINAL_MODE
   Serial.write(response);
   #else
+  // Two leading SetPage(0) writes ensure the C64 sees a definite low→non-zero
+  // edge on CARTRIDGE_BANK_VALUE before the response byte is latched.
   cartInterface.SetPage(0);
   cartInterface.SetPage(0);
   cartInterface.SetPage(response);
   #endif
-  //delayMicroseconds(waitAfterResponse);  
   if (waitAfterResponse!=0) delay(waitAfterResponse);
 }
 
@@ -755,32 +753,6 @@ void CartApi::HandleStream() {
         }
         ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer2, DOUBLE_BUFFER_SIZE, 0x00);
       }
-      /*
-       * ==============================================================================
-       * CartApi.cpp - EasySD Cartridge API Implementation
-       * ------------------------------------------------------------------------------
-       * Purpose: Implements the command protocol and file/directory operations for
-       *          the EasySD cartridge (Arduino side). Handles all C64-initiated API
-       *          commands: file open/read/write/close, directory navigation, and
-       *          streaming. Coordinates with DirFunction and CartInterface.
-       *
-       * Key Architecture (2026):
-       *   - All protocol commands are routed through CartApi::HandleApi()
-       *   - File operations use SdFat 2.x API (File, not deprecated SdFile)
-       *   - Robust error handling: always responds to C64, never leaves protocol in
-       *     undefined state
-       *   - Absolute path handling: always navigates to parent before opening file
-       *   - Streaming uses static double buffers for ISR safety
-       *
-       * Lessons Learned (2026):
-       *   - Always document protocol state transitions and error codes
-       *   - Never trust absolute paths from C64; always validate and restore CWD
-       *   - Use static buffers for all ISR-driven streaming to avoid pointer bugs
-       *   - All file operations must be atomic and rollback-safe
-       *
-       * See also: docs/CARTRIDGE_PROTOCOL_OVERVIEW.md, DirFunction.cpp, CartInterface.cpp
-       * ==============================================================================
-       */
 out:
       TIMSK2 = 0x02; // Enable timer 2 interrupts (for milliseconds and so on)
       cartInterface.DisableCartridge(); // EXROM HIGH: clean state before returning to command mode

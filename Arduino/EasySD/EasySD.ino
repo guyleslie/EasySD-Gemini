@@ -50,32 +50,6 @@ static void suppressButtonsFor(unsigned long delayMs) {
   buttonEnableAtMs = millis() + delayMs;
   state = stateNone;
   pressTimeMs = 0;
-  /*
-   * ==============================================================================
-   * EasySD.ino - Main Arduino Firmware Entry Point
-   * ------------------------------------------------------------------------------
-   * Purpose: Entry point and main state machine for the EasySD SD card interface
-   *          for Commodore 64. Manages cold boot, SD card initialization, C64
-   *          /RESET control, and SEL button handling. All menu and file transfer
-   *          logic is delegated to CartApi, DirFunction, and CartInterface.
-   *
-   * Key Architecture (2026):
-   *   - C64 is held in /RESET until AVR is fully ready (SD card, protocol, etc.)
-   *   - Only after successful init is the C64 released to BASIC (cartridge hidden)
-   *   - Menu is loaded only on explicit SEL button press (not at boot)
-   *   - Robust error recovery: SD errors do not brick the system; C64 can always
-   *     return to BASIC and retry
-   *   - All state transitions and error conditions are logged (see EasySDLog.h)
-   *
-   * Lessons Learned (2026):
-   *   - Always document the boot state machine and error recovery paths
-   *   - Never assume SD card is present or healthy; always retry and log
-   *   - Button debouncing and SEL logic must be robust to avoid false triggers
-   *   - C64-side must never be left in an undefined state (always BASIC-safe)
-   *
-   * See also: docs/ARCHITECTURE_OVERVIEW.md, EasySDLog.h, CartApi.cpp
-   * ==============================================================================
-   */
 }
 
 static bool sampleSelReleasedRaw() {

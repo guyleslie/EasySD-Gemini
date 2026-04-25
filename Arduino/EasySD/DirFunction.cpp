@@ -1,26 +1,10 @@
-/*
- * ==============================================================================
- * DirFunction.cpp - Directory Navigation and State Management
- * ------------------------------------------------------------------------------
- * Purpose: Implements directory navigation, path tracking, and entry counting
- *          for the EasySD firmware. All directory state is managed here, with
- *          robust rollback and invariant checks. Used by CartApi and menu logic.
- *
- * Key Architecture (2026):
- *   - All navigation is relative; absolute paths are avoided for reliability
- *   - After any chdir, always call ResyncDirFromCwd() to sync m_dirFile
- *   - Path tracking is rollback-safe: failed navigation restores previous state
- *   - Entry counting and path depth are always kept consistent
- *
- * Lessons Learned (2026):
- *   - Never use currentPath as the source of truth; always trust firmware CWD
- *   - Always resync directory handle after chdir to avoid state drift
- *   - Rollback logic is critical for robust navigation (see GoBack, ChangeDirectory)
- *   - All invariants and error paths must be logged for debugging
- *
- * See also: docs/ARCHITECTURE_OVERVIEW.md, CartApi.cpp, CartInterface.cpp
- * ==============================================================================
- */
+// DirFunction — directory navigation and state for the SD card.
+// Invariants:
+//   - Navigation is relative (basename chdir). SdFat 2.x absolute LFN paths are
+//     unreliable, so NavigateToPath() walks segment by segment from root.
+//   - After any sd.chdir(), call ResyncDirFromCwd() to keep m_dirFile in sync.
+//   - currentPath is a UI mirror only — the firmware CWD is the source of truth.
+//   - GoBack/ChangeDirectory roll back path + depth on failure.
 #include <SdFat.h>
 #include "EasySD.h"
 #include "Arduino.h"
