@@ -255,6 +255,19 @@ Interpretation:
 - such faults can mimic firmware boot/reset timing problems
 - startup anomalies on this specific hardware should therefore be interpreted with caution unless the physical connection quality is known-good
 
+#### 2026-04-25 update: edge-connector wear is the dominant cause
+
+After an extended debug session chasing a "BASIC, no cursor on cold boot" symptom through five firmware variants — all of which ended up either symptomatic or worse — the root cause was confirmed to be the cartridge edge connector itself, not firmware:
+
+- the current bench PCB has been inserted/removed from the C64 cartridge port **500+ times** during development
+- the edge fingers do not have a high-grade conductive plating, so they have visibly worn
+- with the Build 1 baseline firmware (`ReleaseToBasic(false)`, no edge-policy changes), both cold boot and warm boot work correctly **once the cartridge is lifted slightly in the slot to re-seat the contacts**
+
+Practical workflow:
+- the working baseline firmware on this bench unit is the simple `IOSetup` LOW + `ReleaseToBasic(false)` (= `EnterBasicSafeMode + delay(2) + ResetHigh`) sequence
+- any boot-time symptom — black screen, no cursor, dead SEL, cyclic SCK LED blink — should be reproduced both **before and after** lifting/reseating the cartridge before being attributed to firmware
+- a second, less-worn PCB (or refurbished edge contacts) is needed before any further /RESET-policy experiments will produce trustworthy real-hardware results
+
 ---
 
 ## Investigation: MENU button (A6 analog-only) — 2026-04-06
