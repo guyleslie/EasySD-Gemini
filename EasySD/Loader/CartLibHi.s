@@ -202,7 +202,6 @@ PROT_ReadFile
 
 	BPL +					; Check if command is not successful, if not just return
 	JMP PROT_ReceiveFragment
-	;JMP PROT_ReceiveFragmentCH
 +
 	RTS
 	

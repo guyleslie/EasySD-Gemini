@@ -115,8 +115,6 @@ class CartApi {
   void HandleChangeDirectoryIndex();
   void HandleDeleteDirectory();
   void HandleCreateDirectory();
-  void HandleValueResponse(uint8_t value);
-  void HandleSetPort();
   void HandleEndTalking();
   void HandleInvokeWithName();
   void HandleStream();
@@ -125,7 +123,6 @@ class CartApi {
   void HandleHwTest();
 
   static void DoubleBufferedStreaming();
-  static void SingleBufferedStreaming();
 
  public:
   void SendHeader(unsigned char startLow, unsigned char startHigh,

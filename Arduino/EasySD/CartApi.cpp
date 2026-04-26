@@ -657,24 +657,10 @@ void CartApi::HandleInvokeWithName() {
   LoadAndLaunchFile(openName);
 }
 
-void CartApi::HandleValueResponse(uint8_t value) {
-  //HandleResponse( (value & 1) | 0x80, 20); //Embed least significant bit of value
-  HandleResponse( (value & 1) | 0x80, 1); //Embed least significant bit of value
-  //HandleResponse( (value & 0xFE)>>1, 20); //Embed rest of the value
-  HandleResponse( (value & 0xFE)>>1, 1); //Embed rest of the value
-}
-
 void CartApi::HandleEndTalking() {
   // End session cleanly: hide cartridge and reset receiver state.
   cartInterface.DisableCartridge();
   cartInterface.ResetReceive();
-}
-
-void CartApi::HandleSetPort() {
-  GetArgumentsStatic(1);    
-  uint8_t value = Arguments[0];  
-  cartInterface.SetPage(value);
-  HandleResponse(SUCCESSFUL, 0);   
 }
 
 
@@ -698,15 +684,6 @@ void CartApi::DoubleBufferedStreaming() {
     }            
 }
 
-
-void CartApi::SingleBufferedStreaming() {
-    uint8_t val = streamBuffer1[streamBufferIndex];
-    // FIX: Read PORT registers (output state), not PIN registers
-    PORTD = (PORTD & 0x0F) | (val & 0xF0);
-    PORTC = (PORTC & 0xF0) | (val & 0x0F);
-
-    streamBufferIndex++;
-}
 
 
 void CartApi::HandleStream() {
