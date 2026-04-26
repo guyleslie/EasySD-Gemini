@@ -237,10 +237,10 @@ void setup() {
     runtimeReady = true;
 
     // Release C64 to BASIC — cartridge stays hidden (EXROM HIGH, bus tristate).
-    // Cold boot uses a dedicated release path: keep /RESET LOW until the C64
-    // shows stable PHI2 activity, then add a short idle-state guard before
-    // releasing to BASIC. This narrows the cold-only "BASIC text, no cursor"
-    // margin without perturbing the proven warm/menu reset paths.
+    // After a long /RESET LOW dwell (SD init), a single rising edge has been
+    // observed to leave the C64 in a "BASIC text but no cursor" frozen state.
+    // ReleaseColdBootToBasic does a release + warm-reset-style pulse so the
+    // edge the C64 actually boots from is the verified-good warm-reset edge.
     LOGI(SYS, "Boot: release to BASIC");
     bootState = BOOT_RELEASE_BASIC;
     cartInterface.ReleaseColdBootToBasic();
@@ -250,6 +250,7 @@ void setup() {
     logRamBudget(F("Ready"));
   } else {
     // SD failed: release C64 to BASIC so the user isn't stuck at a black screen.
+    // Use the cold-boot release path here too — same long-LOW-dwell condition.
     // SEL button will retry SD init + TransferMenu on press.
     cartInterface.ReleaseColdBootToBasic();
     bootState = BOOT_ERROR;

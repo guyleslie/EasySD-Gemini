@@ -64,7 +64,7 @@ python Tools/build.py release --skip-arduino
 
 ### Dual-System Design
 
-**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. Cold boot uses explicit state machine: AVR holds C64 `/RESET` LOW → SD init (3 attempts) → `cartApi.Init()` → cartridge interface returned to BASIC-safe idle state → `/RESET` released → `RUNNING_READY`. The C64 boots to BASIC on cold boot; `TransferMenu()` is invoked only on explicit short `SEL` press. If SD fails, C64 is still released to BASIC and `SEL` can retry.
+**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. Cold boot uses explicit state machine: AVR holds C64 `/RESET` LOW → SD init (3 attempts) → `cartApi.Init()` → cartridge interface returned to BASIC-safe idle state → `/RESET` released via `ReleaseColdBootToBasic` (release HIGH → 50ms dwell → warm-style `ResetC64` pulse, so the C64 boots from a verified-good short LOW→HIGH edge instead of a single edge after a multi-second LOW dwell) → `RUNNING_READY`. The C64 boots to BASIC on cold boot; `TransferMenu()` is invoked only on explicit short `SEL` press. If SD fails, C64 is still released to BASIC (same path) and `SEL` can retry.
 
 **Hardware caveat:** Recent bench sessions indicate intermittent mechanical/contact issues on the current test cartridge assembly (edge connector / module headers). If behavior changes when the cartridge or SD module is touched, treat that as a hardware integrity symptom first, not as proof of a firmware regression.
 

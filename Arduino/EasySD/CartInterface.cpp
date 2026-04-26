@@ -25,9 +25,6 @@ static unsigned long lastStaleIdentLogMs = 0;
 namespace {
 
 constexpr unsigned long PHI2_SYNC_TIMEOUT_US = 2000UL;
-constexpr uint16_t COLD_BOOT_RELEASE_MIN_PHI2_EDGES = 32;
-constexpr unsigned long COLD_BOOT_RELEASE_PHI2_TIMEOUT_MS = 100UL;
-constexpr unsigned long COLD_BOOT_RELEASE_GUARD_MS = 20UL;
 
 inline bool phi2ReadFast() {
   #ifdef __AVR__
@@ -429,13 +426,19 @@ void CartInterface::EnterBasicSafeMode() {
 void CartInterface::ReleaseColdBootToBasic() {
   EnterBasicSafeMode();
 
-  // On a true cold power-on the AVR + SD path can become ready before the C64
-  // clock domain has settled.  Wait for steady PHI2 activity, then keep the
-  // cartridge hidden for one short guard interval before releasing /RESET.
-  WaitForStablePhi2(COLD_BOOT_RELEASE_MIN_PHI2_EDGES,
-                    COLD_BOOT_RELEASE_PHI2_TIMEOUT_MS);
-  delay(COLD_BOOT_RELEASE_GUARD_MS);
+  // /RESET has been held LOW since IOSetup (~hundreds of ms to seconds while
+  // SD init runs).  Real-HW symptom after such a long dwell: BASIC text
+  // appears but cursor never blinks (CIA1 cursor IRQ not running) — the
+  // single rising edge of a "delay + ResetHigh" release is not enough to
+  // bring some C64 chips fully out of /RES.  Warm reset is verified working
+  // because it issues a fresh 1ms LOW→HIGH pulse from a quiescent HIGH
+  // state.  Mimic that here: first release the long LOW so the C64's reset
+  // network re-settles HIGH, then immediately issue the same warm-reset
+  // pulse the warm path uses.  The C64 reaches BASIC via the second edge,
+  // which is the well-tested warm-reset edge.
   ResetHigh();
+  delay(50);
+  ResetC64();
 }
 
 void CartInterface::ReleaseToBasic(bool pulseReset) {
