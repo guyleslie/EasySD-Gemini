@@ -78,7 +78,7 @@ Used by all normal file loading: plugins, menu, KernalBridge.
 
 1. Arduino places the next byte in its data latch ($80AB / ROML space).
 2. Arduino asserts /NMI LOW (D8), triggering an NMI on the C64.
-3. C64 NMI ISR (`TransferHandler` in `CartLib.s`) delivers **one byte per NMI** and returns via RTI:
+3. C64 NMI ISR (`TransferHandler` in the **ROML chip** at `$80AF`) delivers **one byte per NMI** and returns via RTI:
 
 ```asm
 ; Entry overhead: 7 cycles (6502 NMI dispatch)
@@ -346,7 +346,7 @@ and have no visible effect.
 
 | File | Role |
 |------|------|
-| `EasySD/Loader/CartLib.s` | `TransferHandler` NMI ISR (Mechanism 1) |
+| ROML chip (`$80AF`/`$80A0`/`$808C`) | `TransferHandler` NMI ISR variants (Mechanism 1) — burned into external cartridge ROM via `IRQLoaderRom.bin` |
 | `EasySD/Loader/CartLibStream.s` | `StreamLargeFile` polling loop (Mechanism 2) |
 | `EasySD/Loader/CartLibCommon.s` | Address constants (`CARTRIDGE_BANK_VALUE`, `MODULATION_ADDRESS`) |
 | `EasySD/Loader/CartZpMap.inc` | ZP allocation ($90–$95 streaming, $64–$77 NMI transfer) |
