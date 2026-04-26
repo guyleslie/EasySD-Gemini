@@ -25,6 +25,9 @@ static unsigned long lastStaleIdentLogMs = 0;
 namespace {
 
 constexpr unsigned long PHI2_SYNC_TIMEOUT_US = 2000UL;
+constexpr uint16_t COLD_BOOT_RELEASE_MIN_PHI2_EDGES = 32;
+constexpr unsigned long COLD_BOOT_RELEASE_PHI2_TIMEOUT_MS = 100UL;
+constexpr unsigned long COLD_BOOT_RELEASE_GUARD_MS = 20UL;
 
 inline bool phi2ReadFast() {
   #ifdef __AVR__
@@ -421,6 +424,18 @@ void CartInterface::EnterBasicSafeMode() {
   detachInterrupt(digitalPinToInterrupt(IO2));
   ResetReceive();
   DisableCartridge();
+}
+
+void CartInterface::ReleaseColdBootToBasic() {
+  EnterBasicSafeMode();
+
+  // On a true cold power-on the AVR + SD path can become ready before the C64
+  // clock domain has settled.  Wait for steady PHI2 activity, then keep the
+  // cartridge hidden for one short guard interval before releasing /RESET.
+  WaitForStablePhi2(COLD_BOOT_RELEASE_MIN_PHI2_EDGES,
+                    COLD_BOOT_RELEASE_PHI2_TIMEOUT_MS);
+  delay(COLD_BOOT_RELEASE_GUARD_MS);
+  ResetHigh();
 }
 
 void CartInterface::ReleaseToBasic(bool pulseReset) {

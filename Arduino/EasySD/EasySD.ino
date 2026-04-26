@@ -237,13 +237,13 @@ void setup() {
     runtimeReady = true;
 
     // Release C64 to BASIC — cartridge stays hidden (EXROM HIGH, bus tristate).
-    // /RESET was held LOW by IOSetup(); releasing it lets C64 boot to BASIC.
-    // If the AVR resets or corrupts RAM before this point, the C64 stays held in
-    // reset, so maintaining a boot-safe SRAM margin is a functional requirement.
-    // Menu is NOT loaded automatically; user must press SEL to invoke TransferMenu().
+    // Cold boot uses a dedicated release path: keep /RESET LOW until the C64
+    // shows stable PHI2 activity, then add a short idle-state guard before
+    // releasing to BASIC. This narrows the cold-only "BASIC text, no cursor"
+    // margin without perturbing the proven warm/menu reset paths.
     LOGI(SYS, "Boot: release to BASIC");
     bootState = BOOT_RELEASE_BASIC;
-    cartInterface.ReleaseToBasic(false);
+    cartInterface.ReleaseColdBootToBasic();
 
     bootState = RUNNING_READY;
     LOGI(SYS, "Boot: ready (BASIC)");
@@ -251,7 +251,7 @@ void setup() {
   } else {
     // SD failed: release C64 to BASIC so the user isn't stuck at a black screen.
     // SEL button will retry SD init + TransferMenu on press.
-    cartInterface.ReleaseToBasic(false);
+    cartInterface.ReleaseColdBootToBasic();
     bootState = BOOT_ERROR;
     LOGE(SYS, "Boot: SD fail, released");
   }

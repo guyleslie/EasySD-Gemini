@@ -82,6 +82,7 @@ class CartInterface {
   void EnableDataBus();     // data bus OUTPUT — call after delay(300), before NMI transfers
   void DisableCartridge();
   void EnterBasicSafeMode();
+  void ReleaseColdBootToBasic();
   void ReleaseToBasic(bool pulseReset);
   void ResetLow();
   void ResetHigh();
