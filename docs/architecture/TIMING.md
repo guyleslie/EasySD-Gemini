@@ -126,7 +126,7 @@ cartInterface.EnableCartridge()  // EXROM LOW: ROML active (needed for $80AB rea
 
 > **If streaming is silent (WAV plays but no audio):** check that
 > `EnableCartridge()` is called before the ISR is attached.
-> Without it, EXROM is HIGH and $80AB reads return RAM instead of EEPROM data.
+> Without it, EXROM is HIGH and $80AB reads return RAM instead of ROML chip data.
 
 ### C64 streaming loop cycle count (CartLibStream.s)
 

@@ -327,7 +327,7 @@ At 0.985 MHz PAL: 73 / 985 000 ≈ **74 µs/byte → ~13.5 KB/s**
 Arduino A6 (MENU/RESET button, analog-only pin) is connected to a tactile switch
 on the PCB. The switch is normally open; pressing it connects A6 to GND.
 A 10kΩ pull-up resistor from +5V to A6 holds the line HIGH when the button is
-not pressed. `HandleStream()` polls this pin and aborts streaming if it goes LOW.
+not pressed. Streaming terminates via a **100 ms timeout** if no `/IO2` pulse arrives — `HandleStream()` does not poll the SEL pin. The SEL button is checked only by the main `loop()` between commands.
 
 A6 is analog-only on the ATmega328P — `digitalRead()`/`INPUT_PULLUP` are not
 supported. The firmware uses `selRead()` (defined in `CartInterface.h`) which
