@@ -1277,7 +1277,7 @@ def main(argv: Sequence[str]) -> int:
 
     # C64 DEBUG flag (VICE mock data)
     debug = 1 if args.target in ("debug-vice", "debug-arduino") else 0
-    if args.debug and args.target not in ("arduino-compile", "arduino-upload", "all"):
+    if args.debug and args.target not in ("arduino-compile", "arduino-upload-isp", "all"):
         debug = 1
     debug_break = 1 if args.debug_break_after_load else 0
 

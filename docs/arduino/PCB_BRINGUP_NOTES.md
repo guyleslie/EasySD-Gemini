@@ -205,7 +205,7 @@ where the C64 is already running and CBM80 is not a concern.
 
 ---
 
-## Current firmware state (updated 2026-04-18)
+## Current firmware state (updated 2026-04-26)
 
 The current firmware model is **BASIC-first on cold boot**:
 - Power-on: AVR holds C64 `/RESET` LOW during SD/runtime init
@@ -223,6 +223,7 @@ Recent firmware cleanups on top of the earlier bus fixes:
 | Reset line changed to active push-pull drive | cold-boot BASIC release no longer depends on the AVR internal pull-up |
 | BASIC-safe release path centralized | cold boot and long-press BASIC reset now use the same cartridge-hidden/session-reset path |
 | Data bus latch clear before INPUT | "tristate" state no longer leaves weak pull-ups on the C64 data bus |
+| Dedicated cold-boot BASIC release guard | wait for stable PHI2 edges + 20 ms guard before `ResetHigh()` on true cold boot |
 
 **Verified boot behaviour (cartridge ROML chip installed):**
 
@@ -237,11 +238,12 @@ Recent firmware cleanups on top of the earlier bus fixes:
 
 Current startup policy:
 - Cold boot always targets BASIC first; menu is explicit, not automatic.
+- True cold boot release uses a dedicated margin path: stable PHI2 wait + 20 ms guard, then `/RESET` HIGH.
 - Menu loads from root when invoked.
 - Do not restore the saved last directory during `CartApi::Init()`.
 - MCU internal EEPROM is not part of the active boot/navigation path.
 
-**Flash:** 23708 / 30720 B (77%, 7012 B free). **RAM:** 1284 / 2048 B (764 B free).
+**Flash:** 23172 / 30720 B (75%, 7548 B free). **RAM:** 1492 / 2048 B (72%, 556 B free).
 
 ### Hardware caveat observed after repeated bench use
 
@@ -267,6 +269,32 @@ Practical workflow:
 - the working baseline firmware on this bench unit is the simple `IOSetup` LOW + `ReleaseToBasic(false)` (= `EnterBasicSafeMode + delay(2) + ResetHigh`) sequence
 - any boot-time symptom — black screen, no cursor, dead SEL, cyclic SCK LED blink — should be reproduced both **before and after** lifting/reseating the cartridge before being attributed to firmware
 - a second, less-worn PCB (or refurbished edge contacts) is needed before any further /RESET-policy experiments will produce trustworthy real-hardware results
+
+#### 2026-04-26 update: cold-boot release margin fix verified on current baseline
+
+After the later cold-boot investigation, the active firmware gained a dedicated
+`ReleaseColdBootToBasic()` path:
+
+- `EnterBasicSafeMode()`
+- wait for stable PHI2 activity (`32` edges, max `100 ms`)
+- `delay(20)`
+- `ResetHigh()`
+
+This is intentionally narrower than a broad reset-policy rewrite: only the true
+cold-boot BASIC release path changed; warm/menu reset flows stayed on the proven
+existing path.
+
+**Current result on the present bench configuration:**
+- cold boot stable
+- warm boot stable
+- true cold boot after roughly 1-2 minutes without power boots to BASIC correctly
+- SEL button remains functional in both cases
+
+Interpretation:
+- the practical fix for the current baseline was additional margin on the
+  cold-boot BASIC release path
+- this does **not** invalidate the earlier edge-wear/contact findings as
+  historical observations on the heavily used bench PCB
 
 ---
 

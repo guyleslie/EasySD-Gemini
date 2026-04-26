@@ -2,7 +2,7 @@
 
 **Load programs and media on your Commodore 64 straight from an SD card.**
 
-EasySD is a cartridge for the Commodore 64 that combines an Arduino-based SD card controller with a cartridge ROML chip that boots the C64-side menu. You browse files on the C64, then the selected file is loaded directly from the SD card.
+EasySD is a cartridge for the Commodore 64 that combines an Arduino-based SD card controller with a cartridge ROML chip that boots the C64-side loader/runtime. The full menu program is normally loaded from the SD card root as `EASYSD.PRG`, then you browse files on the C64 and load the selected item directly from the SD card.
 
 > Documentation note: this README describes the current architecture and user-visible behavior at a high level. Detailed implementation status belongs in the developer docs.
 
@@ -26,7 +26,7 @@ EasySD is a cartridge for the Commodore 64 that combines an Arduino-based SD car
 
 ---
 
-## Hardware verification status (v0.5)
+## Hardware verification status (current worktree, post-v0.5)
 
 Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 
@@ -38,12 +38,15 @@ Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 | File browser: folder navigation | ✅ Verified |
 | File browser: directory header (`ROOT` / current folder) | ✅ Verified |
 | PRG file loading | ✅ Verified |
+| Cold boot after long power-off (1-2 min) | ✅ Verified on current bench firmware/hardware state |
 | Plugin-class return path (`.CVD`, `EASYLOAD.PRG`, `HWTEST.HWT`) | ❌ Current bench report: returns to cleared screen / top-line `READY.` instead of stable EasySD menu |
-| Other non-PRG plugins (`.WAV`, `.KOA`, `.MUS`, `.PET`) | ⚠️ Not yet re-verified on current real HW firmware baseline |
+| Other non-PRG plugins (`.WAV`, `.KOA`, `.PET`) | ⚠️ Not yet re-verified on current real HW firmware baseline |
+
+**2026-04-26 update:** the current worktree firmware was re-tested on real hardware after ISP flashing and SD refresh. Cold boot and warm boot are now both stable on the present bench setup, including true cold boot after approximately 1-2 minutes without power. The earlier "BASIC text, no cursor" symptom is no longer reproduced in the current baseline.
 
 **Current field note:** recent hardware sessions point to two non-firmware failure classes that can mimic boot or reset faults. First, intermittent mechanical/contact issues on the EasySD PCB assembly (cartridge edge / module headers). Second, a marginal Arduino Nano 3.x module: in bench testing one long-used Nano could still be programmed and verified successfully over ISP, but in the EasySD hardware the C64 screen did not come up at all, while a different Nano with the same firmware worked correctly. If startup behavior changes when the cartridge or SD module is physically moved, or if one Nano fails while another identical Nano works with the same image, treat that as hardware integrity first.
 
-**Status interpretation:** the verified baseline is currently boot -> BASIC, SEL -> menu, directory browsing, and PRG loading. The remaining fault is in the plugin-class return path: current bench tests for `CVID`, `MultiLoad` (`EASYLOAD.PRG`), and `HWTest` all fall through to a cleared-screen `READY.` state instead of returning cleanly to the EasySD menu.
+**Status interpretation:** the verified baseline is currently boot -> BASIC, SEL -> menu, directory browsing, and PRG loading. The remaining fault is in the plugin-class return path: current bench tests for `CVD`, `MultiLoad` (`EASYLOAD.PRG`), and `HWTest` all fall through to a cleared-screen `READY.` state instead of returning cleanly to the EasySD menu.
 
 ---
 
@@ -52,11 +55,11 @@ Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 The cartridge has two parts working together:
 
 - An **Arduino Nano** reads the SD card and streams file data to the C64 at up to ~40 KB/s via the NMI line
-- A **512 Kbit (64 KB) cartridge ROML chip** holds the cartridge menu and transfer handler used by the C64 side
+- A **512 Kbit (64 KB) cartridge ROML chip** holds the boot stub, NMI transfer handler, and resident loader used by the C64 side; the interactive menu is normally loaded from the SD card root as `EASYSD.PRG`
 
 When you select a file, the menu loads the matching plugin from the SD card's `/PLUGINS/` folder, which handles playback or display. This keeps the ROM small and lets new file types be added without reprogramming the cartridge ROML chip.
 
-**Boot sequence:** The Arduino holds the C64 in reset while initialising the SD card and runtime state. Once ready, it returns the cartridge interface to a BASIC-safe idle state and releases the C64 to normal BASIC startup.
+**Boot sequence:** The Arduino holds the C64 in reset while initialising the SD card and runtime state. On true cold boot, the firmware now waits for stable PHI2 activity and a short guard interval before releasing `/RESET`. After that, it returns the cartridge interface to a BASIC-safe idle state and releases the C64 to normal BASIC startup.
 
 **SEL button policy:** A short press opens the EasySD menu. A long press returns the machine to BASIC. In the current firmware a press is treated as "long" only when the button is released strictly after the 1000 ms threshold.
 
@@ -87,13 +90,14 @@ To build EasySD you need the following components:
 
 ```
 SD card root/
+├── EASYSD.PRG        ← main C64 menu loaded by SEL / TransferMenu()
 ├── PLUGINS/
-│   ├── PRGPLUGIN.PRG    ← C64 program loader
+│   ├── PRGPLUGIN.PRG    ← standard PRG loader (KernalBridge)
+│   ├── BOOTPLUGIN.PRG   ← MultiLoad / boot bridge
+│   ├── HWTPLUGIN.PRG    ← hardware test launcher
 │   ├── KOAPLUGIN.PRG    ← Koala graphics viewer
 │   ├── PETGPLUGIN.PRG   ← PETSCII art viewer
 │   ├── WAVPLUGIN.PRG    ← WAV audio player
-│   ├── MUSPLUGIN.PRG    ← SID music player
-│   ├── SIDPLAYER.PRG    ← external SID player binary used by the MUS plugin
 │   └── CVDPLUGIN.PRG    ← CVD video player
 ├── GAMES/
 │   ├── MYGAME.PRG
@@ -209,7 +213,7 @@ EasySD has three separately updatable parts. Not every change requires updating 
 
 | Component | How to update | When to update |
 |-----------|---------------|----------------|
-| **Arduino firmware** | `arduino-upload` or `arduino-upload-isp` | Any change to `Arduino/EasySD/` source files (command handling, directory logic, protocol, SD card code). This is the most frequently updated component. |
+| **Arduino firmware** | `arduino-upload-isp` | Any change to `Arduino/EasySD/` source files (command handling, directory logic, protocol, SD card code). This is the most frequently updated component. |
 | **SD card files** | Build `sd-content` and copy/deploy `EASYSD.PRG` + `PLUGINS/*.PRG` | Any change to C64 assembly source files (`EasySD/Menu/`, `EasySD/Loader/`, `EasySD/Plugins/`). The menu and all plugins are loaded from the SD card at runtime — the cartridge ROML chip does not need to change. |
 | **Cartridge ROML chip** | Reprogram with TL866 or similar EPROM programmer | Only when `EasySD/build/IRQLoaderRom.bin` changes — this happens if the NMI transfer handler, boot stub, or the resident loader code changes. Plugin and menu changes do **not** require reprogramming the ROML chip. |
 
@@ -240,9 +244,9 @@ The LED is connected directly to the PCB 5V rail and is **always lit when the ca
 
 EasySD has two cooperating halves:
 
-**Arduino firmware** (`Arduino/EasySD/`) — manages SD card access, directory state, file streaming, and the ATmega328P internal EEPROM used for saved path data.
+**Arduino firmware** (`Arduino/EasySD/`) — manages SD card access, directory state, and file streaming. The ATmega328P MCU internal EEPROM is currently unused.
 
-**C64 software** (`EasySD/`) — 6502 assembly built with 64tass. The cartridge ROML chip contains the communication library, transfer handler, and the boot menu used to start the system.
+**C64 software** (`EasySD/`) — 6502 assembly built with 64tass. The cartridge ROML chip contains the boot stub, communication library, transfer handler, and resident loader; the interactive menu is normally staged as `EASYSD.PRG` on the SD card.
 
 **Data transfer:**
 | Mechanism | Rate | Used by |

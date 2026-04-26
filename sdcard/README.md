@@ -18,13 +18,15 @@ python Tools/cvd_convert.py input.mp4 output.cvd
 
 ```
 / (SD card root)
+├── EASYSD.PRG
 └── PLUGINS/
     ├── PRGPLUGIN.PRG
+    ├── BOOTPLUGIN.PRG
+    ├── HWTPLUGIN.PRG
     ├── KOAPLUGIN.PRG
     ├── PETGPLUGIN.PRG
     ├── WAVPLUGIN.PRG
-    ├── MUSPLUGIN.PRG
     └── CVDPLUGIN.PRG
 ```
 
-Plugin binaries are built by `python Tools/build.py plugins` and output to `EasySD/build/plugins/`.
+The exact staged SD bundle is produced by `python Tools/build.py sd-content` under `EasySD/build/sd-content/`.

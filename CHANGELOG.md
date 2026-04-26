@@ -1,7 +1,7 @@
 # EasySD - Unified Changelog
 
-> **Last updated:** 2026-04-18
-> **Current version:** v0.5 (public) / v3.1.3 (internal)
+> **Last updated:** 2026-04-26
+> **Current version:** v0.5 (public) / current worktree post-v0.5
 > **Project:** EasySD Gemini - C64 Cartridge-based SD card reader
 
 ---
@@ -16,6 +16,7 @@ This document contains all significant changes to the EasySD project in chronolo
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
+| **Unreleased** | 2026-04-26 | Cold-boot BASIC release margin hardened with stable-PHI2 guard; current bench cold/warm boot re-verified | ✅ Real HW verified |
 | **v0.5** | 2026-04-18 | Public stabilization release: BASIC-first cold boot, directory/nav/PRG launch/SEL handling improved on real hardware | ✅ Real HW verified |
 | **v0.3** | 2026-04-14 | First public release: BASIC-first boot, PRG load, folder nav verified on real hardware | ✅ Real HW verified |
 | **v3.1.3** | 2026-03-09 | P2TK Phase 3: full-range PRG load up to $FFFF, 3 bug fixes | ✅ Complete |
@@ -57,6 +58,29 @@ This document contains all significant changes to the EasySD project in chronolo
 ---
 
 ## Chronological Changes
+
+### [Unreleased] - 2026-04-26
+**Cold-Boot BASIC Release Margin Hardened**
+
+#### Firmware Change
+
+- Added a dedicated cold-boot BASIC release path (`CartInterface::ReleaseColdBootToBasic()`).
+- True cold boot now waits for stable PHI2 activity before releasing `/RESET`.
+- Added a short post-PHI2 guard interval before `ResetHigh()`:
+  - minimum PHI2 edges: 32
+  - timeout: 100 ms
+  - guard: 20 ms
+- Warm/menu reset paths were intentionally left unchanged.
+
+#### Real Hardware Result
+
+- Current bench retest with the present worktree firmware, ISP upload, and refreshed SD card:
+  - cold boot stable
+  - warm boot stable
+  - true cold boot after approximately 1-2 minutes without power boots to BASIC correctly
+- The earlier "BASIC text, no cursor" symptom is not reproduced in the current baseline.
+
+---
 
 ### [v0.5] - 2026-04-18
 **Public Stabilization Release — Real Hardware Verified**
