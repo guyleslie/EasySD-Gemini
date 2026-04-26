@@ -94,84 +94,44 @@ LAUNCH
 	JMP $A7AE ;"RUN" 
 
 ; Decide whether the loaded PRG should be started with BASIC RUN.
-; Carry clear => RUN the BASIC program at $0801.
-; Carry set   => jump directly to the PRG load address.
+;   C = 0 => RUN the BASIC program at $0801
+;   C = 1 => JMP (DATA_LOW) to the load address
 ;
-; Supported cases:
-; - Standard BASIC PRGs loaded at $0801 (existing behavior preserved)
-; - Hybrid PRGs loaded below $0801 that still contain a valid BASIC stub at $0801
-;   (for example a SYS line that starts machine code elsewhere in the file)
+; Two cases qualify as BASIC:
+;   1) Standard BASIC PRG  : load address == $0801
+;   2) Hybrid PRG          : load address < $0801, the loaded range reaches
+;                            at least $0809, and the BASIC SYS token ($9E)
+;                            is present at $0805.
+;
+; NOTE: the whole stub must fit in the cassette buffer ($033C-$03FB, 192 bytes).
+; Anything beyond that overflows into screen RAM at $0400 and shows up as
+; visible garbage on the menu screen just before the PRG launches.
 SHOULD_RUN_BASIC
-	; Fast path: classic BASIC PRG load address = $0801
 	LDA DATA_HIGH
 	CMP #$08
-	BCC CHECK_EMBEDDED_BASIC
-	BNE LAUNCH_MACHINE
+	BNE CHECK_HYBRID
 	LDA DATA_LOW
 	CMP #$01
 	BEQ LAUNCH_BASIC
-	BCS LAUNCH_MACHINE
+LAUNCH_MACHINE
+	SEC
+	RTS
 
-CHECK_EMBEDDED_BASIC
-	; The PRG starts below $0801. Only consider RUN if the loaded range extends
-	; far enough to contain a minimal BASIC line at $0801.
+CHECK_HYBRID
+	BCS LAUNCH_MACHINE			; load address > $08xx => not BASIC
 	LDA ACTUAL_END_HIGH
 	CMP #$08
 	BCC LAUNCH_MACHINE
-	BNE BASIC_RANGE_OK
+	BNE CHECK_SYS_TOKEN
 	LDA ACTUAL_END_LOW
-	CMP #$08
+	CMP #$09
 	BCC LAUNCH_MACHINE
-	BEQ LAUNCH_MACHINE
-
-BASIC_RANGE_OK
-	; Only treat embedded stubs as BASIC if they begin with a SYS token.
+CHECK_SYS_TOKEN
 	LDA $0805
 	CMP #$9E
 	BNE LAUNCH_MACHINE
-
-	; Read first line's "next line" pointer from the BASIC stub at $0801.
-	LDA $0801
-	STA $FB
-	LDA $0802
-	STA $FC
-
-	; Pointer must be at least $0807 (2-byte ptr + 2-byte line no + 1 byte data + 0 terminator).
-	LDA $FC
-	CMP #$08
-	BCC LAUNCH_MACHINE
-	BNE CHECK_LINE_END
-	LDA $FB
-	CMP #$07
-	BCC LAUNCH_MACHINE
-
-CHECK_LINE_END
-	; ACTUAL_END is one byte past the usable BASIC terminator window for this loader
-	; metadata, so the next-line pointer must stay strictly below it.
-	LDA $FC
-	CMP ACTUAL_END_HIGH
-	BCC LINE_PTR_IN_RANGE
-	BNE LAUNCH_MACHINE
-	LDA $FB
-	CMP ACTUAL_END_LOW
-	BCS LAUNCH_MACHINE
-
-LINE_PTR_IN_RANGE
-	; A valid BASIC line must end with a zero byte right before NEXTLINE.
-	DEC $FB
-	BNE +
-	DEC $FC
-+
-	LDY #$00
-	LDA ($FB),Y
-	BNE LAUNCH_MACHINE
-
 LAUNCH_BASIC
 	CLC
-	RTS
-
-LAUNCH_MACHINE
-	SEC
 	RTS
 
 MACHINELANG 
