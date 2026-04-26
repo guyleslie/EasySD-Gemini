@@ -40,10 +40,6 @@
 .include "../../DebugMacros.s"
 .include "../../APIMacros.s"
 
-; Hardware border-color debug markers — passed via -D ML_DEBUG_BORDERS=0/1.
-; 0 = no markers (default, always passed by build.py).
-; 1 = border colors at each stage, for real-hardware hang diagnosis.
-
 ;================================================================================
 ; Plugin entry — $C000
 ; Layout: JMP MAIN (3 bytes) then config block at $C003.
@@ -67,19 +63,7 @@ ML_FIRST_PART_NAME: .fill 20, 0     ; $C005-$C018 — filename with ".PRG", null
 ;================================================================================
 
 MAIN:
-	; --- Border color debug markers (compiled in with -D ML_DEBUG_BORDERS=1) ---
-	; Color map: 1=white(entry) 2=red(savestate) 3=cyan(install) 4=purple(talking)
-	;            5=green(sent) 6=blue(wait ok) 7=yellow(received) 8=orange(open ok)
-	;            9=brown (open error)
-	.if ML_DEBUG_BORDERS
-	LDA #1
-	STA $D020                       ; WHITE: MAIN entered
-	.endif
 	JSR ML_SAVESTATE                ; save VIC/$01 for error-path restore
-	.if ML_DEBUG_BORDERS
-	LDA #2
-	STA $D020                       ; RED: ML_SAVESTATE done
-	.endif
 
 	; Install resident LOAD hook:
 	;   copies RL_STUB image  → $033C (extended: saves X/Y, NMI redirect)
@@ -87,19 +71,11 @@ MAIN:
 	;   writes RL_NMI_REDIRECT address ($0368) to $FFFA/$FFFB (RAM NMI vector)
 	;   patches $0330/$0331 → RL_STUB ($033C)
 	JSR RL_INSTALL
-	.if ML_DEBUG_BORDERS
-	LDA #3
-	STA $D020                       ; CYAN: RL_INSTALL done
-	.endif
 
 	; Start EasySD session
 	; Arduino is in the game directory (user navigated there before selecting
 	; EASYLOAD.PRG).  We immediately capture the path for chdir safety.
 	JSR PROT_StartTalking
-	.if ML_DEBUG_BORDERS
-	LDA #4
-	STA $D020                       ; PURPLE: PROT_StartTalking done
-	.endif
 
 	;--- Capture current directory path into RL_DIR_PATH ($E840) ---
 	; COMMAND_GET_PATH: Arduino sends dirFunc.currentPath (64 bytes) then
@@ -109,16 +85,8 @@ MAIN:
 	; This path is later read by RL_HANDLER under $01=$35 (Kernal RAM).
 	LDA #COMMAND_GET_PATH
 	JSR PROT_Send
-	.if ML_DEBUG_BORDERS
-	LDA #5
-	STA $D020                       ; GREEN: PROT_Send done, about to WaitProcessing
-	.endif
 	JSR PROT_WaitProcessing
 	BCS ml_skip_path                ; skip on error — graceful degradation
-	.if ML_DEBUG_BORDERS
-	LDA #6
-	STA $D020                       ; BLUE: PROT_WaitProcessing returned CLC (success)
-	.endif
 
 	LDA #<RL_DIR_PATH               ; = $40 (low byte of $E840)
 	STA ZP_IRQ_API_DATA_LO
@@ -128,10 +96,6 @@ MAIN:
 	STA ZP_IRQ_API_DATA_LENGTH      ; 1 page = 256 bytes
 	LDY #$00                        ; transfer mode x1 (CARTRIDGENMIHANDLERX1)
 	JSR PROT_ReceiveFragmentNoCallback
-	.if ML_DEBUG_BORDERS
-	LDA #7
-	STA $D020                       ; YELLOW: path received, about to open first part
-	.endif
 
 ml_skip_path:
 	;--- Open first game part ---
@@ -144,17 +108,9 @@ ml_skip_path:
 	LDX #$01                        ; flags = read
 	JSR PROT_OpenFile
 	BCC ml_opened
-	.if ML_DEBUG_BORDERS
-	LDA #9
-	STA $D020                       ; BROWN: PROT_OpenFile failed
-	.endif
 	JMP MAIN_ERROR
 
 ml_opened:
-	.if ML_DEBUG_BORDERS
-	LDA #8
-	STA $D020                       ; ORANGE: PROT_OpenFile success
-	.endif
 	; Get file info (size)
 	#GETFILEINFO ML_FILEINFO_BUF
 	BCS MAIN_ERROR
@@ -246,16 +202,6 @@ ml_close:
 	STA $8C
 
 	; Jump to game — resident hook handles all future LOAD "...",8,x calls.
-	; Marker $0E (light blue) confirms MAIN finished and is about to JMP ($008B).
-	; If border stays light blue → JMP target is dead code (load addr wrong / not
-	;   autostartable PRG / BASIC-stub PRG that needs RUN, not raw JMP).
-	; If border changes to game's own colors (e.g. black/blue) → game DID start.
-	;   Then watch for marker $0A (light red) on first LOAD "...",8 — its absence
-	;   means RL_STUB at $033C was wiped by the game's $0200-$03FF clear.
-	.if ML_DEBUG_BORDERS
-	LDA #$0E
-	STA $D020                       ; LIGHT BLUE: about to JMP ($008B)
-	.endif
 	JMP ($008B)
 
 ;================================================================================

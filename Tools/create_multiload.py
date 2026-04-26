@@ -48,7 +48,7 @@ import zipfile
 # ---------------------------------------------------------------------------
 
 TEMPLATE_REL = "EasySD/build/plugins/multiload_template.bin"
-OUTPUT_DIR   = "EasySD/build/multiload"
+OUTPUT_DIR   = "multiload"
 
 # multiload_template.bin is raw binary (64tass -b flag = no load address header).
 # Plugin assembles at * = $C000; file offset = RAM address - $C000.
