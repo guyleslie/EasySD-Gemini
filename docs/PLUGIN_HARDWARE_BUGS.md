@@ -26,21 +26,27 @@ sima MultiLoad PRG bundles. This document tracks what remains broken beyond that
 firmware/hardware baseline, do not downgrade the whole firmware state because of older
 plugin notes. Keep the stable baseline and plugin-specific status separate.
 
+**Baseline clarification for PRG debugging:**
+- Ordinary menu `.PRG` launches currently do **not** go through `PRGPLUGIN.PRG` /
+  KernalBridge.
+- They use the direct `PROGRAM` path (`LoadAndLaunchFile()` + `LoaderStub`).
+- On 2026-04-26 that direct path was fixed to recognise hybrid BASIC `SYS` stubs
+  at `$0801`; Beach Head-style PRGs are now part of the stable real-hardware baseline.
+
 ---
 
 ## 2. EASYLOAD Chain Hang — Primary Open Issue
 
 ### Fingerprint
 
-When an EASYLOAD-style multiload game starts on real HW, the system reaches MAIN's
-`JMP ($008B)` cleanly, then ends up with:
-- **Outer border**: black
-- **Inner area**: blue
+**Updated 2026-04-26:** On real hardware, the system now advances beyond the earlier
+black/blue color state. Characters appear on screen after `JMP ($008B)`, indicating
+the game's first part is executing and writing screen data. The chain is progressing
+further than before; `RL_HANDLER` / the resident hook is now the active suspect.
 
-These colors come from the loaded first part starting up — they are **not** painted by
-MultiLoad MAIN. Therefore MAIN finished and the game began executing; the hang happens
-inside the game's own loader code, on the first `LOAD "...",8,x` that goes through the
-resident hook (`RL_HANDLER` at `$E800`).
+Earlier fingerprint (pre-2026-04-26): outer border = black, inner area = blue with
+no screen content — that described MAIN finishing and the game taking control of
+colors, but the screen remaining blank because the first chain LOAD failed silently.
 
 ### Suspects (ordered by likelihood)
 
@@ -159,6 +165,10 @@ This is architecturally harmless.
 
 ## 5. Known Confirmed Bugs
 
+**Important:** the confirmed bugs below describe bridge/plugin-path issues. They do
+not describe the current direct `PROGRAM` → `LoaderStub` launcher used for ordinary
+menu `.PRG` selection.
+
 ### BUG-1: KernalBridge Code Overflow into I/O Space ($D000–$D113)
 
 **Severity:** High
@@ -171,7 +181,8 @@ CPU execution reaching any address in `$D000–$D113` will execute garbage opcod
 
 **Status:** Pre-existing issue; only affects code paths that reach those addresses.
 Large PRGs triggering deep call stacks may hit this. Needs fix: shrink KernalBridge
-below `$CFFF`.
+below `$CFFF`. This was **not** the root cause of the Beach Head regression, because
+the current ordinary `.PRG` menu path bypasses KernalBridge.
 
 ### BUG-2: PROT_WaitProcessing Bypassed in DEBUG=1 — VICE Tests Don't Validate Hardware Path
 

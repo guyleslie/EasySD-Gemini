@@ -1,6 +1,6 @@
 # EasySD Development Roadmap
 
-Last updated: 2026-04-25 (post 0.7 cleanup, HEAD `5c40c70`)
+Last updated: 2026-04-26 (post hybrid PRG launch fix)
 
 This file is the short planning view of the project. It tracks the current source-backed
 state and the next planned work. Historical debugging transcripts live under `docs/archive/`.
@@ -23,7 +23,17 @@ during the 0.7 cleanup pass:
   as UI/debug state. `DirFunction::ResyncDirFromCwd()` resynchronizes after every chdir.
 - Menu navigation uses `COMMAND_CHANGE_DIR_INDEX` for visible-row directory changes,
   avoiding stale-name and deep-stack issues on the Arduino side.
-- PRG loading uses KernalBridge and the P2TK path for programs extending into `$C000+`.
+- Ordinary menu `.PRG` launches use the direct `PROGRAM` path:
+  `EasySDMenu.s` dispatches to `LoadAndLaunchFile()`, the Arduino sends
+  `SendHeader()` + `SendLoaderStub()`, and the C64 launch decision happens inside
+  `LoaderStub.65s`.
+- `LoaderStub` now performs content-based launch selection. Standard BASIC PRGs
+  at `$0801` still use `CLR` + `RUN`, and hybrid PRGs loaded below `$0801` but
+  containing a tokenized BASIC `SYS` stub at `$0801` are also `RUN`-launched.
+  This fixes Beach Head-style files on real hardware.
+- KernalBridge/P2TK remains in-tree as a separate bridge path for
+  large/self-overwriting PRG workflows; it is not the default route for ordinary
+  `.PRG` file selection in the current menu.
 - PRG launch returns the Arduino side to a clean baseline by closing the file, disabling
   the cartridge, calling `Init()`, and starting listening again.
 - Long filenames and full path handling work; recent plugin-side fixes no longer assume a

@@ -56,9 +56,34 @@ The assembler places buffers after code automatically. No fixed buffer addresses
 
 ---
 
+## Direct PRG Launcher (current menu path)
+
+Ordinary menu `.PRG` selections currently do **not** use KernalBridge. The Arduino
+copies `LoaderStub` to low RAM, then streams the selected PRG payload to its load
+address.
+
+| Address | Content |
+|---------|---------|
+| `$033C-$040C` | `LoaderStub` — 209-byte RAM launcher used by direct `.PRG` start |
+| `$0400-$040C` | Temporary overlap with the first 13 bytes of screen RAM during launch |
+
+`LoaderStub` restores the normal memory map, then `SHOULD_RUN_BASIC` inspects the
+loaded content and decides the launch method:
+- Standard BASIC PRG at `$0801`: `CLR` + `RUN`.
+- Hybrid PRG loaded below `$0801` but with a valid tokenized BASIC `SYS` stub at
+  `$0801`: also `CLR` + `RUN` (covers Beach Head-style files).
+- Machine-language PRG at any other address: jump directly to the load address.
+
+---
+
 ## KernalBridge Memory Layout
 
-KernalBridge is loaded at `$C000` like a plugin but does not return to menu — it launches PRG files.
+KernalBridge is loaded at `$C000` like a plugin but does not return to the menu — it
+launches PRG files via a full KERNAL/BASIC reinitialisation followed by a warm-start
+jump. It is **not invoked by the current menu `.PRG` dispatch**; the direct
+`LoaderStub` path (above) handles all `.PRG` selections. KernalBridge's sole
+additional value over `LoaderStub` is patching the KERNAL I/O vectors so a running
+BASIC program can subsequently `OPEN`/`GET#` files from the SD card.
 
 | Address | Content |
 |---------|---------|
@@ -89,7 +114,9 @@ MultiLoad installs a resident hook that persists after the menu exits. These reg
 | `$E8A4` | `RL_FILEINFO_BUF` | FAT entry buffer (32 B) |
 | `$E8C4` | `RL_HDR_BUF` | First-page read buffer (256 B) |
 
-`$033C` is dual-use: `FILE_PATH_BUF` during menu operation, `RL_STUB` during game execution. The two uses are mutually exclusive.
+`$033C` is triple-use: `FILE_PATH_BUF` during menu operation, `LoaderStub` during
+direct menu `.PRG` launch, and `RL_STUB` during MultiLoad game execution. These uses
+are mutually exclusive.
 
 Writes to `$E800` always reach RAM regardless of `$01` banking. The handler is only reachable with `$01=$35`.
 

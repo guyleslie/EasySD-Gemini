@@ -4,7 +4,11 @@
 
 KernalBridge is a C64-side component that enables **unmodified BASIC programs** to use the EasySD SD card as if it were device 8 (a standard floppy drive). It does this by replacing five KERNAL I/O vectors with custom implementations that route all device 8 traffic through the EasySD cartridge API.
 
-This is **not a plugin**. It is never invoked by user selection from the menu. It is a bridge layer launched by the menu system as part of the PRG launch sequence.
+KernalBridge is built as `build/plugins/prgplugin.prg` for SD-card compatibility,
+but in the current menu baseline ordinary `.PRG` selection does **not** invoke it.
+Normal menu `.PRG` launches use the direct Arduino `LoadAndLaunchFile()` path plus
+the C64 RAM `LoaderStub`. This document therefore describes the bridge
+implementation itself, not the default `.PRG` menu path.
 
 ---
 
@@ -22,7 +26,35 @@ Built output: `build/plugins/prgplugin.prg` (output name preserved for SD card c
 
 ## What It Does
 
-### Launch sequence
+KernalBridge patches five KERNAL I/O vectors so that any `OPEN`/`CLOSE`/`GET#` call
+on device 8 made by a running BASIC program is routed through the EasySD cartridge API
+instead of going to a real floppy drive. This allows unmodified BASIC programs that open
+and read files at runtime to work with the SD card.
+
+**The bridge is not the standard PRG loader.** Loading a `.PRG` file from the EasySD
+menu always uses the direct `LoadAndLaunchFile()` + `LoaderStub` path; KernalBridge is
+never invoked by the current menu dispatch. It is built and shipped as `PRGPLUGIN.PRG`
+on the SD card, but no code path in the current firmware or menu calls it. Its value
+would be in a future scenario where a BASIC program needs to read additional files from
+the SD card during execution — that use case does not exist in the current system.
+
+## Launch Paths
+
+### Current ordinary `.PRG` menu path
+
+```text
+Menu PROGRAM dispatch
+  └─ Arduino LoadAndLaunchFile()
+       ├─ reads 2-byte PRG load header
+       ├─ sends SendHeader() + SendLoaderStub()
+       └─ LoaderStub decides BASIC RUN vs direct JMP
+```
+
+This direct path is where the hybrid BASIC/ML PRG launch fix lives (`LoaderStub.65s`).
+
+### KernalBridge path
+
+When KernalBridge itself is invoked, the flow is:
 
 ```
 Menu system
@@ -34,18 +66,20 @@ Menu system
   │
   ├─ [Normal path: ENDADDRESS ≤ $C002]
   │    ├─ Loads PRG body via LoadFileBySize
-  │    ├─ Closes file, ends protocol session
-  │    ├─ Calls RESTOR ($FD15) — reinitialises KERNAL RAM vectors
-  │    ├─ Calls SETVECTORS — patches 5 vectors with bridge routines
-  │    └─ Jumps to loaded PRG (BASIC or machine language)
+  │    ├─ Closes file, ends protocol session (CLOSEFILE, PROT_EndTalking)
+  │    ├─ Reinitialises hardware: IOINIT ($FDA3), RESTOR ($FD15), CINT ($FF5B)
+  │    ├─ Patches KERNAL I/O vectors (SETVECTORS)
+  │    ├─ Reinitialises BASIC environment ($E453, $E3BF, $E422)
+  │    ├─ Sets BASIC variable/end pointers ($2D–$30, $AE/$AF) to ENDADDRESS
+  │    └─ Restores memory config ($01=$37) and jumps to $0840 (BASIC warm start)
   │
   └─ [P2TK path: ENDADDRESS > $C002 — PRG extends into $C000+]
        └─ (see "P2TK — Large Program Loader" section below)
 ```
 
-After normal-path launch, any file I/O the BASIC program performs on device 8 is handled by the
-bridge. The P2TK path loads the program and jumps directly to it — KERNAL vectors are NOT patched,
-so no runtime file I/O is available.
+After a normal-path launch, any device 8 file I/O the BASIC program performs is handled by the
+bridge via the patched vectors. The P2TK path loads the program and jumps directly to it —
+KERNAL vectors are NOT patched in that case, so no runtime file I/O is available.
 
 ### Replaced KERNAL vectors
 

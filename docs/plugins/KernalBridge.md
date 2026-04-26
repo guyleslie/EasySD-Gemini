@@ -1,20 +1,31 @@
-# EasySD – KernalBridge Plugin (PRG Loader / P2TK)
+# EasySD – KernalBridge (KERNAL I/O Bridge / P2TK Loader)
 
-Loads PRG files from the SD card into C64 RAM, including files that extend into or
-above the `$C000` plugin window (via the Phase 2 Transfer Kernel, P2TK).
+Routes device 8 KERNAL I/O (`OPEN`/`CLOSE`/`GET#`) through EasySD so unmodified BASIC
+programs can read files from the SD card at runtime. Also handles PRG files whose
+payload extends into or above the `$C000` plugin window via the Phase 2 Transfer
+Kernel (P2TK).
 
 ---
 
 ## Overview
 
-When the user selects a `.PRG` file in the EasySD menu, the menu loads
-`/PLUGINS/PRGPLUGIN.PRG` which is KernalBridge. It then:
+Important: in the current menu baseline, ordinary `.PRG` selections do **not**
+load `/PLUGINS/PRGPLUGIN.PRG`. The menu dispatches `.PRG` files to the direct
+`PROGRAM` path (`LoadAndLaunchFile()` + `LoaderStub`). This document describes
+KernalBridge itself: the separate `PRGPLUGIN.PRG` bridge artifact and its P2TK
+behavior when that bridge path is used.
+
+When KernalBridge is invoked, it:
 
 1. Opens the selected PRG file and reads its 2-byte load address.
 2. Loads the payload to the load address using `LoadFileBySize`.
-3. If the file's end address exceeds `$C002`, activates P2TK (Phase 2 Transfer Kernel)
-   to handle the portion that overlaps the plugin window.
-4. Jumps to the loaded program.
+3. If the file's end address exceeds `$C002`, activates P2TK (see below) to handle
+   the portion that overlaps the plugin window. KERNAL vectors are NOT patched on
+   the P2TK path.
+4. On the normal path (no P2TK): closes the file, reinitialises hardware
+   (IOINIT/RESTOR/CINT), patches five KERNAL I/O vectors (`SETVECTORS`), reinitialises
+   the BASIC environment, and jumps to `$0840` (BASIC warm start). The loaded program
+   is now in RAM and any subsequent device 8 file I/O is handled by the bridge.
 
 ---
 
@@ -68,11 +79,11 @@ All data variables were relocated to the `$C060–$C17D` gap to avoid collision 
 
 | Call | Purpose |
 |------|---------|
-| `PROT_StartTalking` | Wake Arduino |
+| `PROT_StartTalking` | Begin Arduino session |
 | `PROT_OpenFile` | Open the selected PRG file |
-| `PROT_GetInfoForFile` | Get exact file size |
-| `PROT_ReadFileNoCallback` | Read first 256 bytes (load address + start of payload) |
-| `LoadFileBySize` | Load remainder of Phase 1 payload |
+| `PROT_GetInfoForFile` | Get FAT directory entry (file size at offset 28) |
+| `PROT_ReadFileNoCallback` | Read one page into `GENERALBUFFER` (extracts 2-byte PRG load address) |
+| `LoadFileBySize` | Load the PRG payload (Phase 1, or full load on normal path) |
 | `PROT_CloseFile` | Close file (Phase 1 only; intentionally omitted during P2TK) |
 | `PROT_EndTalking` | End Arduino session (Phase 1 only) |
 | `PROT_ExitToMenu` | Return to menu on error |

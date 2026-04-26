@@ -16,7 +16,7 @@ This document contains all significant changes to the EasySD project in chronolo
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
-| **Unreleased** | 2026-04-26 | Cold-boot BASIC release margin hardened with stable-PHI2 guard; current bench cold/warm boot re-verified | ✅ Real HW verified |
+| **Unreleased** | 2026-04-26 | Cold-boot BASIC release margin hardened; direct PRG launcher now handles hybrid BASIC+ML PRGs such as Beach Head | ✅ Real HW verified |
 | **v0.5** | 2026-04-18 | Public stabilization release: BASIC-first cold boot, directory/nav/PRG launch/SEL handling improved on real hardware | ✅ Real HW verified |
 | **v0.3** | 2026-04-14 | First public release: BASIC-first boot, PRG load, folder nav verified on real hardware | ✅ Real HW verified |
 | **v3.1.3** | 2026-03-09 | P2TK Phase 3: full-range PRG load up to $FFFF, 3 bug fixes | ✅ Complete |
@@ -80,15 +80,27 @@ This document contains all significant changes to the EasySD project in chronolo
   - true cold boot after approximately 1-2 minutes without power boots to BASIC correctly
 - The earlier "BASIC text, no cursor" symptom is not reproduced in the current baseline.
 
----
+#### Direct PRG Launch Fix
 
-### [v0.5] - 2026-04-18
-**Public Stabilization Release — Real Hardware Verified**
+- Ordinary menu `.PRG` launches were verified to use the direct Arduino
+  `LoadAndLaunchFile()` + C64 `LoaderStub` path, not `PRGPLUGIN.PRG` / KernalBridge.
+- `LoaderStub.65s` now calls `SHOULD_RUN_BASIC` before launch instead of assuming only
+  two cases (`$0801` BASIC or `JMP load address`).
+- Standard `$0801` BASIC PRGs keep the existing `CLR` + `RUN` behavior.
+- PRGs loaded below `$0801` are now also `RUN`-launched when they contain a valid
+  tokenized BASIC `SYS` stub at `$0801`.
+- This fixes Beach Head-style hybrid PRGs on real hardware without regressing
+  ordinary machine-language PRGs that really do start at the load address.     
 
-This tag marks the current stabilized public EasySD release, validated on real Commodore 64 hardware with the EasySD v3 PCB.
+#### MultiLoad Diagnostics
 
-#### Verified on Real Hardware
-
+- Added border-color stage markers (`ML_DEBUG_BORDERS`) to `MultiLoad.s` and
+  `ResidentLoader.s`. Markers write to `$D020` at key execution points so a
+  hardware hang can be pinpointed by the last visible border color.
+- Markers are compiled out by default; enable with `--ml-debug-borders` flag.
+- Real-hardware observation (2026-04-26): multiload chain now advances past MAIN's
+  `JMP ($008B)` and writes screen data — the resident hook (`RL_HANDLER`) is the
+  active suspect for the remaining hang.
 | Feature | Status |
 |---------|--------|
 | C64 boots to BASIC with cartridge inserted | ✅ Verified |
