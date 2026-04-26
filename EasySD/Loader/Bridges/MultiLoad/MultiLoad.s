@@ -246,11 +246,16 @@ ml_close:
 	STA $8C
 
 	; Jump to game — resident hook handles all future LOAD "...",8,x calls.
-	; Real-HW hang fingerprint observed at this point: outer border = black,
-	; inner area = blue.  These colors come from the loaded first part starting
-	; up (not from this plugin), so a hang at this fingerprint means MAIN
-	; finished cleanly and the game began executing — narrow further debug to
-	; the resident hook (RL_HANDLER) or game-side loader code, not to MAIN.
+	; Marker $0E (light blue) confirms MAIN finished and is about to JMP ($008B).
+	; If border stays light blue → JMP target is dead code (load addr wrong / not
+	;   autostartable PRG / BASIC-stub PRG that needs RUN, not raw JMP).
+	; If border changes to game's own colors (e.g. black/blue) → game DID start.
+	;   Then watch for marker $0A (light red) on first LOAD "...",8 — its absence
+	;   means RL_STUB at $033C was wiped by the game's $0200-$03FF clear.
+	.if ML_DEBUG_BORDERS
+	LDA #$0E
+	STA $D020                       ; LIGHT BLUE: about to JMP ($008B)
+	.endif
 	JMP ($008B)
 
 ;================================================================================

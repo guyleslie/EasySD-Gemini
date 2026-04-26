@@ -80,6 +80,13 @@ RL_STUB_ENTRY:
 
 rl_stub_dev8:
 	;--- Device 8: enter resident loader ---
+	; Marker $0A (light red): if this color flashes during a LOAD "...",8
+	; the stub at $033C survived and the chain hook is alive.
+	; If we never see it → stub area was wiped (e.g. game cleared $0200-$03FF).
+	.if ML_DEBUG_BORDERS
+	LDA #$0A
+	STA $D020                   ; LIGHT RED: RL_STUB intercepted device-8 LOAD
+	.endif
 	STX RL_SAVED_X              ; save X (= MEMUSS lo if SA=0)
 	STY RL_SAVED_Y              ; save Y (= MEMUSS hi if SA=0)
 	LDA PROCESSOR_PORT
@@ -145,6 +152,12 @@ RL_HANDLER_IMAGE:
 ;----------------------------------------------
 RL_HANDLER:
 	; Device check already done by RL_STUB — only device 8 reaches here.
+	; Marker $0B (dark grey): handler in $E800 RAM was reached with $01=$35.
+	; Absence after $0A means JSR RL_HANDLER from stub failed (handler image wiped?).
+	.if ML_DEBUG_BORDERS
+	LDA #$0B
+	STA $D020                   ; DARK GREY: RL_HANDLER reached
+	.endif
 	JMP rl_main
 
 ;----------------------------------------------
@@ -186,6 +199,13 @@ rl_main:
 	; chdir to game directory before every access (safety against Arduino CWD drift)
 	JSR rl_chdir_to_game
 	BCS rl_error_pre_talking    ; chdir failed, session wasn't started
+	; Marker $0C (med grey): chdir-to-game completed.
+	; If we stay at $0B (dark grey) → hang inside rl_chdir_to_game
+	;   (StartTalking handshake / Send / WaitProcessing for Arduino response).
+	.if ML_DEBUG_BORDERS
+	LDA #$0C
+	STA $D020                   ; MED GREY: rl_chdir_to_game OK
+	.endif
 
 	;--- Build filename: copy KERNAL name then append ".PRG" if absent ---
 	LDX KERNAL_FILENAME_LENGTH
@@ -257,6 +277,11 @@ rl_fname_done:
 	BCC rl_opened_ok
 	JMP rl_error_talking        ; open failed, EndTalking still needed
 rl_opened_ok:
+	; Marker $07 (yellow): file opened by Arduino.
+	.if ML_DEBUG_BORDERS
+	LDA #$07
+	STA $D020                   ; YELLOW: RL_OpenFile OK
+	.endif
 
 	;--- Get file size ---
 	LDA #<rl_fileinfo_area
@@ -268,6 +293,11 @@ rl_opened_ok:
 	BCC rl_info_ok
 	JMP rl_error_opened
 rl_info_ok:
+	; Marker $08 (orange): file info (size) received from Arduino.
+	.if ML_DEBUG_BORDERS
+	LDA #$08
+	STA $D020                   ; ORANGE: RL_GetInfoForFile OK
+	.endif
 
 	LDA rl_fileinfo_area + 28
 	STA ZP_LOADFILE_API_SIZE0
@@ -290,6 +320,15 @@ rl_info_ok:
 	BCC rl_hdr_ok
 	JMP rl_error_opened
 rl_hdr_ok:
+	; Marker $05 (green): first 256-byte page (PRG header + 254 data) received.
+	; Critical step: NMI-driven receive depends on $FFFA/$FFFB → $0368 →
+	; JMP ($0318) → $80AF still being intact.
+	; If we stuck at $08 (orange) → NMI receive path is broken (game wiped
+	;   $0316-$0319 / $0368, or interrupts not properly disabled).
+	.if ML_DEBUG_BORDERS
+	LDA #$05
+	STA $D020                   ; GREEN: RL_ReadFileNoCallback (header page) OK
+	.endif
 
 	;--- Determine load target address ---
 	; SA=0: load target comes from X/Y at call time (saved in RL_SAVED_X/Y).
@@ -385,6 +424,13 @@ rl_after_load:
 
 	JSR RL_CloseFile
 	JSR RL_EndTalking           ; NO #SETBANK — $01=$35 preserved for RL_STUB
+	; Marker $0D (light green): chain LOAD completed — file delivered to game.
+	; If we see $0D and game still hangs → bug is in game-side loader logic,
+	; not in our hook (X/Y end address, NMI restore, $01 restore, etc.).
+	.if ML_DEBUG_BORDERS
+	LDA #$0D
+	STA $D020                   ; LIGHT GREEN: handler success exit
+	.endif
 	CLC                         ; success: C=0, X=end_lo, Y=end_hi
 	RTS
 
@@ -394,6 +440,11 @@ rl_error_opened:
 rl_error_talking:
 	JSR RL_EndTalking           ; NO #SETBANK
 rl_error_pre_talking:
+	; Marker $0F (light grey): handler error path — chdir/open/info/read failed.
+	.if ML_DEBUG_BORDERS
+	LDA #$0F
+	STA $D020                   ; LIGHT GREY: handler error exit
+	.endif
 	SEC
 	RTS
 
