@@ -232,39 +232,23 @@ PROT_SendFragment
 	RTS
 
 
-; Receives data from the cartridge via NMI-driven transfer.
-; Two entry points share a single body. On entry, carry selects the epilogue:
-;   PROT_ReceiveFragment        (carry=1): fake-RTS via ZP_IRQ_API_CALLBACK_LO/HI
-;   PROT_ReceiveFragmentNoCallback (carry=0): plain CLC/RTS return
-;
-; Entry-point trick: PROT_ReceiveFragment executes SEC then .byte $2C (BIT abs).
-; BIT abs consumes the next 2 bytes as its operand address, skipping over the
-; CLC+NOP at PROT_ReceiveFragmentNoCallback.  The operand resolves to $EA18
-; (KERNAL ROM) — the read is harmless as BIT is non-destructive to memory.
-; Both paths converge at the shared body with carry set correctly.
-;
-; Carry is preserved through the shared body:
-;   #SETBANK  = LDA/STA   -> does not affect C
-;   LDX/LDY   -> do not affect C
-;   CLV       -> only clears V
-;   #WAITFOR  = BIT+BVC   -> BIT does not affect C
+; Reads/Receives content from currently opened file. Caller supplies the target address
+; where the data will be transferred. Caller supplies return address at
+; ZP_IRQ_API_CALLBACK_LO / ZP_IRQ_API_CALLBACK_HI and this routine resumes control
+; from that address using a fake RTS.
+; Screen should be disabled before calling this routine.
 ;-----------------------------------------
 ; Setup :
-; ZP_IRQ_API_DATA_LO      = $6C
-; ZP_IRQ_API_DATA_HI      = $6D
-; ZP_IRQ_API_DATA_LENGTH  = $6B
-; ZP_IRQ_API_CALLBACK_LO  = $73  (callback variant only)
-; ZP_IRQ_API_CALLBACK_HI  = $74  (callback variant only)
+; ZP_IRQ_API_DATA_LO     = $6C
+; ZP_IRQ_API_DATA_HI     = $6D
+; ZP_IRQ_API_DATA_LENGTH = $6B
+; ZP_IRQ_API_CALLBACK_LO = $73
+; ZP_IRQ_API_CALLBACK_HI = $74
 ;-----------------------------------------
 ; Registers In  : Y - (Transfer Mode)
-; Registers Out : A=0, C=0 (no-callback path), or fake-RTS to callback address
+; Registers Out : None
 ;-----------------------------------------
 PROT_ReceiveFragment
-	SEC					; Carry=1: use fake-RTS callback epilogue
-	.byte $2C				; BIT abs — consumes CLC+NOP below as operand, skips them
-PROT_ReceiveFragmentNoCallback
-	CLC					; Carry=0: use plain CLC/RTS epilogue
-	NOP					; padding: consumed as addr_hi by the BIT abs above
 	JSR PROT_DisableInterrupts
 	LDA NMITAB, Y
 	STA SOFTNMIVECTOR	
@@ -274,23 +258,52 @@ PROT_ReceiveFragmentNoCallback
 	LDA #$00
 	STA ZP_IRQ_STATE_WAITHANDLE
 	
-	#SETBANK PP_CONFIG_DEFAULT		; LDA/STA only — carry preserved
+	#SETBANK PP_CONFIG_DEFAULT
 
 	LDX ZP_IRQ_API_DATA_LENGTH
    	LDY #$00				; Setup for transfer routine
 
-	CLV					; Clear V; #WAITFOR uses BIT+BVC, which does not affect C
+	CLV
 	#WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC
 
-	; Epilogue: carry distinguishes the two variants
-	BCS +					; Carry=1 → fake-RTS callback
-	LDA #0
-	CLC					; Indicate successful execution (no-callback path)
-	RTS
-+	; Fake RTS: push return address from ZP and branch to it
+	; Do a fake RTS
 	LDA ZP_IRQ_API_CALLBACK_HI
 	PHA
 	LDA ZP_IRQ_API_CALLBACK_LO
 	PHA
+	RTS
+
+
+; Reads/Receives content from micro. Caller supplies the target address where the data
+; will be transferred. Screen should be disabled before calling this routine.
+;-----------------------------------------
+; Setup :
+; ZP_IRQ_API_DATA_LO     = $6C
+; ZP_IRQ_API_DATA_HI     = $6D
+; ZP_IRQ_API_DATA_LENGTH = $6B
+;-----------------------------------------
+; Registers In  : Y - (Transfer Mode)
+; Registers Out : A=0, carry clear (successful)
+;-----------------------------------------
+PROT_ReceiveFragmentNoCallback
+	JSR PROT_DisableInterrupts
+	LDA NMITAB, Y
+	STA SOFTNMIVECTOR	
+	LDA #$80				; HIGH portion of $8000 (Cartridge ROM address)
+	STA SOFTNMIVECTOR+1	
+
+	LDA #$00
+	STA ZP_IRQ_STATE_WAITHANDLE
+	
+	#SETBANK PP_CONFIG_DEFAULT
+
+	LDX ZP_IRQ_API_DATA_LENGTH
+   	LDY #$00				; Setup for transfer routine
+
+	CLV
+	#WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC
+
+	LDA #0
+	CLC					; Indicate successful execution (instead of using callback)
 	RTS
 
