@@ -84,19 +84,96 @@ BORDER			= $D020
 	STA $DC0D	
 		
 LAUNCH	
-	LDA #$08					;Unoptimized (Forgetting an optimization causes bugs sometimes :)
-	CMP DATA_HIGH				
-	BNE MACHINELANG				
-	LDA DATA_LOW
-	CMP #$01
-	BNE MACHINELANG
-	
+	JSR SHOULD_RUN_BASIC
+	BCS MACHINELANG
+
 	LDA #00					
 	STA BORDER
 	
 	JSR $A659 ;"CLR" 	
 	JMP $A7AE ;"RUN" 
- 	
+
+; Decide whether the loaded PRG should be started with BASIC RUN.
+; Carry clear => RUN the BASIC program at $0801.
+; Carry set   => jump directly to the PRG load address.
+;
+; Supported cases:
+; - Standard BASIC PRGs loaded at $0801 (existing behavior preserved)
+; - Hybrid PRGs loaded below $0801 that still contain a valid BASIC stub at $0801
+;   (for example a SYS line that starts machine code elsewhere in the file)
+SHOULD_RUN_BASIC
+	; Fast path: classic BASIC PRG load address = $0801
+	LDA DATA_HIGH
+	CMP #$08
+	BCC CHECK_EMBEDDED_BASIC
+	BNE LAUNCH_MACHINE
+	LDA DATA_LOW
+	CMP #$01
+	BEQ LAUNCH_BASIC
+	BCS LAUNCH_MACHINE
+
+CHECK_EMBEDDED_BASIC
+	; The PRG starts below $0801. Only consider RUN if the loaded range extends
+	; far enough to contain a minimal BASIC line at $0801.
+	LDA ACTUAL_END_HIGH
+	CMP #$08
+	BCC LAUNCH_MACHINE
+	BNE BASIC_RANGE_OK
+	LDA ACTUAL_END_LOW
+	CMP #$08
+	BCC LAUNCH_MACHINE
+	BEQ LAUNCH_MACHINE
+
+BASIC_RANGE_OK
+	; Only treat embedded stubs as BASIC if they begin with a SYS token.
+	LDA $0805
+	CMP #$9E
+	BNE LAUNCH_MACHINE
+
+	; Read first line's "next line" pointer from the BASIC stub at $0801.
+	LDA $0801
+	STA $FB
+	LDA $0802
+	STA $FC
+
+	; Pointer must be at least $0807 (2-byte ptr + 2-byte line no + 1 byte data + 0 terminator).
+	LDA $FC
+	CMP #$08
+	BCC LAUNCH_MACHINE
+	BNE CHECK_LINE_END
+	LDA $FB
+	CMP #$07
+	BCC LAUNCH_MACHINE
+
+CHECK_LINE_END
+	; ACTUAL_END is one byte past the usable BASIC terminator window for this loader
+	; metadata, so the next-line pointer must stay strictly below it.
+	LDA $FC
+	CMP ACTUAL_END_HIGH
+	BCC LINE_PTR_IN_RANGE
+	BNE LAUNCH_MACHINE
+	LDA $FB
+	CMP ACTUAL_END_LOW
+	BCS LAUNCH_MACHINE
+
+LINE_PTR_IN_RANGE
+	; A valid BASIC line must end with a zero byte right before NEXTLINE.
+	DEC $FB
+	BNE +
+	DEC $FC
++
+	LDY #$00
+	LDA ($FB),Y
+	BNE LAUNCH_MACHINE
+
+LAUNCH_BASIC
+	CLC
+	RTS
+
+LAUNCH_MACHINE
+	SEC
+	RTS
+
 MACHINELANG 
 	LDA DATA_HIGH
 	CMP #$80
