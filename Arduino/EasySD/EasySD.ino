@@ -231,19 +231,24 @@ void setup() {
   printSDStatus(sdOk);
 
   if (sdOk) {
+    // Release C64 to BASIC BEFORE cartApi.Init() so the C64 boot edge happens
+    // while the SPI/SD bus is completely idle (no directory scan in progress).
+    // cartApi.Init() runs immediately after, still in setup(), well within the
+    // 500ms boot-guard window before SEL can fire.
+#ifdef EASYSD_DEBUG_SERIAL
+    Serial.print(F("[BOOT] pre-release t=")); Serial.println(millis());
+#endif
+    LOGI(SYS, "Boot: release to BASIC");
+    bootState = BOOT_RELEASE_BASIC;
+    cartInterface.ReleaseColdBootToBasic();
+#ifdef EASYSD_DEBUG_SERIAL
+    Serial.print(F("[BOOT] post-release t=")); Serial.println(millis());
+#endif
+
     LOGI(SYS, "Boot: init runtime");
     bootState = BOOT_INIT_RUNTIME;
     cartApi.Init();
     runtimeReady = true;
-
-    // Release C64 to BASIC — cartridge stays hidden (EXROM HIGH, bus tristate).
-    // After a long /RESET LOW dwell (SD init), a single rising edge has been
-    // observed to leave the C64 in a "BASIC text but no cursor" frozen state.
-    // ReleaseColdBootToBasic does a release + warm-reset-style pulse so the
-    // edge the C64 actually boots from is the verified-good warm-reset edge.
-    LOGI(SYS, "Boot: release to BASIC");
-    bootState = BOOT_RELEASE_BASIC;
-    cartInterface.ReleaseColdBootToBasic();
 
     bootState = RUNNING_READY;
     LOGI(SYS, "Boot: ready (BASIC)");
@@ -252,6 +257,9 @@ void setup() {
     // SD failed: release C64 to BASIC so the user isn't stuck at a black screen.
     // Use the cold-boot release path here too — same long-LOW-dwell condition.
     // SEL button will retry SD init + TransferMenu on press.
+#ifdef EASYSD_DEBUG_SERIAL
+    Serial.print(F("[BOOT] SD-fail pre-release t=")); Serial.println(millis());
+#endif
     cartInterface.ReleaseColdBootToBasic();
     bootState = BOOT_ERROR;
     LOGE(SYS, "Boot: SD fail, released");

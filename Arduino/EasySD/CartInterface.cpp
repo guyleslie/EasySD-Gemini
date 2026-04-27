@@ -426,19 +426,24 @@ void CartInterface::EnterBasicSafeMode() {
 void CartInterface::ReleaseColdBootToBasic() {
   EnterBasicSafeMode();
 
-  // /RESET has been held LOW since IOSetup (~hundreds of ms to seconds while
-  // SD init runs).  Real-HW symptom after such a long dwell: BASIC text
-  // appears but cursor never blinks (CIA1 cursor IRQ not running) — the
-  // single rising edge of a "delay + ResetHigh" release is not enough to
-  // bring some C64 chips fully out of /RES.  Warm reset is verified working
-  // because it issues a fresh 1ms LOW→HIGH pulse from a quiescent HIGH
-  // state.  Mimic that here: first release the long LOW so the C64's reset
-  // network re-settles HIGH, then immediately issue the same warm-reset
-  // pulse the warm path uses.  The C64 reaches BASIC via the second edge,
-  // which is the well-tested warm-reset edge.
-  ResetHigh();
-  delay(50);
+  // /RESET has been held LOW since IOSetup(). Fire a single clean rising
+  // edge via ResetC64(): starting from LOW, ResetC64() = ResetLow(1ms) +
+  // ResetHigh() which from an already-LOW state is simply a 1ms additional
+  // LOW dwell followed by one verified LOW→HIGH transition.  The C64 boots
+  // exactly once from this edge.
+  //
+  // Rationale: the previous ResetHigh()+delay(300)+ResetC64() approach caused
+  // the C64 to boot twice — once from ResetHigh() (garbled BASIC, interrupted)
+  // and once from ResetC64() (300ms later).  This was visible as a garbled
+  // screen followed by 1-2 seconds of delay before clean BASIC appeared, and
+  // caused occasional freeze when the second ResetC64() pulse also failed.
+#ifdef EASYSD_DEBUG_SERIAL
+  Serial.print(F("[BOOT] ReleaseCold start t=")); Serial.println(millis());
+#endif
   ResetC64();
+#ifdef EASYSD_DEBUG_SERIAL
+  Serial.print(F("[BOOT] ResetC64 done t=")); Serial.println(millis());
+#endif
 }
 
 void CartInterface::ReleaseToBasic(bool pulseReset) {
