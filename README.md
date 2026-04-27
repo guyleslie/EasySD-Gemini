@@ -42,12 +42,6 @@ Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 | Plugin-class return path (`.CVD`, `EASYLOAD.PRG`, `HWTEST.HWT`) | ❌ Current bench report: returns to cleared screen / top-line `READY.` instead of stable EasySD menu |
 | Other non-PRG plugins (`.WAV`, `.KOA`, `.PET`) | ⚠️ Not yet re-verified on current real HW firmware baseline |
 
-**2026-04-26 update:** the current worktree firmware was re-tested on real hardware after ISP flashing and SD refresh. Cold boot and warm boot are now both stable on the present bench setup, including true cold boot after approximately 1-2 minutes without power. The earlier "BASIC text, no cursor" symptom is no longer reproduced in the current baseline.
-
-**Current field note:** recent hardware sessions point to two non-firmware failure classes that can mimic boot or reset faults. First, intermittent mechanical/contact issues on the EasySD PCB assembly (cartridge edge / module headers). Second, a marginal Arduino Nano 3.x module: in bench testing one long-used Nano could still be programmed and verified successfully over ISP, but in the EasySD hardware the C64 screen did not come up at all, while a different Nano with the same firmware worked correctly. If startup behavior changes when the cartridge or SD module is physically moved, or if one Nano fails while another identical Nano works with the same image, treat that as hardware integrity first.
-
-**Status interpretation:** the verified baseline is currently boot -> BASIC, SEL -> menu, directory browsing, and PRG loading. The remaining fault is in the plugin-class return path: current bench tests for `CVD`, `MultiLoad` (`EASYLOAD.PRG`), and `HWTest` all fall through to a cleared-screen `READY.` state instead of returning cleanly to the EasySD menu.
-
 ---
 
 ## How it works
@@ -76,7 +70,7 @@ To build EasySD you need the following components:
 | **MicroSD card adapter (5V)** | Standard SPI module |
 | **Cartridge ROML chip, 512 Kbit** | AT27C512R-45PU or M27C512 — holds the C64 cartridge ROM |
 | **EasySD PCB** | See schematic above (designed in EasyEDA) |
-| **100 nF ceramic + 10–100 µF electrolytic capacitor** | Both directly at SD module VCC/GND pins — required for stable SPI |
+| **100 nF ceramic + optional 10–100 µF electrolytic capacitor** | Both directly at SD module VCC/GND pins — required for stable SPI |
 | **5mm LED + 220 Ω resistor** | Power indicator — connect between PCB 5V rail and GND (always lit when powered) |
 | **Tactile pushbutton** | Menu/Reset button |
 
@@ -187,18 +181,6 @@ python Tools/build.py release --release-log
 python Tools/build.py arduino-monitor COM4
 ```
 
-Typical log output during a directory change:
-
-```
-[INFO][DIR] CDI pg=0 row=2 cnt=5 sub=0
-[INFO][DIR] CDVI found: GAMES
-[INFO][DIR] Entered: /GAMES
-[INFO][DIR] CDI OK: /GAMES
-[INFO][DIR] RD pg=0 cnt=4 sub=1 items=4 pages=1
-```
-
-When done debugging, rebuild without `--release-log` to restore the silent release build (zero serial overhead).
-
 ### Flash the Cartridge ROML Chip
 
 The build produces `EasySD/build/IRQLoaderRom.bin` — this is the image for the cartridge ROML chip. Write it to the AT27C512R-45PU or M27C512 with a suitable programmer.
@@ -224,16 +206,6 @@ EasySD has three separately updatable parts. Not every change requires updating 
 ## Status LED
 
 The LED is connected directly to the PCB 5V rail and is **always lit when the cartridge is powered** — it is a power indicator only. The Arduino does not control the LED; D13 is shared with SPI SCK and must not be driven as output.
-
----
-
-## Troubleshooting
-
-**SD card not detected** — Check that a 100 nF ceramic and a 10–100 µF electrolytic capacitor are fitted directly at the SD module's VCC/GND pins. Missing or misplaced bypass caps are the most common cause of SD init failures, especially on breadboard builds.
-
-**Garbled screen on boot / startup changes when the cartridge is touched** — Check the cartridge edge connector, Nano headers, SD module headers, and ROML chip seating. Intermittent contact can reset the Arduino or disturb `/RESET`/`EXROM` timing and looks like a firmware boot fault from the outside.
-
-**File won't load** — Make sure the correct plugin is in `/PLUGINS/` on the SD card. Plugin filenames must match exactly (8.3 format, uppercase).
 
 ---
 
@@ -274,6 +246,6 @@ python Tools/test_vice_menu.py --build --verbose   # Automated VICE test suite
 
 ## Credits
 
-EasySD Gemini is a major rewrite of the original **IRQHack64** project. The original hardware concept and cartridge design come from the IRQHack64 community. This version adds SdFat 2.x support, a Python build system, KernalBridge KERNAL compatibility layer (P2TK for large programs), plugin architecture, CVD video playback, and extensive automated testing.
+EasySD Gemini is a major rewrite of the original **IRQHack64** project. The original hardware concept and cartridge design come from the IRQHack64 community. This version adds SdFat 2.x support, a Python build system, KernalBridge KERNAL compatibility layer, better plugin architecture, upsated CVD video playback, and extensive automated testing.
 
 Hardware design: **GuyLeslie** (EasyEDA, 2025)
