@@ -15,8 +15,12 @@
  *   LOGE(DIR, "chdir failed");          // [ERR ][DIR] chdir failed
  *   LOG_PRINT_F("RAM: "); LOG_PRINTLN(FreeStack());
  *
- * CATEGORIES: SYS, SD, DIR, FILE, PROTO, PRG, ERR
+ * CATEGORIES: SYS, SD, DIR, FILE, PROTO, PRG, ML, ERR
  * Override LOG_ENABLE_* before including this header to select categories.
+ *
+ * ML category: MultiLoad / EASYLOAD chain debug. Default OFF — only enable
+ * via -DLOG_ENABLE_ML=1 when investigating multiload failures.
+ * For label + dynamic value pairs use LOG_ML_KV("label: ", value).
  */
 
 //==============================================================================
@@ -46,6 +50,9 @@
   #endif
   #ifndef LOG_ENABLE_PROTO
     #define LOG_ENABLE_PROTO  0  // default OFF — saves ~800B flash
+  #endif
+  #ifndef LOG_ENABLE_ML
+    #define LOG_ENABLE_ML     0  // default OFF — multiload chain debug only
   #endif
   #ifndef LOG_ENABLE_ERR
     #define LOG_ENABLE_ERR    1
@@ -89,6 +96,11 @@
   #else
     #define LOGE_PROTO_IMPL(msg) ((void)0)
   #endif
+  #if LOG_ENABLE_ML
+    #define LOGE_ML_IMPL(msg) Serial.println(F("[ERR ][ML] " msg))
+  #else
+    #define LOGE_ML_IMPL(msg) ((void)0)
+  #endif
   #if LOG_ENABLE_ERR
     #define LOGE_ERR_IMPL(msg) Serial.println(F("[ERR ][ERR] " msg))
   #else
@@ -129,12 +141,27 @@
   #else
     #define LOGI_PROTO_IMPL(msg) ((void)0)
   #endif
+  #if LOG_ENABLE_ML
+    #define LOGI_ML_IMPL(msg) Serial.println(F("[INFO][ML] " msg))
+  #else
+    #define LOGI_ML_IMPL(msg) ((void)0)
+  #endif
   #if LOG_ENABLE_ERR
     #define LOGI_ERR_IMPL(msg) Serial.println(F("[INFO][ERR] " msg))
   #else
     #define LOGI_ERR_IMPL(msg) ((void)0)
   #endif
   #define LOGI(cat, msg) LOGI_##cat##_IMPL(msg)
+
+  //============================================================================
+  // ML key-value helper (multiload diagnostics)
+  // Usage: LOG_ML_KV("path: ", currentPath);  → "[INFO][ML] path: <value>"
+  //============================================================================
+  #if LOG_ENABLE_ML
+    #define LOG_ML_KV(label, val) do { Serial.print(F("[INFO][ML] " label)); Serial.println(val); } while(0)
+  #else
+    #define LOG_ML_KV(label, val) ((void)0)
+  #endif
 
   //============================================================================
   // VARIABLE OUTPUT MACROS
@@ -161,6 +188,7 @@
   #define LOGE_FILE_IMPL(msg)  ((void)0)
   #define LOGE_PRG_IMPL(msg)   ((void)0)
   #define LOGE_PROTO_IMPL(msg) ((void)0)
+  #define LOGE_ML_IMPL(msg)    ((void)0)
   #define LOGE_ERR_IMPL(msg)   Serial.println(F("[ERR ][ERR] " msg))
   #define LOGE(cat, msg)       LOGE_##cat##_IMPL(msg)
 
@@ -170,8 +198,11 @@
   #define LOGI_FILE_IMPL(msg)  ((void)0)
   #define LOGI_PRG_IMPL(msg)   ((void)0)
   #define LOGI_PROTO_IMPL(msg) ((void)0)
+  #define LOGI_ML_IMPL(msg)    ((void)0)
   #define LOGI_ERR_IMPL(msg)   ((void)0)
   #define LOGI(cat, msg)       LOGI_##cat##_IMPL(msg)
+
+  #define LOG_ML_KV(label, val) ((void)0)
 
   #define LOG_PRINT(x)         Serial.print(x)
   #define LOG_PRINTLN(x)       Serial.println(x)
@@ -188,6 +219,7 @@
   #define LOG_BEGIN(baud)       ((void)0)
   #define LOGE(cat, msg)        ((void)0)
   #define LOGI(cat, msg)        ((void)0)
+  #define LOG_ML_KV(label, val) ((void)0)
   #define LOG_PRINT(x)          ((void)0)
   #define LOG_PRINTLN(x)        ((void)0)
   #define LOG_PRINT_F(msg)      ((void)0)

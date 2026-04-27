@@ -51,12 +51,13 @@ static bool OpenMenuFromSdRoot(File &outFile) {
 
   for (uint8_t i = 0; i < 2; i++) {
     strcpy_P(buf, (const char *)pgm_read_ptr(&kNames[i]));
-    if (!sd.exists(buf)) continue;
+    if (!sd.exists(buf)) { LOGE(SYS, "No SD menu file"); continue; }
     outFile = sd.open(buf, FILE_READ);
     if (outFile) {
-      LOGI(PRG, "Menu from SD");
+      LOGI(SYS, "Menu from SD");
       return true;
     }
+    LOGE(SYS, "SD menu open fail");
   }
 
   return false;
@@ -87,10 +88,11 @@ inline void HandleResponse(unsigned char response, uint16_t waitAfterResponse) {
 #define BUFFER_SIZE 16
 void CartApi::HandleReadFile() {
   uint8_t fileBuffer[BUFFER_SIZE];
-  GetArgumentsStatic(1);  
+  GetArgumentsStatic(1);
   unsigned int dataLength = Arguments[0];
   unsigned int totalLength = dataLength*256;
-  unsigned int actualLength = 0;  
+  unsigned int actualLength = 0;
+  LOG_ML_KV("ReadFile pages: ", dataLength);
   cartInterface.ResetIndex();
   noInterrupts();
   cartInterface.SoftEndListening();
@@ -168,6 +170,7 @@ void CartApi::HandleOpenFile() {
     }
   }
 
+  LOG_ML_KV("OpenFile: ", openName);
   workingFile = sd.open(openName, flags);
 
   if (restoreCwd && strcmp(savedPath, dirFunc.currentPath) != 0) {
@@ -179,9 +182,11 @@ void CartApi::HandleOpenFile() {
 
   if (workingFile != NULL) {
     LOGI(FILE, "File opened successfully");
+    LOGI(ML, "OpenFile OK");
     HandleResponse(SUCCESSFUL, 1);
   } else  {
     LOGE(FILE, "File open failed");
+    LOGE(ML, "OpenFile FAIL");
     HandleResponse(FILE_CANNOT_BE_OPENED, 1);
   }
 }
@@ -251,13 +256,17 @@ void CartApi::HandleSeekFile() {
   unsigned int seekPosition = (high << 8) | low;
 
   if (!workingFile.isOpen()) {
+    LOGE(ML, "Seek: file not open");
     HandleResponse(FILE_IS_NOT_OPENED, 1);
     return;
   }
+  LOG_ML_KV("Seek dir: ", seekDirection);
+  LOG_ML_KV("Seek pos: ", seekPosition);
   bool ok = false;
   if (seekDirection == SEEK_FROM_BEGINNING)      ok = workingFile.seekSet(seekPosition);
   else if (seekDirection == SEEK_FROM_CURRENT)   ok = workingFile.seekCur(seekPosition);
   else if (seekDirection == SEEK_FROM_END)        ok = workingFile.seekEnd(seekPosition);
+  if (ok) { LOGI(ML, "Seek OK"); } else { LOGE(ML, "Seek FAIL"); }
   HandleResponse(ok ? SUCCESSFUL : CANT_SEEK, 1);
 }
 
@@ -287,6 +296,7 @@ void CartApi::HandleLongSeekFile() {
 void CartApi::HandleGetInfoForFile() {
   GetArgumentsStatic(0);
   if (!workingFile.isOpen()) {
+    LOGE(ML, "GetInfo: file not open");
     HandleResponse(FILE_IS_NOT_OPENED, 0);
     return;
   }
@@ -294,6 +304,7 @@ void CartApi::HandleGetInfoForFile() {
   // dirEntry() re-reads the directory sector via SPI and hangs in this context
   // (confirmed: BUG-F). All callers (#GETFILEINFO) only need bytes 28-31 (size).
   uint32_t sz = workingFile.fileSize();
+  LOG_ML_KV("FileSize: ", sz);
   HandleResponse(SUCCESSFUL, 1);
   // Keep 256-byte page framing deterministic for the C64 receiver.
   cartInterface.ResetIndex();
@@ -311,6 +322,7 @@ void CartApi::HandleGetInfoForFile() {
 void CartApi::HandleGetPath() {
   GetArgumentsStatic(0);
   const char* path = dirFunc.currentPath;
+  LOG_ML_KV("GetPath: ", path);
   HandleResponse(SUCCESSFUL, 1);
   // Keep 256-byte page framing deterministic for the C64 receiver.
   cartInterface.ResetIndex();
@@ -1071,8 +1083,8 @@ void CartApi::TransferMenu() {
   }
   dirFunc.ReInit();
   
-  unsigned char readFromFile = 0;  
-  
+  unsigned char readFromFile = 0;
+  LOG_PRINT_F("Menu RAM="); LOG_PRINTLN(FreeStack());
   if (OpenMenuFromSdRoot(workingFile)) {
     readFromFile = 1;
   }
