@@ -13,10 +13,10 @@ The following are directly supported by the current codebase and confirmed on re
 during the 0.7 cleanup pass:
 
 - Cold boot does not auto-load the menu. `setup()` initializes SD/runtime, then calls
-  `ReleaseColdBootToBasic()` so the C64 comes up in BASIC. The release path issues a
-  release HIGH, a 50ms HIGH dwell, then a warm-style `ResetC64()` pulse — the C64
-  boots from the second (short) rising edge, which is the verified-good warm-reset edge.
-  Menu transfer happens only on an explicit short `SEL` press in `loop()`.
+  `ReleaseColdBootToBasic()` so the C64 comes up in BASIC. The release path calls
+  `ResetC64()` directly from the already-LOW `/RESET` state: 1 ms additional LOW dwell
+  then a single LOW→HIGH rising edge — the C64 boots exactly once from that edge.
+  `cartApi.Init()` runs after release. Menu transfer happens only on an explicit short `SEL` press in `loop()`.
 - `TransferMenu()` prefers `EASYSD.PRG` from the SD card root and falls back to built-in
   `cartridgeData` if the file is not present.
 - Directory handling uses the firmware CWD as the source of truth, with `currentPath` kept

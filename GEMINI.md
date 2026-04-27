@@ -108,7 +108,7 @@ For PRGs that load into `$C000+` (trigger: `ENDADDRESS > $C002`):
 - **Pin definitions**: `CartInterface.h` — IO2=D3(INT1), EXROM=D2(PD2), NMI=D8, RESET=D9, SEL=A6, STATUS_LED=A7
 
 Current firmware behavior from source:
-- Cold boot holds the C64 in reset during AVR startup, then releases to BASIC through `ReleaseColdBootToBasic()` — release HIGH, 50 ms HIGH dwell, then warm-style `ResetC64()` pulse so the C64 boots from the second short LOW→HIGH edge.
+- Cold boot holds the C64 in reset during AVR startup, then releases to BASIC through `ReleaseColdBootToBasic()` — calls `ResetC64()` directly from the already-LOW `/RESET` state, producing a single clean LOW→HIGH rising edge. The C64 boots exactly once from that edge. `cartApi.Init()` runs after release.
 - `TransferMenu()` is called only on explicit short `SEL` press, not automatically at boot.
 - `CartApi::Init()` resets directory state to root via `dirFunc.ReInit()` and `dirFunc.Prepare()`.
 - After PRG launch transfers, the firmware closes the file, disables the cartridge, re-initializes runtime state, and resumes listening.

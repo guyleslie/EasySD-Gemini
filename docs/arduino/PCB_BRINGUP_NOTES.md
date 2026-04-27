@@ -238,7 +238,7 @@ Recent firmware cleanups on top of the earlier bus fixes:
 
 Current startup policy:
 - Cold boot always targets BASIC first; menu is explicit, not automatic.
-- True cold boot release uses a dedicated double-edge path: `ResetHigh()` (end the multi-second LOW dwell) → 50 ms HIGH dwell → warm-style `ResetC64()` pulse (`ResetLow + 1ms + ResetHigh`). The C64 boots from the second (short) rising edge.
+- True cold boot release uses a single-edge path: `ResetC64()` called directly from the already-LOW `/RESET` state — 1 ms additional LOW dwell then one LOW→HIGH rising edge. The C64 boots exactly once from that edge.
 - Menu loads from root when invoked.
 - Do not restore the saved last directory during `CartApi::Init()`.
 - MCU internal EEPROM is not part of the active boot/navigation path.
@@ -270,46 +270,32 @@ Practical workflow:
 - any boot-time symptom — black screen, no cursor, dead SEL, cyclic SCK LED blink — should be reproduced both **before and after** lifting/reseating the cartridge before being attributed to firmware
 - a second, less-worn PCB (or refurbished edge contacts) is needed before any further /RESET-policy experiments will produce trustworthy real-hardware results
 
-#### 2026-04-26 update: cold-boot fix is double-edge release, verified on clean PCB contacts
+#### 2026-04-26: double-edge release (intermediate finding — superseded)
 
-After the user verified all PCB contacts on the bench unit (and removed a suspect
-electrolytic cap that turned out to have no effect), the previously assumed Build 1
-baseline (`ReleaseToBasic(false)` — single `delay(2) + ResetHigh` after a multi-second
-LOW dwell) still produced "BASIC text appears, but cursor never blinks — frozen"
-on every cold boot. NMI-driven SEL still worked, so AVR side was alive; the C64
-KERNAL had reached BASIC but CIA1 cursor IRQ was not running. An interim
-`ReleaseColdBootToBasic` v1 (`WaitForStablePhi2 + delay(20) + ResetHigh`) showed the
-same symptom — both are single-edge releases.
+After verifying PCB contacts, a double-edge path was tried and appeared to work:
+`ResetHigh()` → `delay(50)` → `ResetC64()`. Serial monitoring later revealed this
+caused the C64 to boot **twice**: once from the intermediate `ResetHigh()` (garbled
+screen, interrupted) and again from `ResetC64()` 300 ms later.
 
-The **working** `ReleaseColdBootToBasic()` (Apr 26 2026) is a double-edge path:
+#### 2026-04-27 update: single-edge release confirmed working
+
+The double-edge approach was replaced with a direct `ResetC64()` call from the
+already-LOW `/RESET` state:
 
 ```cpp
 EnterBasicSafeMode();
-ResetHigh();    // end the long LOW dwell — C64 reset network re-settles HIGH
-delay(50);      // brief HIGH dwell
-ResetC64();     // ResetLow + 1ms + ResetHigh — same pulse the warm path uses
+ResetC64();     // from LOW: 1ms additional LOW dwell + single LOW→HIGH edge
 ```
 
-The C64 actually boots from the **second** rising edge (the one inside `ResetC64`),
-which is the verified-good warm-reset edge. The first `ResetHigh` only serves to
-terminate the multi-second LOW dwell that `IOSetup()` started, so the second pulse
-behaves like a normal warm reset.
-
-This is intentionally narrower than a broad reset-policy rewrite: only the cold-boot
-BASIC release path changed; warm/menu reset flows stayed on the proven existing path.
+From an already-LOW state, `ResetC64()` = `ResetLow(1ms)` + `ResetHigh()` — which
+is simply a 1 ms additional LOW dwell followed by one clean rising edge. The C64
+boots exactly once. Serial monitoring confirmed single boot, clean BASIC, blinking
+cursor immediately after the edge.
 
 **Current result on the present bench configuration:**
-- every cold boot reaches BASIC with a visible, blinking cursor
+- every cold boot reaches BASIC with a visible, blinking cursor — single boot
 - warm boot stable
 - SEL button remains functional in both cases
-
-Interpretation:
-- the actual root cause was firmware-side: a single rising edge after multi-second
-  LOW dwell is not reliably enough to bring CIA1 fully out of /RES; a fresh short
-  warm-style pulse is required
-- the earlier "Build 1 works after re-seating contacts" observation was hardware-state
-  dependent and not robust on its own — proper edge-connector contact is still required
-  but not sufficient
 - the SD-fail branch in `setup()` uses the same `ReleaseColdBootToBasic()` so the
   long-LOW-dwell condition is handled identically there
 

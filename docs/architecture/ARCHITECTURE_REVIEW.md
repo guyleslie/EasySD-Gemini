@@ -28,14 +28,12 @@ EasySD uses a state machine in `setup()` / `loop()` with these states:
 | `RUNNING_READY` | Idle; SEL button polling active |
 | `BOOT_ERROR` | SD init failed; C64 is still released to BASIC via the same path; SEL retries |
 
-`ReleaseColdBootToBasic()` issues a **double reset**:
+`ReleaseColdBootToBasic()` issues a **single clean rising edge**:
 
 1. `EnterBasicSafeMode()` — detaches IO2 ISR, asserts EXROM HIGH, tristates data bus
-2. `ResetHigh()` — releases the long-dwell `/RESET` LOW held since power-on
-3. `delay(50)` — lets the C64 reset network settle back to a stable HIGH
-4. `ResetC64()` — issues a clean 1 ms `/RESET` LOW → HIGH warm-reset pulse
+2. `ResetC64()` — from the already-LOW `/RESET` state: 1 ms additional LOW dwell, then a single LOW→HIGH rising edge
 
-The double pulse is required because after a multi-second `/RESET` LOW dwell (SD init time), a single rising edge leaves some C64s with BASIC text but no cursor (CIA1 timer interrupt never starts). The second short pulse is the well-tested warm-reset edge.
+The C64 boots exactly once from that edge. An earlier double-edge approach (`ResetHigh` + `delay(300)` + `ResetC64`) caused the C64 to boot twice — garbled screen followed by a clean boot 300 ms later — and was replaced on 2026-04-27.
 
 > **EXROM at boot:** `Init()` latches EXROM HIGH *before* enabling the EXROM output pin
 > (`PORTD |= _BV(PD2)` then `DDRD |= _BV(PD2)`) — no /EXROM glitch. The C64 sees no
