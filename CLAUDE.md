@@ -29,12 +29,6 @@ All commands run from the repository root.
 # Full release build (C64 + Arduino artifacts)
 python Tools/build.py release
 
-# Debug for VICE emulator (C64 only, mock data, no Arduino artifacts)
-python Tools/build.py debug-vice
-
-# Debug with Arduino serial output (recommended for full-system debug)
-python Tools/build.py debug-arduino
-
 # Build only core or only plugins
 python Tools/build.py core
 python Tools/build.py plugins
@@ -43,12 +37,20 @@ python Tools/build.py plugins
 python Tools/build.py clean
 
 # Arduino-specific commands
-python Tools/build.py arduino-compile [--debug] [--selftest]
+python Tools/build.py arduino-compile [--debug]
 python Tools/build.py arduino-upload-isp [--debug] [--isp-sck USEC]
 python Tools/build.py arduino-monitor COM4
 
 # Skip Arduino artifact generation during C64 builds
 python Tools/build.py release --skip-arduino
+```
+
+**Hardware debug workflow** (real C64 + Arduino serial logging):
+```bash
+deploy-debug.bat
+# = python Tools/build.py release --skip-arduino
+#   python Tools/build.py arduino-upload-isp --debug
+#   python Tools/build.py sd-deploy D:
 ```
 
 **Prerequisites:** `64tass` and `petcat` (VICE) in PATH, `arduino-cli` installed, Python 3.7+.
@@ -58,7 +60,7 @@ python Tools/build.py release --skip-arduino
 **Arduino upload notes:**
 - `arduino-upload-isp` uses USBtinyISP programmer (ISP only — no bootloader). USB serial upload is intentionally unsupported because any bootloader's startup window breaks the EasySD cold-boot sequence.
 - ISP SCK speed: `--isp-sck 2` (500 kHz, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
-- **Debug flash budget:** `--debug` = 29.8KB (96%, ~950B free). `--debug --selftest` exceeds 30720B limit — self-test suite adds ~2KB. Use `--selftest` only for standalone SD testing, not for C64-connected debug sessions.
+- **Debug flash budget:** `--debug` = ~27.7KB (90%, ~3KB free). EASYSD_DEBUG_SERIAL gates all log output; the `h`/`m` interactive console and the standalone self-test/protocol-test suites have been removed.
 
 ## Architecture
 
@@ -72,7 +74,7 @@ python Tools/build.py release --skip-arduino
 
 ### Build Artifact Flow
 
-PETMATE `petmate frame.asm` → `convert_petmate_asm()` → `menu.bin` → C64 assembly (`.binary "../../build/menu.bin"`) → 64tass → `.prg` binaries → `bin2ardh` → `build/artifacts/FlashLib.h` → copied to `Arduino/EasySD/` → `arduino-cli compile` → firmware HEX. The `debug-vice` target skips Arduino artifact generation entirely.
+PETMATE `petmate frame.asm` → `convert_petmate_asm()` → `menu.bin` → C64 assembly (`.binary "../../build/menu.bin"`) → 64tass → `.prg` binaries → `bin2ardh` → `build/artifacts/FlashLib.h` → copied to `Arduino/EasySD/` → `arduino-cli compile` → firmware HEX. Use `release --skip-arduino` to skip Arduino artifact regeneration.
 
 ### C64 Include Hierarchy (strict linear chain, no include guards in 64tass)
 
@@ -138,7 +140,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **Cartridge idle state must be truly BASIC-safe:** hide cartridge (`EXROM` HIGH), reset receive/session state, and tristate the data bus without leaving AVR pull-ups latched on D4-D7/A0-A3. Use the centralized `ReleaseToBasic()` / `EnterBasicSafeMode()` path instead of re-creating this sequence ad hoc.
 - **No active EEPROM persistence:** the current firmware does not use the Nano's internal EEPROM for boot, menu navigation, or last-directory restore. Treat any remaining EEPROM references as stale or legacy code unless reintroduced deliberately.
 - **SRAM overlay:** IO2 streaming, NI streaming, and command argument buffers share a single union (`sharedBuf` in CartApi.cpp). These are mutually exclusive at runtime, so `max(128, 400, 130) = 400 B` instead of `658 B`. Never add a new static buffer without checking the SRAM budget.
-- **Flash budget:** Release 23.2KB/30.7KB (75%, **~7.6KB free**). Debug 27.7KB (90%, ~3KB free). Debug+selftest exceeds limit — self-test suite gated behind `EASYSD_SELFTEST`, enabled via `--selftest` flag.
+- **Flash budget:** Release 22.9KB/30.7KB (75%, **~7.7KB free**). Debug 28.3KB (92%, ~2.4KB free).
 
 ## Key File Locations
 
@@ -157,25 +159,9 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 | `Arduino/EasySD/DirFunction.cpp` | Directory navigation, `currentPath[64]` |
 | `Arduino/EasySD/EasySDLog.h` | Logging macros, category enable flags (`LOG_ENABLE_*`) |
 | `Tools/build.py` | Unified build system |
-| `Tools/test_arduino_comm.py` | PC-side Arduino serial test runner |
-| `Tools/test_vice_menu.py` | VICE automated C64 menu test suite |
-| `Tools/prepare_test_sd.py` | SD card test file preparation |
 | `GEMINI.md` | Detailed AI developer guide (SdFat patterns, error codes, ZP rules) |
 | `docs/arduino/PCB_BRINGUP_NOTES.md` | PCB hardware bringup findings (power, caps, ISP upload) |
 
-## Serial Debug & Testing
+## Serial Debug
 
-Baud rate: 57600. Log format: `[LEVEL][CATEGORY] message` (e.g. `[INFO][SD] SD OK`, `[ERR][DIR] chdir failed`). Categories: `SYS`, `SD`, `DIR`, `FILE`, `PROTO`, `PRG`, `ERR`. Enable with `debug-arduino` build target or `--debug` flag. Category compilation controlled by `LOG_ENABLE_*` flags in `EasySDLog.h` — `PRG` and `PROTO` are OFF by default to save flash.
-
-**Self-test:** Build with `--debug --selftest`, then send `T` via serial to run the on-device test suite (8 tests: SD init, file read, seek, non-existent file, write/delete, memory stability, root listing, directory navigation). Self-test adds ~2KB flash and exceeds the 30720B limit — use only for standalone SD card testing, not for C64-connected sessions.
-
-```bash
-# Prepare SD card with test files (TESTDATA.BIN, TESTFILE.TXT, BIGFILE.BIN, TESTDIR/INNER.TXT)
-python Tools/prepare_test_sd.py D:
-
-# Run automated test suite from PC (Arduino)
-python Tools/test_arduino_comm.py COM4 --verbose
-
-# Run automated VICE menu tests (C64, requires VICE 3.9+)
-python Tools/test_vice_menu.py --build --verbose
-```
+Baud rate: 57600. Log format: `[LEVEL][CATEGORY] message` (e.g. `[INFO][SD] SD OK`, `[ERR][DIR] chdir failed`). Categories: `SYS`, `SD`, `DIR`, `FILE`, `PROTO`, `PRG`, `ERR`. Enable with `arduino-compile --debug` (or `arduino-upload-isp --debug`). Category compilation controlled by `LOG_ENABLE_*` flags in `EasySDLog.h` — `PRG` and `PROTO` are OFF by default to save flash; debug builds force `LOG_ENABLE_ML=1` and `LOG_ENABLE_PRG=1` via `--build-property`. Real-hardware debug is the supported workflow: run `deploy-debug.bat`, then `python Tools/build.py arduino-monitor COM4` to view live logs while testing the cartridge in a C64. The previous `h` (help) and `m` (memory) interactive serial commands and the on-device self-test/protocol-test suites have been removed; RAM budget is observed via the event-driven `logRamBudget()` calls on boot/ready.

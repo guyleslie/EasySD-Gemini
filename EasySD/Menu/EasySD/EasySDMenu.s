@@ -1653,9 +1653,6 @@ PARENTDIR
 	.FILL 30,0
 
 SID
-.if DEBUG = 1
-.include "EasySDMenuMock.s"
-.endif
 .include "../../Loader/CartLibStream.s"
 .include "Filename.s"
 

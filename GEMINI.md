@@ -222,18 +222,16 @@ See `memory/multiload_detail.md` for full bootplugin.prg template offsets and RL
 ## Build & Test Quick Reference
 
 ```bash
-python Tools/build.py release                    # full build
-python Tools/build.py debug-vice                 # C64 only, VICE mock
-python Tools/build.py debug-arduino             # C64 + Arduino debug
-python Tools/build.py plugins                   # plugins only
-python Tools/build.py arduino-upload-isp        # ISP upload (USBtinyISP)
-python Tools/build.py protocol-test COM4        # protocol echo test build
-python Tools/test_arduino_comm.py COM4 --verbose
-python Tools/test_vice_menu.py --build --verbose
-python Tools/prepare_test_sd.py D:
+python Tools/build.py release                    # full build (C64 + Arduino release artifacts)
+python Tools/build.py plugins                    # plugins only
+python Tools/build.py arduino-compile --debug    # Arduino debug firmware (SERIAL ON)
+python Tools/build.py arduino-upload-isp --debug # ISP upload, debug firmware
+python Tools/build.py arduino-monitor COM4       # serial monitor (57600 baud)
+deploy-debug.bat                                 # full hardware debug deploy (C64 release + Arduino debug + SD copy)
+deploy-release.bat                               # full release deploy
 ```
 
-**Serial self-test**: send `T` at 57600 baud. Commands: `h/d/r/l/p/m/T`
+**Serial debug**: real C64 + Arduino at 57600 baud. All output is event-driven `[LEVEL][CATEGORY]` log lines. The interactive `h`/`m`/`d`/`l`/`p`/`r`/`T`/`F`/`G`/`B` commands and the on-device self-test / protocol-test suites have been removed.
 
 ---
 

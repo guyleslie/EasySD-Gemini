@@ -9,8 +9,6 @@ Supports C64 and Arduino builds from a single command-line interface.
 Usage Examples:
   # C64 builds
   python build.py release              # Full release bundles (release/upload/sd-content)
-  python build.py debug-vice           # C64 VICE debug + Arduino BuildConfig (serial OFF)
-  python build.py debug-arduino        # C64 debug + Arduino BuildConfig (serial ON)
   python build.py sd-content           # Rebuild SD content bundle from current artifacts
 
   # Arduino operations
@@ -18,12 +16,9 @@ Usage Examples:
   python build.py arduino-compile      # Compile Arduino (release mode)
   python build.py arduino-compile --debug  # Compile Arduino (debug mode - SERIAL ON)
   python build.py arduino-upload-isp   # Upload via ISP (USBtinyISP)
+  python build.py arduino-upload-isp --debug  # Upload Arduino debug firmware (SERIAL ON)
   python build.py arduino-monitor COM4 # Serial monitor (57600 baud)
   python build.py arduino-clean        # Clean Arduino temp files
-
-  # Full workflow
-  python build.py all                  # Build C64 + Arduino (release)
-  python build.py all --debug          # Build C64 + Arduino (debug)
 
 Author: Claude Sonnet 4.5 (POST-SPRINT6)
 Version: 3.0.0
@@ -583,14 +578,6 @@ PLUGIN_MATRIX = [
     ("Plugins/HWTest",                  "HWTest.s",           "hwtplugin"),
 ]
 
-# Standalone VICE test programs (include their own BASIC stub, built as PRG directly)
-VICE_TESTS = [
-    # (rel_path_from_irq_root, asm_file, out_basename)
-    ("Plugins/WavPlayer",                  "WavPlayerViceTest.s",  "wavtest"),
-    ("Loader/Bridges/KernalBridge",        "PrgLoadViceTest.s",    "prgtest"),
-]
-
-
 def clean(ctx: Context) -> None:
     if ctx.build_dir.exists():
         print("[CLEAN] Removing C64 build artifacts...")
@@ -613,7 +600,7 @@ def clean(ctx: Context) -> None:
     print("[CLEAN] Done.")
 
 
-def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: bool, arduino_debug: int, menu_prg_name: str, release_log: bool = False) -> None:
+def build_core(ctx: Context, *, build_arduino: bool, arduino_debug: int, menu_prg_name: str, release_log: bool = False) -> None:
     ensure_dirs(ctx)
     prebuild_checks(ctx)
 
@@ -631,31 +618,16 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
     menu_src = ctx.irq_root / "Menu" / "EasySD" / "EasySDMenu.s"
     out_prg = ctx.build_dir / menu_prg_name
     labels = ctx.sym_dir / "easysd.txt"
-    vice_labels = ctx.sym_dir / "easysd.vs"
     listing = ctx.lst_dir / "easysdLst.txt"
     print(f"[CORE] 64tass: {menu_src.relative_to(ctx.irq_root)}")
     run_cmd(
         [
             tass, "-c", "--long-branch",
-            "-D", f"DEBUG={debug}",
-            "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
+            "-D", "DEBUG=0",
             str(menu_src),
             "-o", str(out_prg),
             "--labels", str(labels),
             "-L", str(listing),
-        ],
-        cwd=ctx.irq_root
-    )
-    # Generate VICE-format labels for binary monitor / test_vice_menu.py
-    run_cmd(
-        [
-            tass, "-c", "--long-branch",
-            "-D", f"DEBUG={debug}",
-            "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
-            str(menu_src),
-            "-o", os.devnull,
-            "--vice-labels",
-            "--labels", str(vice_labels),
         ],
         cwd=ctx.irq_root
     )
@@ -720,14 +692,12 @@ def build_core(ctx: Context, *, debug: int, debug_break: int, build_arduino: boo
     print("[CORE] OK")
 
 
-def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_prereq: bool = True) -> None:
+def build_plugins(ctx: Context, *, ensure_core_prereq: bool = True) -> None:
     ensure_dirs(ctx)
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
 
     print("==============================================================")
     print("[PLUGINS] Building ALL plugins")
-    print(f"  DEBUG={debug}")
-    print(f"  DEBUG_BREAK_AFTER_LOAD={debug_break}")
     print("==============================================================")
 
     for rel_path, asm_file, out_base in PLUGIN_MATRIX:
@@ -743,8 +713,7 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
         run_cmd(
             [
                 tass, "-c", "-b", "--long-branch",
-                "-D", f"DEBUG={debug}",
-                "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
+                "-D", "DEBUG=0",
                 "-D", "ML_DEBUG_BORDERS=0",
                 str(src),
                 "-o", str(out_prg),
@@ -757,7 +726,7 @@ def build_plugins(ctx: Context, *, debug: int, debug_break: int, ensure_core_pre
     print("[PLUGINS] OK")
 
 
-def build_multiload(ctx: Context, *, debug: int, debug_break: int, ml_debug_borders: int = 0) -> None:
+def build_multiload(ctx: Context) -> None:
     """Build the raw MultiLoad template consumed by create_multiload.py."""
     ensure_dirs(ctx)
     tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
@@ -767,14 +736,11 @@ def build_multiload(ctx: Context, *, debug: int, debug_break: int, ml_debug_bord
     listing = ctx.lst_dir / "multiload_templateLST.txt"
 
     print(f"[MULTILOAD] Building Loader/Bridges/MultiLoad/MultiLoad.s -> build/plugins/multiload_template.bin")
-    if ml_debug_borders:
-        print("[MULTILOAD] ML_DEBUG_BORDERS=1 — border-color markers enabled for hardware diagnostics")
     run_cmd(
         [
             tass, "-c", "-b", "--long-branch",
-            "-D", f"DEBUG={debug}",
-            "-D", f"DEBUG_BREAK_AFTER_LOAD={debug_break}",
-            "-D", f"ML_DEBUG_BORDERS={ml_debug_borders}",
+            "-D", "DEBUG=0",
+            "-D", "ML_DEBUG_BORDERS=0",
             str(src),
             "-o", str(out_prg),
             "--labels", str(labels),
@@ -784,66 +750,7 @@ def build_multiload(ctx: Context, *, debug: int, debug_break: int, ml_debug_bord
     )
     print("[MULTILOAD] OK")
     print(f"  Output: {out_prg}")
-    if ml_debug_borders:
-        print("  Border colors — MAIN flow:")
-        print("    1=white(entry) 2=red(savestate) 3=cyan(RL_INSTALL)")
-        print("    4=purple(StartTalking) 5=green(Send) 6=blue(WaitProc)")
-        print("    7=yellow(RecvFragment) 8=orange(OpenFile ok) 9=brown(OpenFile fail)")
-        print("    14=lt-blue(about to JMP ($008B) — MAIN finished)")
-        print("  Border colors — Resident chain hook (fires on LOAD \"...\",8 from game):")
-        print("    10=lt-red(RL_STUB intercepted) 11=dark-grey(RL_HANDLER reached)")
-        print("    12=med-grey(chdir-to-game OK) 7=yellow(OpenFile OK)")
-        print("    8=orange(GetInfoForFile OK) 5=green(ReadFile header OK)")
-        print("    13=lt-green(handler success) 15=lt-grey(handler error)")
-        print("  Last visible color before hang = the stage that hangs.")
-        print("  Diagnosis hints:")
-        print("    stuck at 14 (lt-blue) → MAIN done, JMP target dead (BASIC stub? wrong addr?)")
-        print("    game starts then dies WITHOUT 10 → RL_STUB at $033C wiped")
-        print("    10 fires but no 11 → RL_HANDLER image at $E800 wiped")
-        print("    stuck at 11 → hang in rl_chdir_to_game (StartTalking/Send/WaitProcessing)")
-        print("    stuck at 12 → hang in OpenFile WaitProcessing (Arduino not responding)")
-        print("    stuck at 7  → hang in GetInfoForFile (or NMI receive of file info)")
-        print("    stuck at 8  → hang in ReadFileNoCallback NMI receive path")
-        print("                  (likely $FFFA/$0368/$0318 vectors wiped by game)")
-        print("    stuck at 5  → hang in data load / LoadFileBySize / CloseFile / EndTalking")
     print("  This is a raw template binary. Use Tools/create_multiload.py to generate EASYLOAD.PRG.")
-
-
-def build_vice_tests(ctx: Context) -> None:
-    """Build standalone VICE test PRGs (include their own BASIC stub, no easysd.obj prepend)."""
-    ensure_dirs(ctx)
-    tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
-
-    vice_out_dir = ctx.build_dir / "vice-tests"
-    vice_out_dir.mkdir(exist_ok=True)
-
-    print("==============================================================")
-    print("[VICE-TESTS] Building standalone VICE test programs")
-    print("==============================================================")
-
-    for rel_path, asm_file, out_base in VICE_TESTS:
-        src = ctx.irq_root / rel_path / asm_file
-        if not src.exists():
-            print(f"WARNING: VICE test source not found: {src}")
-            continue
-
-        out_prg = vice_out_dir / f"{out_base}.prg"
-        labels = ctx.sym_dir / f"{out_base}.txt"
-        listing = ctx.lst_dir / f"{out_base}LST.txt"
-        print(f"  - {rel_path}/{asm_file} -> build/vice-tests/{out_base}.prg")
-        # No -b flag: 64tass emits 2-byte load address header → valid PRG for VICE
-        run_cmd(
-            [
-                tass, "-c",
-                str(src),
-                "-o", str(out_prg),
-                "--labels", str(labels),
-                "-L", str(listing),
-            ],
-            cwd=ctx.irq_root
-        )
-
-    print("[VICE-TESTS] OK")
 
 
 # ============================================================================
@@ -882,26 +789,12 @@ def arduino_setup(ctx: Context) -> None:
     print("\nNext: python build.py arduino-compile")
 
 
-def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: bool = False, release_log: bool = False, selftest: bool = False) -> None:
+def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, release_log: bool = False) -> None:
     """Generate BuildConfig.h for Arduino sketch"""
     buildconfig_h = ctx.arduino_root / "BuildConfig.h"
-    if protocol_test:
-        # Protocol-test build: debug serial ON, protocol test ON,
-        # DIR/FILE log categories OFF to reclaim ~600B flash headroom.
-        buildconfig_content = (
-            "#define EASYSD_DEBUG_SERIAL\n"
-            "#define EASYSD_PROTOCOL_TEST\n"
-            "#define LOG_ENABLE_DIR 0\n"
-            "#define LOG_ENABLE_FILE 0\n"
-        )
-        mode_str = "PROTOCOL_TEST"
-    elif debug_mode:
+    if debug_mode:
         buildconfig_content = "#define EASYSD_DEBUG_SERIAL\n"
-        if selftest:
-            buildconfig_content += "#define EASYSD_SELFTEST\n"
-            mode_str = "ON+SELFTEST"
-        else:
-            mode_str = "ON"
+        mode_str = "ON"
     elif release_log:
         buildconfig_content = "#define EASYSD_RELEASE_LOG\n"
         mode_str = "RELEASE_LOG"
@@ -913,15 +806,15 @@ def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, protocol_test: 
     print(f"[ARDUINO] Generated BuildConfig.h (EASYSD_DEBUG_SERIAL={mode_str})")
 
 
-def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, protocol_test: bool = False, release_log: bool = False, selftest: bool = False) -> dict | None:
+def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, release_log: bool = False) -> dict | None:
     """Compile Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
     build_path, _ = prepare_arduino_cli_paths(ctx, "compile")
 
     # Generate BuildConfig.h first
-    arduino_generate_buildconfig(ctx, debug_mode, protocol_test=protocol_test, release_log=release_log, selftest=selftest)
+    arduino_generate_buildconfig(ctx, debug_mode, release_log=release_log)
 
-    mode_label = 'PROTOCOL_TEST' if protocol_test else ('ON+SELFTEST' if (debug_mode and selftest) else ('ON' if debug_mode else ('RELEASE_LOG' if release_log else 'OFF')))
+    mode_label = 'ON' if debug_mode else ('RELEASE_LOG' if release_log else 'OFF')
     print("\n" + "="*70)
     print("BUILDING ARDUINO SKETCH")
     print("="*70)
@@ -1111,8 +1004,6 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
 Examples:
   # C64 builds
   python build.py release              # Full release bundles (release/upload/sd-content)
-  python build.py debug-vice           # C64 VICE debug (mock data)
-  python build.py debug-arduino        # C64 debug + Arduino BuildConfig (serial ON)
   python build.py sd-content           # Build/sync SD content bundle in build/sd-content
   python build.py multiload            # Build BOOT.PRG (multi-load launcher) only
 
@@ -1121,13 +1012,10 @@ Examples:
   python build.py arduino-compile      # Compile + upload bundle in build/upload
   python build.py arduino-compile --debug  # Compile (debug mode - SERIAL ON)
     python build.py arduino-upload-isp                # Compile + Upload (ISP/USBTinyISP)
+    python build.py arduino-upload-isp --debug        # Upload debug firmware (SERIAL ON)
     python build.py arduino-upload-isp --use-existing # Upload existing build/_arduino-compile/EasySD.ino.hex
     python build.py arduino-upload-isp --isp-sck 10  # ISP with custom SCK period (µs)
     python build.py arduino-monitor COM4              # Serial monitor
-
-  # Full workflow
-  python build.py all                  # C64 + Arduino (release)
-  python build.py all --debug          # C64 + Arduino (debug)
         """
     )
 
@@ -1137,17 +1025,13 @@ Examples:
         default="release",
         choices=[
             # C64 builds
-            "release", "debug-vice", "debug-arduino",
+            "release",
             "core", "plugins", "multiload", "clean", "prebuild",
             # Arduino operations
             "arduino-setup", "arduino-compile", "arduino-upload-isp",
             "arduino-monitor", "arduino-list-ports", "arduino-clean",
-            # Protocol echo test (Arduino-only, debug serial + protocol test flags)
-            "protocol-test",
             # SD card deploy
             "sd-deploy", "sd-content",
-            # Combined
-            "all"
         ],
         help="Build target"
     )
@@ -1156,9 +1040,7 @@ Examples:
     p.add_argument("port", nargs='?', default=None, help="COM port for Arduino upload/monitor (e.g. COM4), or drive letter for sd-deploy (e.g. D:)")
 
     # Options
-    p.add_argument("--debug", action="store_true", help="Enable DEBUG mode (C64 mock data + Arduino SERIAL ON)")
-    p.add_argument("--debug-break-after-load", action="store_true", help="Set DEBUG_BREAK_AFTER_LOAD=1")
-    p.add_argument("--ml-debug-borders", action="store_true", help="MultiLoad: enable border-color stage markers (ML_DEBUG_BORDERS=1) for real-hardware hang diagnosis")
+    p.add_argument("--debug", action="store_true", help="Arduino debug firmware (SERIAL ON) for arduino-compile / arduino-upload-isp")
     p.add_argument("--skip-arduino", action="store_true", help="Skip Arduino/EPROM artifacts in C64 builds")
     p.add_argument("--menu-prg-name", default=None, help="Override menu PRG output name")
     p.add_argument("--baudrate", type=int, default=57600, help="Baudrate for serial monitor (default: 57600)")
@@ -1166,8 +1048,6 @@ Examples:
                    help="ISP SCK period in µs for arduino-upload-isp (default: 2 = 500kHz, use 100 for blank/bricked chips)")
     p.add_argument("--use-existing", action="store_true",
                    help="Reuse build/_arduino-compile/EasySD.ino.hex instead of recompiling for arduino-upload-isp")
-    p.add_argument("--selftest", action="store_true",
-                   help="Include SD self-test suite in debug builds (adds ~2KB flash)")
     p.add_argument("--release-log", action="store_true",
                    help="Enable lightweight serial logging in release builds (DIR/SYS/SD/ERR categories only)")
     return p.parse_args(list(argv))
@@ -1191,8 +1071,8 @@ def main(argv: Sequence[str]) -> int:
 
     if args.target == "arduino-compile":
         compile_dir = default_arduino_compile_dir(ctx)
-        arduino_compile(ctx, debug_mode=args.debug, output_dir=compile_dir, release_log=args.release_log, selftest=args.selftest)
-        mode_label = "DEBUG+SELFTEST" if (args.debug and args.selftest) else ("DEBUG" if args.debug else ("RELEASE_LOG" if args.release_log else "RELEASE"))
+        arduino_compile(ctx, debug_mode=args.debug, output_dir=compile_dir, release_log=args.release_log)
+        mode_label = "DEBUG" if args.debug else ("RELEASE_LOG" if args.release_log else "RELEASE")
         stage_upload_bundle(ctx, compile_dir, mode_label=mode_label)
         return 0
 
@@ -1290,38 +1170,19 @@ def main(argv: Sequence[str]) -> int:
         print(f"[SD-DEPLOY] {copied} file(s) copied. OK")
         return 0
 
-    if args.target == "protocol-test":
-        # Compile with EASYSD_PROTOCOL_TEST flags.
-        # Disables LOG_ENABLE_DIR/FILE to reclaim ~600B flash vs normal debug build.
-        # Upload the resulting HEX via: arduino-upload-isp --use-existing
-        arduino_compile(ctx, debug_mode=False, protocol_test=True)
-        return 0
-
     # ==================================================
     # C64-only targets
     # ==================================================
 
-    # C64 DEBUG flag (VICE mock data)
-    debug = 1 if args.target in ("debug-vice", "debug-arduino") else 0
-    if args.debug and args.target not in ("arduino-compile", "arduino-upload-isp", "all"):
-        debug = 1
-    debug_break = 1 if args.debug_break_after_load else 0
+    build_arduino = (args.target in ("release", "core")) and (not args.skip_arduino)
 
-    # Arduino Serial DEBUG flag (only for C64 builds that generate BuildConfig.h)
-    arduino_debug = 1 if args.target == "debug-arduino" else 0
-
-    build_arduino = (args.target in ("release", "debug-vice", "debug-arduino", "core")) and (not args.skip_arduino)
-
-    menu_prg_name = args.menu_prg_name or ("easysd-debug.prg" if debug else "easysd.prg")
+    menu_prg_name = args.menu_prg_name or "easysd.prg"
 
     print("==============================================================")
     print(f"EasySD BUILD ({args.target.upper() if args.target else 'RELEASE'})")
     print(f"  repo_root = {ctx.repo_root}")
     print(f"  irq_root  = {ctx.irq_root}")
     print(f"  tools_dir = {ctx.tools_dir}")
-    print(f"  C64_DEBUG={debug}")
-    print(f"  EASYSD_DEBUG_SERIAL={arduino_debug}")
-    print(f"  DEBUG_BREAK_AFTER_LOAD={debug_break}")
     print(f"  BUILD_ARDUINO={1 if build_arduino else 0}")
     print("==============================================================")
 
@@ -1334,100 +1195,41 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if args.target == "core":
-        build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=build_arduino, arduino_debug=arduino_debug, menu_prg_name=menu_prg_name, release_log=args.release_log)
+        build_core(ctx, build_arduino=build_arduino, arduino_debug=0, menu_prg_name=menu_prg_name, release_log=args.release_log)
         return 0
 
     if args.target == "plugins":
-        build_plugins(ctx, debug=debug, debug_break=debug_break)
+        build_plugins(ctx)
         return 0
 
     if args.target == "multiload":
-        ml_debug_borders = 1 if args.ml_debug_borders else 0
-        build_multiload(ctx, debug=debug, debug_break=debug_break, ml_debug_borders=ml_debug_borders)
+        build_multiload(ctx)
         return 0
 
-    if args.target in ("release", "debug-vice", "debug-arduino"):
+    if args.target == "release":
         clean(ctx)
-        build_core(ctx, debug=debug, debug_break=debug_break, build_arduino=build_arduino, arduino_debug=arduino_debug, menu_prg_name=menu_prg_name, release_log=args.release_log)
-        build_plugins(ctx, debug=debug, debug_break=debug_break, ensure_core_prereq=False)
-        if args.target == "debug-vice":
-            build_vice_tests(ctx)
+        build_core(ctx, build_arduino=build_arduino, arduino_debug=0, menu_prg_name=menu_prg_name, release_log=args.release_log)
+        build_plugins(ctx, ensure_core_prereq=False)
         stage_sd_content_bundle(ctx, preferred_menu_name=menu_prg_name)
-        if args.target == "release":
-            upload_mode = "RELEASE_LOG" if args.release_log else "RELEASE"
-            if not args.skip_arduino:
-                compile_dir = default_arduino_compile_dir(ctx)
-                arduino_compile(ctx, debug_mode=False, output_dir=compile_dir, release_log=args.release_log)
-                stage_upload_bundle(ctx, compile_dir, mode_label=upload_mode)
-            stage_release_bundle(
-                ctx,
-                preferred_menu_name=menu_prg_name,
-                mode_label=("C64_ONLY" if args.skip_arduino else upload_mode),
-                include_upload=(not args.skip_arduino),
-            )
+        upload_mode = "RELEASE_LOG" if args.release_log else "RELEASE"
+        if not args.skip_arduino:
+            compile_dir = default_arduino_compile_dir(ctx)
+            arduino_compile(ctx, debug_mode=False, output_dir=compile_dir, release_log=args.release_log)
+            stage_upload_bundle(ctx, compile_dir, mode_label=upload_mode)
+        stage_release_bundle(
+            ctx,
+            preferred_menu_name=menu_prg_name,
+            mode_label=("C64_ONLY" if args.skip_arduino else upload_mode),
+            include_upload=(not args.skip_arduino),
+        )
         print("==============================================================")
-        print(f"BUILD SUCCESSFUL ({args.target.upper()})")
+        print(f"BUILD SUCCESSFUL (RELEASE)")
         print(f"Output: {ctx.build_dir / menu_prg_name}")
         print(f"SD bundle: {ctx.build_dir / 'sd-content'}")
-        if args.target == "release":
-            if not args.skip_arduino:
-                print(f"Upload bundle: {ctx.build_dir / 'upload'}")
-            print(f"Release bundle: {ctx.build_dir / 'release'}")
+        if not args.skip_arduino:
+            print(f"Upload bundle: {ctx.build_dir / 'upload'}")
+        print(f"Release bundle: {ctx.build_dir / 'release'}")
         print("==============================================================")
-        return 0
-
-    # ==================================================
-    # Combined target: all
-    # ==================================================
-
-    if args.target == "all":
-        # Build C64
-        c64_debug = 1 if args.debug else 0
-        arduino_debug_all = 1 if args.debug else 0
-        menu_name = "easysd-debug.prg" if c64_debug else "easysd.prg"
-
-        print("\n" + "="*70)
-        print("BUILDING ALL: C64 + ARDUINO")
-        print(f"  Mode: {'DEBUG' if args.debug else 'RELEASE'}")
-        print("="*70)
-
-        # Clean + Build C64 + Plugins
-        clean(ctx)
-        build_core(ctx, debug=c64_debug, debug_break=debug_break, build_arduino=True, arduino_debug=arduino_debug_all, menu_prg_name=menu_name, release_log=args.release_log)
-        build_plugins(ctx, debug=c64_debug, debug_break=debug_break, ensure_core_prereq=False)
-
-        upload_mode = "DEBUG" if args.debug else ("RELEASE_LOG" if args.release_log else "RELEASE")
-
-        # Build Arduino (optional via --skip-arduino)
-        if not args.skip_arduino:
-            print("\n")
-            compile_dir = default_arduino_compile_dir(ctx)
-            arduino_compile(ctx, debug_mode=args.debug, output_dir=compile_dir, release_log=args.release_log)
-            stage_upload_bundle(ctx, compile_dir, mode_label=upload_mode)
-        stage_sd_content_bundle(ctx, preferred_menu_name=menu_name)
-        if not args.debug:
-            stage_release_bundle(
-                ctx,
-                preferred_menu_name=menu_name,
-                mode_label=("C64_ONLY" if args.skip_arduino else upload_mode),
-                include_upload=(not args.skip_arduino),
-            )
-
-        print("\n" + "="*70)
-        print("ALL BUILD COMPLETE!")
-        print("="*70)
-        print(f"  C64 output: {ctx.build_dir / menu_name}")
-        if not args.skip_arduino:
-            print(f"  Arduino upload bundle: {ctx.build_dir / 'upload'}")
-        print(f"  SD content bundle: {ctx.build_dir / 'sd-content'}")
-        if not args.debug:
-            print(f"  Release bundle: {ctx.build_dir / 'release'}")
-        print("\nNext steps:")
-        if not args.skip_arduino:
-            print(f"  python build.py arduino-upload-isp  # Upload firmware via ISP")
-        else:
-            print("  --skip-arduino was used; Arduino build/upload steps were skipped.")
-        print("="*70)
         return 0
 
     return 0

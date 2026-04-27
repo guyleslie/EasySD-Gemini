@@ -8,7 +8,6 @@
 
 .include "CartZpMap.inc"
 .include "CartLibHi.s"
-.include "CartLibDebug.s"
 
 ;----------------------------------------------------------------------------------------------------------
 ; StreamLargeFile - Load a large file using COMMAND_STREAM

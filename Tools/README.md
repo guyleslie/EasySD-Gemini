@@ -11,14 +11,8 @@ This folder contains the build and deployment tools for the EasySD project.
 **C64 code + Arduino artifact generation**
 
 ```bash
-# Debug build for Arduino
-python Tools/build.py debug-arduino
-
-# Release build (builds C64 + Arduino and stages release bundles)
+# Release build (C64 + Arduino + SD bundle + upload bundle)
 python Tools/build.py release
-
-# Debug build for VICE emulator
-python Tools/build.py debug-vice
 
 # Build only core or plugins
 python Tools/build.py core
@@ -28,8 +22,8 @@ python Tools/build.py plugins
 python Tools/build.py clean
 
 # Arduino-specific commands
-python Tools/build.py arduino-compile
-python Tools/build.py arduino-upload-isp [--isp-sck USEC]
+python Tools/build.py arduino-compile [--debug]
+python Tools/build.py arduino-upload-isp [--debug] [--isp-sck USEC]
 python Tools/build.py arduino-monitor COM4
 
 # Build SD card bundle only from current artifacts
@@ -43,14 +37,6 @@ python Tools/build.py arduino-setup
 ```
 
 **NOTE:** On Windows, use `py` instead of `python` if needed (Python launcher).
-
-**Options:**
-- `debug-arduino` - Arduino debug build (serial output, more RAM usage)
-- `debug-vice` - VICE emulator debug build (C64 only, mock data)
-- `release` - Production build (optimized)
-- `core` - Core files only (menu + loader)
-- `plugins` - Plugins only
-- `clean` - Delete build artifacts
 
 **What it does:**
 1. Compiles C64 assembly code (64tass)
@@ -71,113 +57,48 @@ python Tools/build.py arduino-setup
 
 ## Workflow
 
-### Standard Build (with Arduino IDE):
+### Release Deploy
 
 ```bash
-# 1. Build C64 artifacts + generated headers
-python Tools/build.py release --skip-arduino
-
-# 2. Open Arduino IDE
-# File → Open → Arduino/EasySD/EasySD.ino
-
-# 3. Upload (Ctrl+U)
+deploy-release.bat
 ```
 
-### Automated Build (arduino-cli):
-
+Equivalent to:
 ```bash
-# One-time setup
-python Tools/build.py arduino-setup
-
-# 1. Full release build + staging
 python Tools/build.py release
-
-# 2. Upload firmware via ISP
-python Tools/build.py arduino-upload-isp
-
-# Optional: deploy staged SD bundle to SD card drive
+python Tools/build.py arduino-upload-isp --use-existing
 python Tools/build.py sd-deploy D:
 ```
 
-### ISP Upload (blank chip):
+### Arduino Serial Debug (real C64 hardware + serial logging)
 
 ```bash
-python Tools/build.py arduino-upload-isp              # default speed
-python Tools/build.py arduino-upload-isp --isp-sck 100  # 10kHz, blank chip
-python Tools/build.py arduino-upload-isp --isp-sck 10   # 100kHz, with firmware
+deploy-debug.bat
 ```
 
-### Full Clean Build:
+Equivalent to:
+```bash
+python Tools/build.py release --skip-arduino       # C64 release
+python Tools/build.py arduino-upload-isp --debug   # Arduino debug firmware (serial ON)
+python Tools/build.py sd-deploy D:
+```
+
+### ISP Upload Options
+
+```bash
+python Tools/build.py arduino-upload-isp              # default 500 kHz
+python Tools/build.py arduino-upload-isp --isp-sck 100  # 10 kHz, blank chip
+python Tools/build.py arduino-upload-isp --debug      # debug firmware (serial ON)
+python Tools/build.py arduino-upload-isp --use-existing  # reuse last build
+```
+
+### Full Clean Build
 
 ```bash
 python Tools/build.py clean
 python Tools/build.py release
-python Tools/build.py arduino-upload-isp
+python Tools/build.py arduino-upload-isp --use-existing
 ```
-
----
-
-### `prepare_test_sd.py` - SD Card Test Preparation
-
-Creates the required test file structure on an SD card for the Arduino self-test suite (`T` command).
-
-```bash
-python Tools/prepare_test_sd.py D:
-```
-
-**Creates:**
-```
-D:\
-├── TESTDATA.BIN    (256 bytes, 0x00-0xFF pattern)
-├── TESTFILE.TXT    (108 bytes)
-├── BIGFILE.BIN     (2048 bytes, 0x00-0xFF x8)
-└── TESTDIR/
-    └── INNER.TXT   (17 bytes)
-```
-
----
-
-### `test_arduino_comm.py` - Arduino Serial Test Runner
-
-Communicates with the Arduino firmware over USB serial (57600 baud) to run automated tests. Requires `pyserial` (`pip install pyserial`).
-
-```bash
-# Run self-test suite (sends 'T' command, parses results)
-python Tools/test_arduino_comm.py COM4 --verbose
-
-# Interactive serial terminal
-python Tools/test_arduino_comm.py COM4 --interactive
-
-# Directory navigation test only
-python Tools/test_arduino_comm.py COM4 --test dir_nav
-```
-
----
-
-### `test_vice_menu.py` - VICE Automated C64 Menu Tests
-
-Launches VICE (x64sc) in warp mode and verifies C64 menu behavior via the binary monitor protocol (TCP). Tests navigation, directory entry, and screen rendering. Requires VICE 3.9+.
-
-```bash
-# Run all 9 tests (requires prior debug-vice build)
-python Tools/test_vice_menu.py
-
-# Build first, then test
-python Tools/test_vice_menu.py --build
-
-# Verbose output (monitor protocol traffic)
-python Tools/test_vice_menu.py --verbose
-
-# Keep VICE open after tests for manual inspection
-python Tools/test_vice_menu.py --keep-vice
-
-# Custom VICE path
-python Tools/test_vice_menu.py --vice-path "C:\VICE\bin\x64sc.exe"
-```
-
-**Tests:** INIT, NAV_DOWN, NAV_UP, NAV_WRAP, ENTER_DIR, GO_BACK, SCREEN_VERIFY, PRG_SELECT_ROOT, PRG_SELECT_SUBDIR
-
-See `docs/testing/VICE_MENU_TEST.md` for full documentation.
 
 ---
 
@@ -185,11 +106,13 @@ See `docs/testing/VICE_MENU_TEST.md` for full documentation.
 
 Converts MP4/AVI video files to the C64 CVD format used by CvdPlayer.
 
----
+### `wavtodigimax.py` - WAV to Digimax Converter
 
-### `test_directory_navigation.py` / `test_file_io.py` - Legacy Test Scripts
+Converts WAV audio files to Digimax format used by WavPlayer.
 
-Older manual/semi-automated test scripts. Superseded by `test_arduino_comm.py`.
+### `create_multiload.py` - MultiLoad Bundle Builder
+
+Builds the MultiLoad ZIP bundles from a source folder.
 
 ---
 
@@ -197,16 +120,11 @@ Older manual/semi-automated test scripts. Superseded by `test_arduino_comm.py`.
 
 ```
 Tools/
-├── build.py                      # Main build script (v3.0.0)
+├── build.py                      # Main build script
 ├── README.md                     # This file
-├── prepare_test_sd.py            # SD card test file preparation
-├── test_arduino_comm.py          # PC-side Arduino serial test runner
-├── test_vice_menu.py             # VICE automated C64 menu tests
 ├── cvd_convert.py                # CVD video converter
-├── ComputeSidPlayer.prg          # SID computation helper (C64 binary)
-├── test_directory_navigation.py  # Legacy directory navigation tests
-├── test_file_io.py               # Legacy file I/O tests
-└── archive/                      # Completed one-shot scripts (sprint tools, old docs)
+├── wavtodigimax.py               # WAV to Digimax audio converter
+└── create_multiload.py           # MultiLoad bundle builder
 ```
 
 ---
@@ -238,8 +156,3 @@ On Windows: Device Manager → Ports (COM & LPT)
 
 - `docs/build/BUILD_SYSTEM.md` - Detailed build system documentation
 - `docs/build/ARDUINO_CLI_SETUP.md` - Arduino CLI installation guide
-- `docs/testing/VICE_MENU_TEST.md` - VICE automated menu test documentation
-
----
-
-*Last updated: 2026-04-16*
