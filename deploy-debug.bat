@@ -1,5 +1,7 @@
 @echo off
-REM Arduino debug deploy: C64 debug build + ISP upload (serial ON) + SD card update
+REM Arduino serial debug deploy: C64 RELEASE build + Arduino DEBUG firmware (serial ON) + SD card update.
+REM Use this to test real hardware with Arduino serial logging enabled while running
+REM the release C64 software (EASYSD.PRG from SD card, not the debug C64 build).
 REM Usage: deploy-debug.bat
 setlocal
 
@@ -9,15 +11,16 @@ set "STEP3=NOT RUN"
 set "FAILED_STEP="
 
 echo ==============================
-echo  EasySD Debug Deploy (Arduino)
+echo  EasySD Arduino Debug Deploy
+echo  (C64 release + Arduino serial)
 echo ==============================
 echo.
 
-echo [1/3] C64 debug build + FlashLib.h (serial ON)...
-python Tools/build.py debug-arduino
+echo [1/3] C64 release build (skip Arduino, C64 only)...
+python Tools/build.py release --skip-arduino
 if errorlevel 1 (
     set "STEP1=FAIL"
-    set "FAILED_STEP=debug-arduino build"
+    set "FAILED_STEP=C64 release build"
     goto :summary_fail
 )
 set "STEP1=OK"
@@ -33,8 +36,8 @@ if errorlevel 1 (
 set "STEP2=OK"
 
 echo.
-echo [3/3] SD card deploy (D:, debug menu)...
-python Tools/build.py sd-deploy D: --debug
+echo [3/3] SD card deploy (D:, release content)...
+python Tools/build.py sd-deploy D:
 if errorlevel 1 (
     set "STEP3=FAIL"
     set "FAILED_STEP=SD deploy"
@@ -64,10 +67,10 @@ echo.
 echo ==============================
 echo  Final summary
 echo ==============================
-call :print_step "Debug build" "%STEP1%"
+call :print_step "C64 release build" "%STEP1%"
 call :print_step "ISP upload" "%STEP2%"
 call :print_step "SD deploy" "%STEP3%"
-powershell -NoProfile -Command "Write-Host ''; Write-Host 'DEBUG DEPLOY COMPLETE' -ForegroundColor Green; Write-Host 'Serial: 57600 baud, h=help' -ForegroundColor Green"
+powershell -NoProfile -Command "Write-Host ''; Write-Host 'DEBUG DEPLOY COMPLETE' -ForegroundColor Green; Write-Host 'Serial monitor: python Tools/build.py arduino-monitor COM4' -ForegroundColor Cyan"
 pause
 exit /b 0
 
@@ -76,7 +79,7 @@ echo.
 echo ==============================
 echo  Final summary
 echo ==============================
-call :print_step "Debug build" "%STEP1%"
+call :print_step "C64 release build" "%STEP1%"
 call :print_step "ISP upload" "%STEP2%"
 call :print_step "SD deploy" "%STEP3%"
 powershell -NoProfile -Command "Write-Host ''; Write-Host 'DEBUG DEPLOY FAILED: %FAILED_STEP%' -ForegroundColor Red"
