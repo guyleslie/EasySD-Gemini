@@ -942,8 +942,8 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
         # (static allocation happens at Serial.begin(), invisible to the compiler).
         # 16+16=32B saves 96B of SRAM, keeping sd.exists() / TransferMenu stable.
         compile_args += [
-            "--build-property", "compiler.cpp.extra_flags=-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=16",
-            "--build-property", "compiler.c.extra_flags=-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=16",
+            "--build-property", "compiler.cpp.extra_flags=-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=16 -DLOG_ENABLE_ML=1 -DLOG_ENABLE_PRG=1",
+            "--build-property", "compiler.c.extra_flags=-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=16 -DLOG_ENABLE_ML=1 -DLOG_ENABLE_PRG=1",
         ]
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)

@@ -138,7 +138,10 @@ void CartApi::HandleOpenFile() {
 
   const char* openName = fileName;
   bool restoreCwd = false;
-  char savedPath[64];
+  // Reuse NI-buffer tail (bytes 130–193) instead of a local array — saves 64B of
+  // stack.  ni[130+] is never active during command dispatch; args occupies only
+  // ni[0..129].  All callers of HandleOpenFile are serialised (no re-entrancy).
+  char* savedPath = reinterpret_cast<char*>(sharedBuf.ni + 130);
 
   // SdFat 2.x absolute LFN paths are unreliable. For absolute paths, temporarily
   // switch the CWD to the parent directory, open the basename, then restore CWD.
@@ -149,8 +152,8 @@ void CartApi::HandleOpenFile() {
       return;
     }
 
-    strncpy(savedPath, dirFunc.currentPath, sizeof(savedPath) - 1);
-    savedPath[sizeof(savedPath) - 1] = '\0';
+    strncpy(savedPath, dirFunc.currentPath, 63);
+    savedPath[63] = '\0';
     openName = lastSlash + 1;
     restoreCwd = true;
 
@@ -602,7 +605,10 @@ void CartApi::HandleInvokeWithName() {
   GetArgumentsDynamic(1);
   unsigned int fileNameLength = Arguments[1];
   char * fileName = (char *) &Arguments[2];
-  char savedPath[64];
+  // Reuse NI-buffer tail (bytes 130–193) instead of a local array — saves 64B of
+  // stack.  ni[130+] is beyond the args overlap (ni[0..129]) and is never touched
+  // by IO2/NI streaming during command dispatch.  Sequential use only.
+  char* savedPath = reinterpret_cast<char*>(sharedBuf.ni + 130);
   bool restoreCwd = false;
 
   // NUL-terminate the received filename (GetArgumentsDynamic does not do this).
@@ -619,8 +625,8 @@ void CartApi::HandleInvokeWithName() {
       return;
     }
 
-    strncpy(savedPath, dirFunc.currentPath, sizeof(savedPath) - 1);
-    savedPath[sizeof(savedPath) - 1] = '\0';
+    strncpy(savedPath, dirFunc.currentPath, 63);
+    savedPath[63] = '\0';
     openName = lastSlash + 1;
     restoreCwd = true;
 
@@ -661,7 +667,9 @@ void CartApi::HandleInvokeWithName() {
 
   // Restore CWD before launch — LoadAndLaunchFile needs the game directory
   // as CWD (not /PLUGINS/) so that preserveLaunchPath captures the right path.
-  if (restoreCwd) {
+  // Guard: skip if we are already there (avoids a redundant root→subdir round-trip
+  // when the target file's parent dir == the original CWD, e.g. /PRG → /PRG).
+  if (restoreCwd && strcmp(dirFunc.currentPath, savedPath) != 0) {
     dirFunc.NavigateToPath(savedPath);
   }
 
@@ -1175,7 +1183,10 @@ void CartApi::TransferMenu() {
 void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   const size_t BUF_SIZE = 16;
   uint8_t buf[BUF_SIZE];
-  char launchPath[64];
+  // Reuse NI-buffer tail for launchPath — same region as savedPath in the caller
+  // (HandleInvokeWithName), but savedPath is no longer needed once we reach here.
+  // Saves 64B of stack at the deepest point of the invoke+launch call chain.
+  char* launchPath = reinterpret_cast<char*>(sharedBuf.ni + 130);
   const bool preserveLaunchPath = (dirFunc.pathDepth > 0);
   cartInterface.EndListening();
 
@@ -1183,8 +1194,8 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   // EASYLOAD.PRG needs it for level-loading, and ordinary subdir PRGs are
   // harmless to preserve (SEL/TransferMenu calls ReInit → root anyway).
   if (preserveLaunchPath) {
-    strncpy(launchPath, dirFunc.currentPath, sizeof(launchPath) - 1);
-    launchPath[sizeof(launchPath) - 1] = '\0';
+    strncpy(launchPath, dirFunc.currentPath, 63);
+    launchPath[63] = '\0';
   }
 
   unsigned char crtFile = 0;
