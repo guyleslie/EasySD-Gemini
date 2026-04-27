@@ -201,8 +201,111 @@ ml_close:
 	LDA ML_HDRBUF + 1
 	STA $8C
 
-	; Jump to game — resident hook handles all future LOAD "...",8,x calls.
-	JMP ($008B)
+	; end (exclusive) = load_addr + file_size - 2  → $8D/$8E
+	; Used by ml_should_run_basic for the hybrid-PRG SYS check and by the
+	; BASIC launch path to set end-of-program / variable pointers.
+	CLC
+	LDA $8B
+	ADC ZP_LOADFILE_API_SIZE0
+	STA $8D
+	LDA $8C
+	ADC ZP_LOADFILE_API_SIZE1
+	STA $8E
+	SEC
+	LDA $8D
+	SBC #2
+	STA $8D
+	LDA $8E
+	SBC #0
+	STA $8E
+
+	; BASIC vs machine-code decision — mirrors LoaderStub.65s SHOULD_RUN_BASIC.
+	; Most multi-load first parts are BASIC SYS stubs at $0801; without this
+	; the indirect JMP would land on BASIC tokens and crash.
+	JSR ml_should_run_basic
+	BCS ml_launch_machine
+
+	;--- BASIC launch path -----------------------------------------------
+	; İlker Fıçıcılar's fix: set end-of-BASIC / variable pointers so the
+	; loaded SYS-stub PRG doesn't overwrite itself when CLR/RUN runs.
+	LDA $8D
+	STA $2D
+	STA $2F
+	STA $AE
+	LDA $8E
+	STA $2E
+	STA $30
+	STA $AF
+
+	LDA #$08
+	STA $BA                         ; current device = 8
+	LDA #$1B
+	STA $D011                       ; ensure VIC display is enabled
+	LDA #$81
+	STA $DC0D                       ; CIA1 timer-A IRQ enable (jiffy clock)
+
+	JSR $A659                       ; "CLR"
+	JMP $A7AE                       ; "RUN"
+
+ml_launch_machine:
+	; Resident hook is installed and handles all future LOAD calls.
+	; For $0801 games use $0840 as entry — mirrors KernalBridge NORMAL_LOAD convention.
+	LDA $8C
+	CMP #$08
+	BNE ml_jmp_addr
+	LDA $8B
+	CMP #$01
+	BNE ml_jmp_addr
+	JMP $0840              ; $0801 game: machine-code entry at $0840
+ml_jmp_addr:
+	JMP ($008B)            ; other load address: jump directly
+
+;================================================================================
+; ml_should_run_basic
+; Identical decision logic to SHOULD_RUN_BASIC in LoaderStub.65s.
+;   In:  $8B/$8C = load address, $8D/$8E = end address (exclusive)
+;   Out: C=0 → run via BASIC RUN, C=1 → JMP indirect to load address
+;
+; Two cases qualify as BASIC:
+;   1) Standard BASIC PRG : load address == $0801
+;   2) Hybrid PRG         : load address < $0801, loaded range reaches at least
+;                           $0809, and the BASIC SYS token ($9E) lives at $0805.
+;================================================================================
+ml_should_run_basic:
+	LDA $8C
+	CMP #$08
+	BNE ml_chk_hybrid
+	LDA $8B
+	CMP #$01
+	BNE ml_machine
+	; Load address is $0801 — check if first BASIC line is non-empty.
+	; $0805 is the first BASIC token byte of line 1.
+	; $00 means end-of-line immediately (empty/dummy BASIC header, e.g. Last Ninja+).
+	; A dummy BASIC header must NOT go through CLR+RUN — treat as machine code.
+	LDA $0805
+	BEQ ml_machine          ; $00 = empty first line → machine code path
+ml_basic:
+	CLC
+	RTS
+ml_machine:
+	SEC
+	RTS
+
+ml_chk_hybrid:
+	BCS ml_machine                  ; load address > $08xx → not BASIC
+	LDA $8E
+	CMP #$08
+	BCC ml_machine                  ; end < $08xx
+	BNE ml_chk_sys
+	LDA $8D
+	CMP #$09
+	BCC ml_machine                  ; end < $0809
+ml_chk_sys:
+	LDA $0805
+	CMP #$9E
+	BNE ml_machine
+	CLC                             ; $9E found → hybrid BASIC PRG
+	RTS
 
 ;================================================================================
 ; Error path: end EasySD session, restore state, return to menu
