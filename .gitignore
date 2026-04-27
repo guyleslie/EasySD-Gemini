@@ -30,9 +30,14 @@ nul
 sdcard/*.CVD
 sdcard/*.cvd
 
-# Backup archives (multiload/ ZIPs are tracked — see !multiload/*.zip below)
+# Multiload game images (commercial ROMs — kept locally only)
+multiload/
+
+# Charset preview working files (commercial font extracts)
+tmp_charset_preview/
+
+# Backup archives
 *.zip
-!multiload/*.zip
 
 # Old backup files
 *.old
