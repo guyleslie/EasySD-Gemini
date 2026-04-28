@@ -76,7 +76,7 @@ must move into `RL_HANDLER` or use a hardware logic analyzer.
 
 ---
 
-## 3. Why VICE Tests Are Misleading
+## 3. Why Legacy VICE Tests Were Misleading
 
 `PROT_WaitProcessing` in `CartLibHi.s` compiles differently by build type:
 
@@ -98,9 +98,9 @@ PROT_WaitProcessing:
 ```
 
 Every plugin that fails on real hardware calls `PROT_WaitProcessing` multiple times.
-In VICE (`DEBUG=1`) this is a no-op. In all VICE plugin tests, the hardware handshake
-path is **never exercised**. VICE passes = "protocol logic is correct"; it does not
-validate timing or hardware responsiveness.
+In the legacy VICE/debug build (`DEBUG=1`) this was a no-op. Those emulator-only tests
+never exercised the hardware handshake path. A VICE pass meant "protocol logic is
+correct"; it did not validate timing or hardware responsiveness.
 
 ---
 
@@ -184,14 +184,14 @@ Large PRGs triggering deep call stacks may hit this. Needs fix: shrink KernalBri
 below `$CFFF`. This was **not** the root cause of the Beach Head regression, because
 the current ordinary `.PRG` menu path bypasses KernalBridge.
 
-### BUG-2: PROT_WaitProcessing Bypassed in DEBUG=1 — VICE Tests Don't Validate Hardware Path
+### BUG-2: PROT_WaitProcessing Bypassed in Legacy DEBUG=1 Builds
 
 **Severity:** Medium (architectural confidence gap, not a crash bug per se)
 **File:** `EasySD/Loader/CartLibHi.s:30–32`
 
-VICE plugin tests give a false green signal. The hardware polling loop in
-`PROT_WaitProcessing` has never been isolated-tested outside of KernalBridge and the
-sima MultiLoad path.
+Legacy VICE plugin tests gave a false green signal. The hardware polling loop in
+`PROT_WaitProcessing` still needs validation on real C64 hardware with serial logs
+or a logic analyzer.
 
 **Fix:** hardware debugging with border-color markers (see Section 6).
 

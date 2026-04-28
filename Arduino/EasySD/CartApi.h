@@ -134,10 +134,6 @@ class CartApi {
   void TransferMenu();
   void ResetNoCartridge();
   void LoadAndLaunchFile(const char* path);
-#ifdef EASYSD_DEBUG_SERIAL
-  void UpdateFile();
-  void ReceiveFile();
-#endif
 };
 
 #endif

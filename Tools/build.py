@@ -258,16 +258,13 @@ def prepare_arduino_cli_paths(ctx: Context, profile: str) -> tuple[Path, Path]:
 def _resolve_menu_artifact(ctx: Context, preferred_menu_name: str) -> Path:
     preferred = ctx.build_dir / preferred_menu_name
     release_default = ctx.build_dir / "easysd.prg"
-    debug_default = ctx.build_dir / "easysd-debug.prg"
     if preferred.exists():
         return preferred
     if release_default.exists():
         return release_default
-    if debug_default.exists():
-        return debug_default
     raise SystemExit(
         "ERROR: Missing menu PRG artifact. Build core first.\n"
-        "Expected one of: build/easysd.prg, build/easysd-debug.prg"
+        "Expected: build/easysd.prg"
     )
 
 
@@ -1062,7 +1059,7 @@ def main(argv: Sequence[str]) -> int:
     ctx = make_context()
 
     # ==================================================
-    # Arduino-only targets
+    # Arduino operation targets
     # ==================================================
 
     if args.target == "arduino-setup":
@@ -1100,8 +1097,7 @@ def main(argv: Sequence[str]) -> int:
         return 0
 
     if args.target == "sd-content":
-        preferred_menu = "easysd-debug.prg" if args.debug else "easysd.prg"
-        stage_sd_content_bundle(ctx, preferred_menu_name=preferred_menu)
+        stage_sd_content_bundle(ctx, preferred_menu_name="easysd.prg")
         return 0
 
     if args.target == "sd-deploy":
@@ -1116,14 +1112,10 @@ def main(argv: Sequence[str]) -> int:
             return 1
         copied = 0
 
-        expected_menu = "easysd-debug.prg" if args.debug else "easysd.prg"
+        expected_menu = "easysd.prg"
 
-        # Choose bundle root safely: never deploy debug bundle in release mode by accident.
-        candidate_roots: list[Path] = []
-        if args.debug:
-            candidate_roots = [ctx.build_dir / "sd-content"]
-        else:
-            candidate_roots = [ctx.build_dir / "release" / "sd-content", ctx.build_dir / "sd-content"]
+        # Prefer the full release bundle, but allow the standalone sd-content bundle.
+        candidate_roots: list[Path] = [ctx.build_dir / "release" / "sd-content", ctx.build_dir / "sd-content"]
 
         sd_bundle_root = None
         for root in candidate_roots:
@@ -1147,8 +1139,7 @@ def main(argv: Sequence[str]) -> int:
             print(f"[SD-DEPLOY] {menu_src.name} -> {dst}")
             copied += 1
         else:
-            mode_note = "debug-vice/debug-arduino" if args.debug else "release"
-            print(f"WARNING: {menu_src} not found — run 'python build.py {mode_note}' first")
+            print(f"WARNING: {menu_src} not found — run 'python build.py release' first")
 
         # Plugin PRGs → D:/PLUGINS/*.PRG
         if use_bundle:

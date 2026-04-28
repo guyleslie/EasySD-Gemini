@@ -3,6 +3,7 @@ IRQHack64/build/
 Arduino/IRQHack64/build/
 EasySD/build/
 Arduino/EasySD/build/
+build/
 
 # Generated Arduino headers (copied from build/artifacts/)
 Arduino/IRQHack64/FlashLib.h
@@ -38,6 +39,14 @@ tmp_charset_preview/
 
 # Backup archives
 *.zip
+
+# Local-only archived material
+[Aa]rchive/
+[Aa]rchived/
+_archive/
+
+# Local-only workspace files
+_ul
 
 # Old backup files
 *.old

@@ -32,11 +32,6 @@ SIDPLAY          = $E003 ; SIDLOAD + 3 (SIDLOAD is from System.inc)
 ;CURRENTDIRINDEX is a variable (see variables section)
 ;CURRENTDIRINDEXSHADOW is a variable (see variables section)
 
-; DEBUG mode flag - defined from command line (-D DEBUG=1 or -D DEBUG=0)
-; Default production builds should define DEBUG=0 explicitly
-
-
-	
 DELAYFRAMES	.macro
 	LDX #\1
 	JSR WAITFRAMES
@@ -68,10 +63,6 @@ CART_ROM_RESTORE .macro
 	TXS
 	JSR PREINIT
 
-.if DEBUG = 1
-	JSR DEBUG_Init		; Initialize DEBUG dump area ($CF00)
-.endif
-
 	JSR DISPLAYPETGRAPHICS
 	DELAYFRAMES 75
 
@@ -80,13 +71,7 @@ CART_ROM_RESTORE .macro
 	JSR DISPLAYSCREENGRAPHICS
 	LDA #$80
 	STA $028A		; RPTFLG: repeat only cursor/function keys (enables held UP/DOWN scrolling)
-.if DEBUG = 0 
 	JSR PROT_StartTalking
-.else
-	NOP
-	NOP
-	NOP
-.endif		
 	LDA #<DIRLOAD
 	STA ZP_IRQ_API_DATA_LO
 	LDA #>DIRLOAD
@@ -105,7 +90,6 @@ CART_ROM_RESTORE .macro
 	LDX #MAXDIRITEMS
 	LDA CURPAGEINDEX
 	
-.if DEBUG = 0
 	JSR PROT_ReadDirectory
 	BCC _dir_ok
 	LDA #$02			; red
@@ -113,9 +97,6 @@ CART_ROM_RESTORE .macro
 	LDY #>MSG_SD_READ_ERR
 	JSR STATUS_LINE
 _dir_ok
-.else
-	JSR MOCK_InitReadDirectory
-.endif
 
 ;Start of main loop
 INPUT_GET
@@ -257,9 +238,6 @@ ENTER
 
 	JSR ISPREVIOUSDIRECTORY
 	BCS NOPREV
-.if DEBUG = 1
-	JSR MOCK_GoBack
-.endif
 	JSR GOBACK
 	; Reset page index after navigating to parent directory.
 	LDA #0
@@ -282,7 +260,6 @@ NOPREV
 ; Note: PLUGIN_HEADER is used as the receive buffer to avoid
 ;   overwriting screen RAM that would occur if receiving to PATHBUFFER.
 ; ------------------------------------------------------------
-.if DEBUG = 0
 PROT_GetCurrentPath
 	; Receive 256 bytes into PLUGIN_HEADER (safe scratch, not screen RAM)
 	LDA #<PLUGIN_HEADER
@@ -312,7 +289,6 @@ _gcp_copy
 _gcp_error
 	SEC
 	RTS
-.endif
 
 ; ------------------------------------------------------------
 ; ExtractLastDirname
@@ -349,7 +325,6 @@ _eld_done
 
 
 ENTERDIR
-.if DEBUG = 0
 	; Set filename from selected directory record and change directory by name.
 	; This is the proven path used in the stable 5331f47 flow.
 	LDX NAMELOW
@@ -357,9 +332,6 @@ ENTERDIR
 	JSR PROT_SetNameZ
 	JSR PROT_ChangeDirectory
 	BCS CHANGEDIRFAIL
-.else
-	JSR MOCK_EnterDir
-.endif
 	; Reset page index — new directory always starts at page 0.
 	; Without this, a stale CURPAGEINDEX causes startingIndex > count on
 	; the Arduino, producing a uint8_t underflow → C64 gets CURPAGEITEMS=245
@@ -378,7 +350,6 @@ DOREADDIRECTORY
 	LDY #$00
 	LDX #21			;Max 21 directory items
 	LDA CURPAGEINDEX
-.if DEBUG = 0
 	JSR PROT_ReadDirectoryNC
 	BCC _dirNC_ok
 	LDA #$02			; red
@@ -386,9 +357,6 @@ DOREADDIRECTORY
 	LDY #>MSG_SD_READ_ERR
 	JSR STATUS_LINE
 _dirNC_ok
-.else
-	JSR MOCK_ReadDirectory
-.endif
 	
 	JMP NEWCONTENT
 	
@@ -527,21 +495,11 @@ BINPLUGINEXISTS
 ; BIN Plugin load error handlers
 ; ------------------------------------------------------------
 BINPLUGIN_LOAD_ERROR_INFO:
-.if DEBUG = 1
-	LDA #$02				; Error code 2 = PROT_GetInfoForFile failed
-	JSR DEBUG_SetError
-	JSR DEBUG_Break
-.endif
 	JSR PROT_CloseFile
 	JSR PROT_EnableDisplay
 	JMP INPUT_GET
 
 BINPLUGIN_LOAD_ERROR_LOAD:
-.if DEBUG = 1
-	LDA #$03				; Error code 3 = payload load failed (LoadFileBySize sets 1 internally too)
-	JSR DEBUG_SetError
-	JSR DEBUG_Break
-.endif
 	JSR PROT_CloseFile
 	JSR PROT_EnableDisplay
 	JMP INPUT_GET
@@ -581,14 +539,9 @@ PRGPLUGINEXISTS
 	JMP *
 
 PROGRAM
-.if DEBUG = 1
-	LDA #$02
-	STA BORDER
-.endif
 	JSR GETCURRENTROW
 	;Setting name of the file
 	JSR SETFILENAME	
-.if DEBUG = 0
 	;Invoking with name
 	LDX #$01		; flags: autorun
 	JSR PROT_InvokeWithName
@@ -596,9 +549,6 @@ PROGRAM
 	JSR PROT_EnableDisplay
 SUCCEEDINVOKE
 	JMP *
-.else
-	JMP MOCK_PrgExecute
-.endif
 
 
 ; Prints a 0-terminated string (X=lo, Y=hi) to bottom status line (row 24)
@@ -665,10 +615,8 @@ GOBACK
 	LDA #<PARENTDIR
 	TAX
 	JSR PROT_SetNameZ
-.if DEBUG = 0
 	JSR PROT_ChangeDirectory
 	BCS CHANGEDIRFAIL
-.endif
 	DELAYFRAMES 2
 	RTS
 	
@@ -690,9 +638,6 @@ ISPREVIOUSDIRECTORY
 	
 NEWCONTENT
 ; Update the screen with the new content got from micro
-.if DEBUG = 1
-	INC BORDER
-.endif
 
 	JSR PROT_EnableDisplay
 	JSR GETCURRENTROW
@@ -752,15 +697,6 @@ FD
 	
 SETFILENAME
 	JSR GETCURRENTROW
-
-.if DEBUG = 1
-	; DEBUG: dump filename for diagnostics
-	LDA NAMESLO, X
-	STA $06
-	LDA NAMESHI, X
-	STA $07
-	JSR DEBUG_DumpFilename
-.endif
 
 	; Build absolute path in PATHBUFFER via PrepareFileNameParameter
 	JSR PrepareFileNameParameter
@@ -1358,12 +1294,8 @@ PRINTDIRHEADER
 	LDA #$AF		; $2F|$80
 	STA $042C
 
-.if DEBUG = 0
 	; Read current path directly here (stable behavior from the proven flow).
 	JSR PROT_GetCurrentPath
-.else
-	JSR MOCK_GetCurrentPath
-.endif
 	; Check if at root: PATHBUFFER[1] == 0 means path is just "/"
 	LDA PATHBUFFER+1
 	BNE _pdh_subdir
@@ -1449,13 +1381,8 @@ _pdh_col
 ; ------------------------------------------------------------
 PrepareFileNameParameter:
 	; 1. Save current row, fetch current path → PATHBUFFER[0..63]
-.if DEBUG = 0
 	STX $08
 	JSR PROT_GetCurrentPath		; PATHBUFFER[0..63] = "/GAMES/ACTION\0..."
-.else
-	STX $08
-	JSR MOCK_GetCurrentPath		; PATHBUFFER[0..63] = MOCK_CURRENT_PATH copy
-.endif
 	LDX $08				; restore row
 
 	; 2. Point NAMELOW/NAMEHIGH to selected filename (source)
@@ -1672,8 +1599,7 @@ DIRLOAD = GAMELIST - 2
 ; PROT_ReceiveFragment writes whole 256-byte pages starting at DIRLOAD.
 ; With 6 pages requested, the receive area must be 1536 bytes total including
 ; the 2-byte CURPAGEITEMS/PAGECOUNT header at DIRLOAD.
-; In DEBUG mode: SETDIR1/2/3 copies MOCK_DIR1/2/3 data here
-; In release mode: PROT_ReadDirectory fills this from SD card
+; PROT_ReadDirectory fills this from SD card via the Arduino.
 	.FILL (DIRLOAD_TOTAL_BYTES - 2), 0
 
 
@@ -1734,50 +1660,6 @@ COLORDATA
 	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0F, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $00, $0C, $0C, $0C, $0C, $00, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C
 	.BYTE	$0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0C, $0B, $0C, $0C, $0C
 
-; ============================================================
-; MOCK DATA — only compiled when DEBUG=1
-; ============================================================
-; Simulates Arduino HandleReadDirectory wire protocol for VICE
-; emulator testing (no SD card needed).
-;
-; Wire format (must match Arduino CartApi.cpp exactly):
-;   Byte 0:    CURPAGEITEMS (number of entries on this page)
-;   Byte 1:    PAGECOUNT (total pages, always 1 here)
-;   Byte 2+:   32-byte entries:
-;              Bytes 0-30:  ASCII filename, null-padded
-;              Byte 31:     $04 = directory, $00 = file
-;
-; Directory flag trick: .enc "screen" + .TEXT "D" = $04
-; Filenames are ASCII (.TEXT default), converted to screen
-; codes by PRINTASCIIFILENAME at display time.
-;
-; Mock SD card layout:
-;   /                        (MOCK_DIR1 — root)
-;   +-- games/               directory
-;   +-- giana.prg            PRG program
-;   +-- wizball.prg          PRG program
-;   +-- sunset.koa           Koala image  -> /PLUGINS/KOAPLUGIN.BIN
-;   +-- logo.petg            PETSCII art  -> /PLUGINS/PETGPLUGIN.BIN
-;
-;   /games/                  (MOCK_DIR2 — level 1)
-;   +-- ..                   parent
-;   +-- demos/               directory
-;   +-- music/               directory
-;   +-- bubble.prg           PRG program
-;   +-- ocean.koa            Koala image
-;   +-- intro.petg           PETSCII art
-;
-;   /games/demos/            (MOCK_DIR3 — level 2)
-;   +-- ..                   parent
-;   +-- tools/               directory
-;   +-- matrix.prg           PRG program
-;   +-- space.koa            Koala image
-;   +-- ascii.petg           PETSCII art
-;   +-- coder.wav            WAV audio    -> /PLUGINS/WAVPLUGIN.BIN
-; ============================================================
-
-
-
 ; ------------------------------------------------------------
 ; UI strings (0-terminated)
 ; ------------------------------------------------------------
@@ -1792,10 +1674,6 @@ MSG_SD_READ_ERR
 
 MSG_CD_ERROR
 	.TEXT "   CD FAILED"
-	.BYTE 0
-
-MSG_VICE_DEBUG
-	.TEXT "   VICE DEBUG MODE"
 	.BYTE 0
 .enc "none"		; restore default encoding
 

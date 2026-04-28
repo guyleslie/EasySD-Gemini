@@ -416,7 +416,8 @@ ISR body, reducing total ISR execution time.
 - [ ] Compile succeeds with no warnings
 - [ ] Serial debug output works (57600 baud)
 - [ ] SD card init + file listing works
-- [ ] Self-test suite passes (8 tests)
+- [ ] Real C64 menu navigation works with Arduino serial logging enabled
+- [ ] HWTest plugin passes on real C64 hardware
 - [ ] Cold boot releases C64 to BASIC
 - [ ] SEL button triggers menu load
 - [ ] PRG loading works (small + large + P2TK path)

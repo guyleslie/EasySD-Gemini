@@ -1,9 +1,0 @@
-.include "Common/System.inc"
-.include "Common/IRQHack.inc"
-
-CARTRIDGENMIHANDLERX1 	= $80af
-CARTRIDGENMIHANDLERX4	= $80a0
-CARTRIDGENMIHANDLERX8 	= $808c
-
-;CARTRIDGE_BANK_VALUE	= $80FF			;On new roms
-CARTRIDGE_BANK_VALUE	= $80AB			;On old roms

@@ -6,7 +6,11 @@
 
 ## How to Read the Log Output
 
-Connect Arduino via USB at **57600 baud** (Arduino IDE Serial Monitor, or `python Tools/test_arduino_comm.py COM4`).
+Connect Arduino via USB at **57600 baud** while the cartridge runs in the C64. Use Arduino IDE Serial Monitor, PuTTY, or:
+
+```bash
+python Tools/build.py arduino-monitor COM4
+```
 
 Log lines have the format:
 
@@ -17,10 +21,7 @@ Log lines have the format:
 | Level  | Meaning |
 |--------|---------|
 | `ERR ` | Error — something failed |
-| `WARN` | Warning — degraded state |
 | `INFO` | Key state change (SD OK, file opened, dir changed) |
-| `DBG ` | Entry point / operation detail |
-| `TRC ` | Very verbose trace (rarely used) |
 
 | Category | What it covers |
 |----------|---------------|
@@ -37,18 +38,8 @@ Log lines have the format:
 [INFO][SYS] EasySD v2.1.0
 [INFO][SD]  SD OK
 [INFO][DIR] Changed to ROOT
-[DBG ][DIR] Prepare: / n=5
-[DBG ][FILE] HandleOpenFile
-[DBG ][FILE] fn: HELLO.PRG
 [INFO][FILE] File opened successfully
 [ERR ][SD]  SD recover FAIL
-```
-
-Self-test lines always start with `[T]` and are not affected by category settings:
-```
-[T] START
-[T] OPEN_RD_CL: PASS
-[T] END: 8/8 RAM:415->415
 ```
 
 ---
@@ -60,8 +51,8 @@ The Arduino Nano has only 30720 bytes of flash. All categories enabled at once e
 **Default (in `EasySDLog.h`):** SYS + SD + DIR + FILE + ERR are ON. PRG and PROTO are OFF.
 
 ```
-Debug build size: 30248 bytes (98%) — 472 bytes free
-Release build:    22714 bytes (73%) — no logging compiled in
+Debug build:   serial logging compiled in
+Release build: no logging compiled in
 ```
 
 To override, define flags **before** the `#include "EasySDLog.h"` line in your .ino or .cpp:

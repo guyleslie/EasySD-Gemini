@@ -114,7 +114,6 @@ CVD_SIZE = $8B
 	STA $D01A
 	STA $D015	
 
-	;JMP ZIBIRT				;For testing in VICE 
 	LDA #$35
 	STA $01
 	DELAYFRAMES 1

@@ -147,10 +147,10 @@ Macro usage is split into two levels:
 
 ## Testing and Debugging Notes
 
-The repository contains both hardware-oriented and emulator-oriented validation paths.
+The supported validation path is real C64 hardware with the Arduino connected over USB for serial logs.
 
-- VICE-side tests exist for menu behavior.
-- Some plugins have dedicated debug assets such as `WavPlayerViceTest.s`.
+- `deploy-debug.bat` builds release C64 software and Arduino debug firmware.
+- `python Tools/build.py arduino-monitor COM4` shows live firmware logs during real C64 operation.
 - Source contains hardware-sensitive paths where code inspection alone is not enough to declare final reliability.
 
 ---

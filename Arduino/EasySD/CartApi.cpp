@@ -73,15 +73,11 @@ void CartApi::Init() {
 }
 
 inline void HandleResponse(unsigned char response, uint16_t waitAfterResponse) {
-  #ifdef TEST_TERMINAL_MODE
-  Serial.write(response);
-  #else
   // Two leading SetPage(0) writes ensure the C64 sees a definite low→non-zero
   // edge on CARTRIDGE_BANK_VALUE before the response byte is latched.
   cartInterface.SetPage(0);
   cartInterface.SetPage(0);
   cartInterface.SetPage(response);
-  #endif
   if (waitAfterResponse!=0) delay(waitAfterResponse);
 }
 
@@ -411,9 +407,7 @@ void CartApi::HandleReadDirectory() {
     LOG_PRINT_F(" pages="); LOG_PRINTLN(pageCount);
 
     cartInterface.ResetIndex();
-    #ifndef TEST_TERMINAL_MODE  
     noInterrupts();
-    #endif
     
     cartInterface.TransmitByteFast(currentItemsCount);   
     cartInterface.TransmitByteFast(pageCount); 
@@ -445,11 +439,9 @@ void CartApi::HandleReadDirectory() {
       cartInterface.TransmitByteFast(0x00);    
     }
 
-    #ifndef TEST_TERMINAL_MODE 
     interrupts();
      
     delayMicroseconds(20);
-    #endif    
   }
 }
 
@@ -1289,161 +1281,7 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     } else {
       LOGE(SYS, "FILENOTFOUND!");
     }
-
-    //if (booter)   cartApi.HandleApi();
-
-    //SendTestProgramToSecondaryLoader();
 }
-
-#ifdef EASYSD_DEBUG_SERIAL
-// Serial communication function - only for DEBUG/development mode
-void CartApi::ReceiveFile() {
-  long startTransfer = millis();
-  cartInterface.EndListening();
-  cartInterface.EnableCartridge();
-  cartInterface.ResetC64();
-  cartInterface.ResetIndex();
-  delay(200);
-  unsigned int receivedCount = 0;
-  unsigned int dataLength = 0;
-  unsigned char low = 0;  
-  unsigned char high = 0;  
-  int endCondition = 0;
-  
-  while (receivedCount<4) {
-    //if ((millis() - startTransfer) > 10000) break;
-    if (Serial.available() > 0) {
-      if ((millis() - startTransfer) > 20000) break;
-      unsigned char data=Serial.read();    
-      if (receivedCount == 0) {
-        dataLength = data;
-      } else if (receivedCount == 1) {
-        dataLength = data * 256 + dataLength;
-      } else if (receivedCount == 2) {
-        low = data;
-      } else if (receivedCount == 3) {
-        high = data;
-      }
-      receivedCount++;
-    }
-  }
-
-  long transferLength = dataLength - 2;
-  long padBytes = (transferLength%256==0) ? 0 : 256 - transferLength%256; 
-  byte transferPages = (byte)(transferLength/256 + (padBytes>0 ? 1 : 0));  
-
-  cartInterface.ResetIndex();
-
-  SendHeader(low, high, transferPages, transferLength, TYPE_PRG_TRANSMISSION,cartInterface.TransferMode);  //End address is not specifically correct. Should be corrected in IrqHackSend program.
-  
-  receivedCount = 0;
-
-  cartInterface.ResetIndex();
-  #ifdef  USERAMLAUNCHER
-  SendLoaderStub();
-  #endif
-  
-  while (receivedCount<transferLength) {
-    //if ((millis() - startTransfer) > 10000) break;
-    
-    if (Serial.available() > 0) {    
-      //if ((millis() - startTransfer) > 10000) break;     
-      unsigned char data=Serial.read();    
-      cartInterface.TransmitByteFast(data); 
-      receivedCount++;      
-    }
-  }
-  
-  if ((millis() - startTransfer) < 10000) {
-    if (padBytes>0) {
-      for (int i=0;i<padBytes;i++) {    
-        cartInterface.TransmitByteFast(0xEA); 
-      }
-    }  
-  }
-  delayMicroseconds(20);
-  cartInterface.DisableCartridge();
-  cartInterface.StartListening();
-}
-#endif // EASYSD_DEBUG_SERIAL
-
-
-
-#ifdef EASYSD_DEBUG_SERIAL
-// Serial communication function - only for DEBUG/development mode
-void CartApi::UpdateFile() {
-  cartInterface.EndListening();
-  const size_t BUF_SIZE = 64;
-  uint8_t buf[BUF_SIZE];
-  long startTransfer = millis();
-
-  unsigned int receivedCount = 0;
-  unsigned int dataLength = 0;
-
-  char fileName[20];
-
-  int readByte = -1;  
-  unsigned char fileNameIndex = 0; 
-
-  while (readByte!=0) {
-      if ((millis() - startTransfer) > 20000) break;    
-      if (Serial.available()>0) {
-        readByte = Serial.read();
-        fileName[fileNameIndex] = readByte;
-        fileNameIndex++;
-      }
-  }
-
-  while (receivedCount<2) {
-    if (Serial.available() > 0) {
-      if ((millis() - startTransfer) > 20000) break;
-      unsigned char data=Serial.read();    
-      if (receivedCount == 0) {
-        dataLength = data;
-      } else if (receivedCount == 1) {
-        dataLength = data * 256 + dataLength;
-      } 
-      receivedCount++;
-    }
-  }
-
-  sd.remove(fileName);
-    File workingFile = sd.open(fileName, FILE_WRITE | O_CREAT);
-    if (workingFile != NULL) {
-
-      receivedCount = 0;
-      int bufferIndex = 0;
-      int padSize = dataLength % BUF_SIZE;
-      while (receivedCount<dataLength) {
-        if ((millis() - startTransfer) > 120000) {
-          LOGE(FILE, "Timed out");
-          break;
-        } else {        
-          if (Serial.available() > 0) {    
-            buf[bufferIndex] = Serial.read();    
-            bufferIndex++;
-            receivedCount++;      
-            if (bufferIndex == BUF_SIZE) {
-              workingFile.write(buf, BUF_SIZE);
-              bufferIndex = 0;
-            }
-          }
-        }
-      }
-
-      if (padSize>0) {
-        workingFile.write(buf, padSize);
-      }
-
-      workingFile.close();
-    } else  {
-      LOGE(FILE, "File open failed");
-    }  
-
-    cartInterface.StartListening();
-}
-#endif // EASYSD_DEBUG_SERIAL
-
 
 void CartApi::ResetNoCartridge() {
   cartInterface.ReleaseToBasic(true);

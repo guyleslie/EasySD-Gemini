@@ -71,11 +71,11 @@ not `Arduino/EasySD/build/arduino.avr.nano/EasySD.ino.hex`
 
 ## Issue 3: SD card fails to initialize on PCB (USB-only power)
 
-**Symptom:** 3× `SD init failed` at startup. Self-test `OPEN_RD_CL: FAIL`, `SEEK: FAIL`, `WR_DEL: FAIL`.
+**Symptom:** 3× `SD init failed` at startup; file operations failed after the card did not initialize.
 
 **Root cause:** SD module powered via Arduino Nano's 5V pin from USB. The Nano has a schottky diode between USB VBUS and the 5V pin → ~0.3–0.5V drop → SD module gets ~4.6V. Under SD write current spikes (~100mA, ~1µs), voltage dips below the SD module's AMS1117-3.3 regulator minimum → init fails, SPI errors.
 
-**SD card itself is fine:** FAT32, all test files present (`TESTDATA.BIN`, `TESTFILE.TXT`, `BIGFILE.BIN`, `TESTDIR/INNER.TXT`).
+**SD card itself is fine:** FAT32 and readable when powered correctly.
 
 **Fix: add external 5V to PCB 5V rail + proper decoupling at SD module**
 
@@ -103,7 +103,7 @@ External 5V ──────────────────────�
 
 ## PCB v3 + C64 hardware test results (2026-04-05/06)
 
-**Hardware self-test (debug firmware, COM4):** 8/8 PASS — SD_INIT, OPEN_RD_CL, SEEK, OPEN_NOEX, WR_DEL, MEM_STAB, ROOT_LIST, DIR_NAV. RAM: 413B free (stable).
+**Legacy on-device self-test snapshot (debug firmware, COM4):** 8/8 PASS — SD_INIT, OPEN_RD_CL, SEEK, OPEN_NOEX, WR_DEL, MEM_STAB, ROOT_LIST, DIR_NAV. RAM: 413B free (stable). The standalone self-test firmware path has since been removed; current bring-up uses real C64 operation plus Arduino serial logs.
 
 **Full system test (release firmware, real C64):** historical session snapshot from an earlier menu-autoload firmware run:
 - Cold boot: EasySD menu auto-loads ✅
