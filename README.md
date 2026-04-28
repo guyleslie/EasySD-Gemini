@@ -228,18 +228,6 @@ EasySD has two cooperating halves:
 
 See [docs/architecture/CARTRIDGE_PROTOCOL.md](docs/architecture/CARTRIDGE_PROTOCOL.md) for hardware and timing details.
 
-**Build targets:**
-```bash
-python Tools/build.py release           # Full release bundles (release/upload/sd-content)
-python Tools/build.py debug-vice        # C64 only, VICE emulator, mock data
-python Tools/build.py debug-arduino     # Full debug with Arduino serial logging
-python Tools/build.py arduino-compile   # Arduino compile + staged upload bundle
-python Tools/build.py sd-content        # Rebuild staged SD package only
-python Tools/build.py plugins           # Rebuild plugins only
-python Tools/build.py clean             # Remove all build artifacts
-python Tools/test_vice_menu.py --build --verbose   # Automated VICE test suite
-```
-
 </details>
 
 ---
