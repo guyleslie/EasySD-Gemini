@@ -234,6 +234,6 @@ See [docs/architecture/CARTRIDGE_PROTOCOL.md](docs/architecture/CARTRIDGE_PROTOC
 
 ## Credits
 
-EasySD Gemini is a major rewrite of the original **IRQHack64** project. The original hardware concept and cartridge design come from the IRQHack64 community. This version adds SdFat 2.x support, a Python build system, KernalBridge KERNAL compatibility layer, better plugin architecture, upsated CVD video playback, and extensive automated testing.
+EasySD Gemini is a major rewrite of the original **IRQHack64** project. The original hardware concept and cartridge design come from the IRQHack64 community. This version adds SdFat 2.x support, a Python build system, KernalBridge KERNAL compatibility layer, better plugin architecture, updated CVD video playback.
 
 Hardware design: **GuyLeslie** (EasyEDA, 2025)
