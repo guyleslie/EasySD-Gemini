@@ -261,14 +261,14 @@ uint16_t CartInterface::Read() {
 }
 
 void CartInterface::IOSetup() {
-  // Cold boot: hold C64 in /RESET while AVR initializes SD + runtime.
-  // EXROM stays HIGH (cartridge hidden). Data bus stays INPUT (tristate).
-  // The boot state machine in setup() releases /RESET after init is complete,
-  // letting C64 boot to BASIC. Menu is loaded only on explicit SEL press.
-  // Keep RESET as a push-pull output so cold boot can drive the C64 reset
-  // line HIGH decisively after init. NMI remains open-collector style.
+  // irqhack-style cold boot: do NOT hold C64 in /RESET. The C64 cold-boots
+  // from its own RC reset (~50 ms); AVR catches up on its own timeline. By
+  // the time IOSetup() runs (~70 ms after AVR Vcc valid), the C64's 556 has
+  // already released /RESET HIGH, so AVR driving HIGH causes no contention.
+  // EXROM stays HIGH (cartridge hidden) and data bus stays INPUT (tristate)
+  // so the C64 reaches BASIC normally. Menu loads only on explicit SEL press.
   pinMode(RESET, OUTPUT);
-  digitalWrite(RESET, LOW);
+  digitalWrite(RESET, HIGH);
 
   NmiHigh();
 
@@ -321,10 +321,10 @@ bool CartInterface::WaitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs
 
 void CartInterface::Init() {
   IOSetup();
-  // IOSetup() holds /RESET LOW (C64 in reset) and sets EXROM HIGH (cartridge hidden).
-  // Data bus pins start as INPUT (tristate). SetAddressPinsOutput() must NOT be
-  // called here to avoid bus contention. The boot state machine in setup()
-  // releases /RESET via ResetHigh() after SD + runtime init, booting C64 to BASIC.
+  // IOSetup() drives /RESET HIGH (released, irqhack-style) and EXROM HIGH
+  // (cartridge hidden). Data bus pins remain INPUT (tristate);
+  // SetAddressPinsOutput() must NOT be called here to avoid bus contention.
+  // The C64 cold-boots to BASIC on its own RC reset while AVR initializes SD.
 }
 
 
@@ -421,29 +421,6 @@ void CartInterface::EnterBasicSafeMode() {
   detachInterrupt(digitalPinToInterrupt(IO2));
   ResetReceive();
   DisableCartridge();
-}
-
-void CartInterface::ReleaseColdBootToBasic() {
-  EnterBasicSafeMode();
-
-  // /RESET has been held LOW since IOSetup(). Fire a single clean rising
-  // edge via ResetC64(): starting from LOW, ResetC64() = ResetLow(1ms) +
-  // ResetHigh() which from an already-LOW state is simply a 1ms additional
-  // LOW dwell followed by one verified LOW→HIGH transition.  The C64 boots
-  // exactly once from this edge.
-  //
-  // Rationale: the previous ResetHigh()+delay(300)+ResetC64() approach caused
-  // the C64 to boot twice — once from ResetHigh() (garbled BASIC, interrupted)
-  // and once from ResetC64() (300ms later).  This was visible as a garbled
-  // screen followed by 1-2 seconds of delay before clean BASIC appeared, and
-  // caused occasional freeze when the second ResetC64() pulse also failed.
-#ifdef EASYSD_DEBUG_SERIAL
-  Serial.print(F("[BOOT] ReleaseCold start t=")); Serial.println(millis());
-#endif
-  ResetC64();
-#ifdef EASYSD_DEBUG_SERIAL
-  Serial.print(F("[BOOT] ResetC64 done t=")); Serial.println(millis());
-#endif
 }
 
 void CartInterface::ReleaseToBasic(bool pulseReset) {

@@ -12,17 +12,9 @@ DirFunction dirFunc;
 CartApi cartApi;
 CartInterface cartInterface;
 
-// Boot state machine — cold boot holds C64 in /RESET until AVR is fully ready,
-// then releases to BASIC. Menu is only loaded on explicit SEL button press.
-enum BootState : uint8_t {
-  BOOT_HOLD_RESET,      // C64 held in /RESET, AVR starting
-  BOOT_INIT_SD,         // Initializing SPI + SD card
-  BOOT_INIT_RUNTIME,    // cartApi.Init() — directory setup
-  BOOT_RELEASE_BASIC,   // Release C64 to BASIC (cartridge hidden)
-  RUNNING_READY,        // Fully operational, waiting for SEL press
-  BOOT_ERROR            // SD init failed, C64 released to BASIC
-};
-
+// irqhack-style cold boot: AVR does NOT hold C64 in /RESET. The C64 cold-boots
+// to BASIC on its own RC; AVR initializes SD in parallel and is ready by the
+// time the user presses SEL. Menu loads only on explicit SEL press.
 const unsigned char stateNone = 0;
 const unsigned char statePressed = 1;
 
@@ -30,7 +22,6 @@ unsigned char state = stateNone;
 unsigned long pressTimeMs = 0;
 unsigned long buttonEnableAtMs = 0;
 bool runtimeReady = false;
-static BootState bootState = BOOT_HOLD_RESET;
 bool selStableReleased = true;
 bool selCandidateReleased = true;
 unsigned long selCandidateSinceMs = 0;
@@ -182,11 +173,13 @@ void printSDStatus(bool sdInitSuccess) {
 }
 
 void setup() {
-  cartInterface.Init();   // IOSetup: EXROM=HIGH, /RESET=LOW — C64 held in reset
+  // IOSetup leaves /RESET HIGH (released) and EXROM HIGH (cartridge hidden).
+  // The C64 boots to BASIC from its own RC reset while AVR initializes SD.
+  cartInterface.Init();
 
   LOG_BEGIN(57600);
   printStartupBanner();
-  LOGI(SYS, "Boot: hold reset");
+  LOGI(SYS, "Boot: irqhack-style (no reset hold)");
 
   pinMode(chipSelect, OUTPUT);
   digitalWrite(chipSelect, HIGH);
@@ -196,49 +189,21 @@ void setup() {
   // which is only called on explicit SEL button press, not at boot.
   cartInterface.ResetReceive();
 
-  // SD card power-up settling time. Without a bootloader the AVR reaches this
-  // point within ~1ms of power-on; SD cards need up to 300ms before accepting
-  // SPI commands (SD Physical Layer spec, section 6.4.1).
+  // SD Physical Layer spec section 6.4.1: cards need up to 300ms after power-up
+  // before accepting SPI commands. C64 boots to BASIC in parallel during this wait.
   delay(300);
 
   LOGI(SYS, "Boot: init SD");
-  bootState = BOOT_INIT_SD;
   bool sdOk = initSD();
   printSDStatus(sdOk);
 
   if (sdOk) {
-    // Release C64 to BASIC BEFORE cartApi.Init() so the C64 boot edge happens
-    // while the SPI/SD bus is completely idle (no directory scan in progress).
-    // cartApi.Init() runs immediately after, still in setup(), well within the
-    // 500ms boot-guard window before SEL can fire.
-#ifdef EASYSD_DEBUG_SERIAL
-    Serial.print(F("[BOOT] pre-release t=")); Serial.println(millis());
-#endif
-    LOGI(SYS, "Boot: release to BASIC");
-    bootState = BOOT_RELEASE_BASIC;
-    cartInterface.ReleaseColdBootToBasic();
-#ifdef EASYSD_DEBUG_SERIAL
-    Serial.print(F("[BOOT] post-release t=")); Serial.println(millis());
-#endif
-
-    LOGI(SYS, "Boot: init runtime");
-    bootState = BOOT_INIT_RUNTIME;
     cartApi.Init();
     runtimeReady = true;
-
-    bootState = RUNNING_READY;
     LOGI(SYS, "Boot: ready (BASIC)");
     logRamBudget(F("Ready"));
   } else {
-    // SD failed: release C64 to BASIC so the user isn't stuck at a black screen.
-    // Use the cold-boot release path here too — same long-LOW-dwell condition.
-    // SEL button will retry SD init + TransferMenu on press.
-#ifdef EASYSD_DEBUG_SERIAL
-    Serial.print(F("[BOOT] SD-fail pre-release t=")); Serial.println(millis());
-#endif
-    cartInterface.ReleaseColdBootToBasic();
-    bootState = BOOT_ERROR;
-    LOGE(SYS, "Boot: SD fail, released");
+    LOGE(SYS, "Boot: SD fail");
   }
 
   suppressButtonsFor(BUTTON_BOOT_GUARD_MS);
@@ -273,7 +238,6 @@ void loop() {
           LOGI(SYS, "SEL press -> menu");
           if (ensureRuntimeReady()) {
             cartApi.TransferMenu();
-            bootState = RUNNING_READY;
           }
         }
         suppressButtonsFor(BUTTON_POST_ACTION_GUARD_MS);
