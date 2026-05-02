@@ -48,8 +48,8 @@ START
 	
 	LDA #00						; Change border colour to
 	STA BORDER					; Black
-	LDA #147					; PRINT CHR$(147) 
-	JSR CHROUT					; to clear Screen			
+	LDA #$93					; PETSCII clear screen (same as BASIC PRINT CHR$(147))
+	JSR CHROUT
 	
 	LDY #$7f					; $7f = %01111111 
 	STY $dc0d					; Turn off CIAs Timer interrupts 
