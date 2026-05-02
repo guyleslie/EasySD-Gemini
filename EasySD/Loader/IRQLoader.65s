@@ -238,16 +238,17 @@ NMITAB
 	
 	*=$80FF
 P12
-	NOP							; #Actual value of $EA will be the currently switched bank number of cartridge
+	NOP							; EPROM page-value placeholder patched by Tools/build.py
 ; Performance summary 
 ; 44kb file is 176 blocks (4 * STARTNMI is insignificant)
 ; =~ 45056 NMI + 176 IRQ
 ; 45056 * (20 + 5) + 176 * 30 = 1.126.400 + 1.280 = 1.131.680 which translates to 1.15 seconds on a pal machine.
 
-; !!!!!! IMPORTANT!!!!!!! 
-; Actual values of PLACEHOLDER1 and PLACEHOLDER2 should be looked up from build\64IRQTransferSoftNewForC64Fast.txt
-; and below line in CartridgeSuperFastNew.bat should be edited for the eprom bin file to be correctly built.
-;..\tools\CreateEpromLoader build\64IRQTransferSoftNewForC64Fast.65s.bin build\64IRQTransferSoftNewForC64FastLoader.bin 131 162
+; EPROM build note:
+; PLACEHOLDER1..12 mark bytes patched with the selected ROM page value when
+; Tools/build.py expands this 256-byte template into build/IRQLoaderRom.bin.
+; 64tass writes these offsets to build/symbol/IRQLoader.txt; no batch file or
+; manual CreateEpromLoader argument update is needed.
 PLACEHOLDER1 = (P1 + 1) - START
 PLACEHOLDER2 = (P2 + 1) - START
 PLACEHOLDER3 = (P3 + 1) - START

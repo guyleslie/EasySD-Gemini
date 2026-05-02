@@ -486,6 +486,49 @@ def create_eprom_loader(input_file: Path, output_file: Path, positions: list[int
     output_file.write_bytes(eprom_data)
 
 
+def parse_64tass_int(value: str) -> int:
+    value = value.strip()
+    if value.startswith("$"):
+        return int(value[1:], 16)
+    return int(value, 0)
+
+
+def read_irq_loader_placeholder_positions(label_file: Path) -> list[int]:
+    """
+    Read IRQLoader PLACEHOLDER offsets from the 64tass labels file.
+
+    IRQLoader.65s marks every byte that must be patched with the selected
+    ROM page value when expanding the 256-byte template into IRQLoaderRom.bin.
+    Keeping this derived from labels prevents stale EPROM patch offsets after
+    small loader layout changes.
+    """
+    if not label_file.exists():
+        raise SystemExit(f"ERROR: Missing IRQLoader labels file: {label_file}")
+
+    symbols: dict[str, int] = {}
+    pattern = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^\s;]+)")
+    for line in label_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+        m = pattern.match(line.strip())
+        if m:
+            symbols[m.group(1)] = parse_64tass_int(m.group(2))
+
+    names = [f"PLACEHOLDER{i}" for i in range(1, 13)]
+    missing = [name for name in names if name not in symbols]
+    if missing:
+        raise SystemExit(
+            f"ERROR: Missing IRQLoader placeholder symbols in {label_file}: {', '.join(missing)}"
+        )
+
+    positions = [symbols[name] for name in names]
+    invalid = [pos for pos in positions if pos < 0 or pos > 255]
+    if invalid:
+        raise SystemExit(
+            f"ERROR: IRQLoader placeholder offsets must be in 0..255: {invalid}"
+        )
+
+    return positions
+
+
 
 # ============================================================================
 # Prebuild Checks
@@ -644,8 +687,9 @@ def build_core(ctx: Context, *, build_arduino: bool, arduino_debug: int, menu_pr
 
         irq_src = ctx.irq_root / "Loader" / "IRQLoader.65s"
         irq_bin = ctx.build_dir / "IRQLoader.65s.bin"
+        irq_labels = ctx.sym_dir / "IRQLoader.txt"
         print(f"[CORE] 64tass: {irq_src.relative_to(ctx.irq_root)}")
-        run_cmd([tass, "-c", "-b", str(irq_src), "-o", str(irq_bin), "--labels", str(ctx.sym_dir / "IRQLoader.txt")], cwd=ctx.irq_root)
+        run_cmd([tass, "-c", "-b", str(irq_src), "-o", str(irq_bin), "--labels", str(irq_labels)], cwd=ctx.irq_root)
 
         warn_src = ctx.irq_root / "Menu" / "WarningMenu" / "Warning.s"
         warning_prg = ctx.build_dir / "warning.prg"
@@ -681,7 +725,7 @@ def build_core(ctx: Context, *, build_arduino: bool, arduino_debug: int, menu_pr
             print(f"WARNING: Arduino target dir not found: {ctx.arduino_root}")
 
         eprom_out = ctx.build_dir / "IRQLoaderRom.bin"
-        eprom_pos = [171, 166, 103, 141, 121, 151, 146, 161, 156, 195, 176, 255]
+        eprom_pos = read_irq_loader_placeholder_positions(irq_labels)
         create_eprom_loader(irq_bin, eprom_out, eprom_pos)
 
         print("[CORE] Arduino/EPROM artifacts generated.")
