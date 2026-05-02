@@ -339,7 +339,8 @@ goes through USB serial — the SAMD11 converts to UPDI protocol.
 
 **This is NOT a bootloader on the ATmega4809 itself.** UPDI holds the chip in reset
 during programming — there is no startup delay window like a traditional bootloader.
-The EasySD cold-boot sequence (AVR holds C64 /RESET during init) is unaffected.
+The EasySD cold-boot sequence (IRQHack64-style: AVR does not hold C64 `/RESET`,
+the C64 cold-boots from its own RC) is unaffected.
 
 | Property | ISP (328P) | UPDI (4809) |
 |----------|------------|-------------|

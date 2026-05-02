@@ -53,7 +53,7 @@ The cartridge has two parts working together:
 
 When you select a file, the menu loads the matching plugin from the SD card's `/PLUGINS/` folder, which handles playback or display. This keeps the ROM small and lets new file types be added without reprogramming the cartridge ROML chip.
 
-**Boot sequence:** The Arduino holds the C64 in reset while initialising the SD card and runtime state. On true cold boot, the firmware now waits for stable PHI2 activity and a short guard interval before releasing `/RESET`. After that, it returns the cartridge interface to a BASIC-safe idle state and releases the C64 to normal BASIC startup.
+**Boot sequence:** IRQHack64-style — the Arduino does **not** hold the C64 in reset. On power-on, the cartridge interface is configured for BASIC-safe idle (`/RESET` HIGH, `/EXROM` HIGH, data bus tristate) and the C64 cold-boots to BASIC on its own RC reset. The Arduino initialises the SD card in parallel, ready by the time the user presses SEL. The menu is loaded only on an explicit SEL press, never automatically at boot.
 
 **SEL button policy:** A short press opens the EasySD menu. A long press returns the machine to BASIC. In the current firmware a press is treated as "long" only when the button is released strictly after the 1000 ms threshold.
 

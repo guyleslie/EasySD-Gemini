@@ -1,6 +1,6 @@
 # EasySD Development Roadmap
 
-Last updated: 2026-04-26 (post hybrid PRG launch fix)
+Last updated: 2026-05-02 (post IRQHack64-style cold-boot fix)
 
 This file is the short planning view of the project. It tracks the current source-backed
 state and the next planned work. Historical debugging transcripts live under `docs/archive/`.
@@ -12,11 +12,12 @@ state and the next planned work. Historical debugging transcripts live under `do
 The following are directly supported by the current codebase and confirmed on real hardware
 during the 0.7 cleanup pass:
 
-- Cold boot does not auto-load the menu. `setup()` initializes SD/runtime, then calls
-  `ReleaseColdBootToBasic()` so the C64 comes up in BASIC. The release path calls
-  `ResetC64()` directly from the already-LOW `/RESET` state: 1 ms additional LOW dwell
-  then a single LOW→HIGH rising edge — the C64 boots exactly once from that edge.
-  `cartApi.Init()` runs after release. Menu transfer happens only on an explicit short `SEL` press in `loop()`.
+- Cold boot does not auto-load the menu and does not hold the C64 in reset.
+  `IOSetup()` drives `/RESET` HIGH from the start (IRQHack64-style); the C64
+  cold-boots to BASIC on its own RC reset while `setup()` initializes SD and
+  `cartApi.Init()` in parallel. Menu transfer happens only on an explicit short
+  `SEL` press in `loop()`. Verified on real uEliteBoard64 (uni64.com) hardware (2026-05-02);
+  see `docs/COLD_BOOT_FAILURE_RETROSPECTIVE.md` for the diagnostic history.
 - `TransferMenu()` prefers `EASYSD.PRG` from the SD card root and falls back to built-in
   `cartridgeData` if the file is not present.
 - Directory handling uses the firmware CWD as the source of truth, with `currentPath` kept

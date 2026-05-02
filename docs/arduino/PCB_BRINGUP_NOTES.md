@@ -205,12 +205,12 @@ where the C64 is already running and CBM80 is not a concern.
 
 ---
 
-## Current firmware state (updated 2026-04-26)
+## Current firmware state (updated 2026-05-02)
 
-The current firmware model is **BASIC-first on cold boot**:
-- Power-on: AVR holds C64 `/RESET` LOW during SD/runtime init
-- Release: firmware returns the cartridge interface to a BASIC-safe idle state
-- Result: C64 boots to BASIC, not directly to the menu
+The current firmware model is **IRQHack64-style** cold boot:
+- Power-on: AVR does **not** hold C64 `/RESET`. `IOSetup()` drives `/RESET` HIGH from the start; the C64 cold-boots on its own RC reset.
+- AVR runs `delay(300)` + `initSD()` + `cartApi.Init()` in parallel with the C64 cold boot.
+- Result: C64 boots to BASIC. Menu loads only on explicit SEL press.
 - Short MENU/SEL press: `TransferMenu()`
 - Long MENU/SEL press: release strictly after the 1000 ms threshold → `ResetNoCartridge()` → BASIC
 
@@ -220,30 +220,30 @@ Recent firmware cleanups on top of the earlier bus fixes:
 |---|---|
 | Data bus tristate at idle | C64 no longer freezes on power-on with PCB inserted |
 | Data bus tristate during CBM80 window | cartridge ROML chip can present CBM80 + NMI handler correctly |
-| Reset line changed to active push-pull drive | cold-boot BASIC release no longer depends on the AVR internal pull-up |
-| BASIC-safe release path centralized | cold boot and long-press BASIC reset now use the same cartridge-hidden/session-reset path |
 | Data bus latch clear before INPUT | "tristate" state no longer leaves weak pull-ups on the C64 data bus |
-| Dedicated cold-boot BASIC release path | release `/RESET` HIGH, 50 ms HIGH dwell, then warm-style `ResetC64()` pulse — C64 boots from the second short LOW→HIGH edge instead of a single edge after a multi-second LOW dwell |
+| **IRQHack64-style cold boot** (2026-05-02) | AVR no longer drives `/RESET` LOW during init; `BootState`/`ReleaseColdBootToBasic` removed. C64 cold-boots from its own RC reset, AVR catches up. Resolves the "BASIC text, no cursor" cold-boot symptom. |
 
 **Verified boot behaviour (cartridge ROML chip installed):**
 
 | Action | Result |
 |---|---|
-| Cold boot (C64 + Arduino power on together) | Intended behavior: C64 boots to BASIC after AVR init |
+| Cold boot (C64 + Arduino power on together) | C64 boots to BASIC with blinking cursor on its own RC reset; AVR ready by the time the user can press SEL |
 | Short MENU button press (≤1000 ms) | C64 resets, EasySD menu loads |
 | Long MENU button press (>1000 ms) | `ResetNoCartridge()` — C64 resets to BASIC |
 | Cold boot without cartridge ROML chip | BASIC `READY.` — no freeze; MENU button resets to BASIC only |
 
 **Arduino module caveat:** A Nano 3.x can still pass ISP write/verify and yet fail in EasySD runtime use. Bench testing has already shown one long-used Nano that programmed successfully but would not bring up the C64 screen in EasySD, while a different Nano with the same firmware worked correctly on the same PCB. So "ISP verify passed" must not be treated as proof that the Nano is healthy for EasySD timing and I/O use.
 
+**Hardware co-requirement (uEliteBoard64 (uni64.com) verified):** parasitic loads on the C64 power rail (Pi1541, IEC2SD, etc.) destabilize cold boot independently of firmware. The IRQHack64-style boot fix was verified after removing a Pi1541 from the C64 power rail. Test cold-boot regressions with no auxiliary devices first.
+
 Current startup policy:
 - Cold boot always targets BASIC first; menu is explicit, not automatic.
-- True cold boot release uses a single-edge path: `ResetC64()` called directly from the already-LOW `/RESET` state — 1 ms additional LOW dwell then one LOW→HIGH rising edge. The C64 boots exactly once from that edge.
+- AVR does not drive `/RESET` LOW during cold boot. The C64 cold-boots from its own ~50 ms RC reset.
 - Menu loads from root when invoked.
 - Do not restore the saved last directory during `CartApi::Init()`.
 - MCU internal EEPROM is not part of the active boot/navigation path.
 
-**Flash:** 23172 / 30720 B (75%, 7548 B free). **RAM:** 1492 / 2048 B (72%, 556 B free).
+**Flash:** 22958 / 30720 B (74%, 7762 B free). **RAM:** 1492 / 2048 B (72%, 556 B free).
 
 ### Hardware caveat observed after repeated bench use
 
@@ -270,34 +270,44 @@ Practical workflow:
 - any boot-time symptom — black screen, no cursor, dead SEL, cyclic SCK LED blink — should be reproduced both **before and after** lifting/reseating the cartridge before being attributed to firmware
 - a second, less-worn PCB (or refurbished edge contacts) is needed before any further /RESET-policy experiments will produce trustworthy real-hardware results
 
-#### 2026-04-26: double-edge release (intermediate finding — superseded)
+#### 2026-04-26 / 2026-04-27: edge-release variants (superseded)
 
-After verifying PCB contacts, a double-edge path was tried and appeared to work:
-`ResetHigh()` → `delay(50)` → `ResetC64()`. Serial monitoring later revealed this
-caused the C64 to boot **twice**: once from the intermediate `ResetHigh()` (garbled
-screen, interrupted) and again from `ResetC64()` 300 ms later.
+Two intermediate firmware variants were tried after the contact-wear finding:
+a double-edge release (`ResetHigh()` → `delay(50)` → `ResetC64()`) and a single
+direct `ResetC64()` from an already-LOW `/RESET` state. Both stayed inside the
+"AVR holds /RESET LOW during boot" paradigm and both ultimately produced the
+"BASIC text, no cursor" symptom on cold boot with an SD card present, against
+the test C64 (uEliteBoard64 (uni64.com)) when a Pi1541 was attached to its power rail.
+Both variants are superseded by the IRQHack64-style boot below.
 
-#### 2026-04-27 update: single-edge release confirmed working
+#### 2026-05-02: IRQHack64-style cold boot — current working baseline
 
-The double-edge approach was replaced with a direct `ResetC64()` call from the
-already-LOW `/RESET` state:
+Comparing the codebase against the original IRQHack64 firmware
+(https://github.com/nejat76/IRQHack64) revealed three architectural divergences:
 
-```cpp
-EnterBasicSafeMode();
-ResetC64();     // from LOW: 1ms additional LOW dwell + single LOW→HIGH edge
-```
+1. EasySD held C64 `/RESET` LOW for 470–1000 ms during AVR init; IRQHack64
+   never holds `/RESET` LOW.
+2. EasySD wires PHI2 to A4 and reads it for bus-change synchronization;
+   IRQHack64 does not wire PHI2 at all.
+3. EasySD tristates the data bus when the cartridge is "disabled";
+   IRQHack64 keeps the data bus driven (relies on EXROM HIGH to hide it).
 
-From an already-LOW state, `ResetC64()` = `ResetLow(1ms)` + `ResetHigh()` — which
-is simply a 1 ms additional LOW dwell followed by one clean rising edge. The C64
-boots exactly once. Serial monitoring confirmed single boot, clean BASIC, blinking
-cursor immediately after the edge.
+`IOSetup()` was reverted to drive `/RESET` HIGH from the start. The boot state
+machine (`BootState` enum, `ReleaseColdBootToBasic()`) was removed. `setup()`
+now simply does SD init and `cartApi.Init()`; the C64 cold-boots in parallel
+on its own RC reset.
 
-**Current result on the present bench configuration:**
+**Verified result on uEliteBoard64 (uni64.com) (2026-05-02, both debug and release builds):**
 - every cold boot reaches BASIC with a visible, blinking cursor — single boot
 - warm boot stable
 - SEL button remains functional in both cases
-- the SD-fail branch in `setup()` uses the same `ReleaseColdBootToBasic()` so the
-  long-LOW-dwell condition is handled identically there
+- on SD failure the C64 is already in BASIC (no AVR-driven release needed); SEL retries SD init
+
+**Hardware co-requirement uncovered during validation:** a Pi1541 (Raspberry Pi
+Zero) attached to the C64 power rail of the test uEliteBoard64 (uni64.com) was parasitic
+load that contributed to cold-boot instability. Removing it was a co-required
+fix alongside the IRQHack64-style firmware revert. For any future cold-boot
+regression report: power down all auxiliary devices on the C64 first.
 
 ---
 

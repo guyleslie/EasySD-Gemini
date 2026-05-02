@@ -17,27 +17,32 @@ The C64 initiates operations. The Arduino responds, manages filesystem access, a
 
 ## Cold Boot Sequence
 
-EasySD uses a state machine in `setup()` / `loop()` with these states:
+EasySD uses **IRQHack64-style** cold boot: the AVR does NOT hold the C64 in reset.
+`IOSetup()` drives `/RESET` HIGH from the start, EXROM HIGH (cartridge hidden), and
+leaves the data bus as INPUT (tristate). The C64 cold-boots to BASIC on its own
+RC reset (~50 ms) while `setup()` runs `delay(300)` + `initSD()` + `cartApi.Init()`
+in parallel. By the time the user can press SEL, runtime is ready.
 
-| State | Action |
-|-------|--------|
-| `BOOT_HOLD_RESET` | `Init()` drives `/RESET` LOW immediately; EXROM latched HIGH before enabling output; NMI deasserted; IO2 interrupt not yet attached |
-| `BOOT_INIT_SD` | 300 ms SD power-up delay, then `initSD()` — up to 3 attempts with 200 ms retry |
-| `BOOT_INIT_RUNTIME` | `cartApi.Init()` — opens root directory, prepares `dirFunc` |
-| `BOOT_RELEASE_BASIC` | `ReleaseColdBootToBasic()` — see below |
-| `RUNNING_READY` | Idle; SEL button polling active |
-| `BOOT_ERROR` | SD init failed; C64 is still released to BASIC via the same path; SEL retries |
+Sequence in `setup()`:
 
-`ReleaseColdBootToBasic()` issues a **single clean rising edge**:
+1. `cartInterface.Init()` → `IOSetup()`: `/RESET=HIGH`, EXROM=HIGH, NMI=HIGH (deasserted), IO2/PHI2 INPUT, data bus tristate.
+2. `delay(300)` — SD card power-up settling time (SD Physical Layer spec § 6.4.1).
+3. `initSD()` — up to 3 attempts with 200 ms retry.
+4. On success: `cartApi.Init()` → `dirFunc.ReInit()` + `Prepare()`; `runtimeReady = true`.
+5. On failure: log error; the C64 is already in BASIC, SEL can retry SD init.
 
-1. `EnterBasicSafeMode()` — detaches IO2 ISR, asserts EXROM HIGH, tristates data bus
-2. `ResetC64()` — from the already-LOW `/RESET` state: 1 ms additional LOW dwell, then a single LOW→HIGH rising edge
+There is no boot state machine and no `ReleaseColdBootToBasic()` call any more —
+both were removed when the IRQHack64-style cold boot was adopted on 2026-05-02.
+See `docs/COLD_BOOT_FAILURE_RETROSPECTIVE.md` for the diagnostic history.
 
-The C64 boots exactly once from that edge. An earlier double-edge approach (`ResetHigh` + `delay(300)` + `ResetC64`) caused the C64 to boot twice — garbled screen followed by a clean boot 300 ms later — and was replaced on 2026-04-27.
+> **EXROM at boot:** `IOSetup()` latches EXROM HIGH *before* enabling the EXROM
+> output pin (`PORTD |= _BV(PD2)` then `DDRD |= _BV(PD2)`) — no /EXROM glitch.
+> The C64 sees no cartridge until `EnableExromOnly()` is called from `TransferMenu()`.
 
-> **EXROM at boot:** `Init()` latches EXROM HIGH *before* enabling the EXROM output pin
-> (`PORTD |= _BV(PD2)` then `DDRD |= _BV(PD2)`) — no /EXROM glitch. The C64 sees no
-> cartridge until `EnableExromOnly()` is called from `TransferMenu()`.
+> **Hardware co-requirement:** parasitic loads on the C64 power rail (Pi1541,
+> IEC2SD, etc.) can destabilize cold boot independently of firmware. Verified on
+> uEliteBoard64 (uni64.com) — removing a Pi1541 from the C64 power was a co-required fix
+> alongside the IRQHack64-style boot.
 
 SEL button (A6, analog-only, 10 kΩ pull-up to +5V):
 

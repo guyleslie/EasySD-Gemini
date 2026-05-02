@@ -101,14 +101,14 @@ For PRGs that load into `$C000+` (trigger: `ENDADDRESS > $C002`):
 ## Arduino Firmware
 
 ### Architecture
-- **Entry point**: `Arduino/EasySD/EasySD.ino` — setup/loop, SD init (3 attempts), cold-boot BASIC release state machine
+- **Entry point**: `Arduino/EasySD/EasySD.ino` — setup/loop, SD init (3 attempts). IRQHack64-style cold boot: AVR does NOT hold C64 `/RESET`; the C64 cold-boots from its own RC reset while AVR initializes SD in parallel.
 - **Command routing**: `CartApi.cpp` — all COMMAND_* handlers; new commands registered here
 - **Directory navigation**: `DirFunction.cpp` — `currentPath[64]`, relative-path navigation
 - **C64 communication**: `CartInterface.cpp` — NMI transfer, IO2 ISR, software serial receive
 - **Pin definitions**: `CartInterface.h` — IO2=D3(INT1), EXROM=D2(PD2), NMI=D8, RESET=D9, SEL=A6, STATUS_LED=A7
 
 Current firmware behavior from source:
-- Cold boot holds the C64 in reset during AVR startup, then releases to BASIC through `ReleaseColdBootToBasic()` — calls `ResetC64()` directly from the already-LOW `/RESET` state, producing a single clean LOW→HIGH rising edge. The C64 boots exactly once from that edge. `cartApi.Init()` runs after release.
+- Cold boot is IRQHack64-style: `IOSetup()` drives `/RESET` HIGH from the start (no AVR-held reset). The C64 cold-boots to BASIC on its own ~50 ms RC reset; AVR runs `delay(300)` + SD init + `cartApi.Init()` in parallel. By the time the user can press SEL, runtime is ready.
 - `TransferMenu()` is called only on explicit short `SEL` press, not automatically at boot.
 - `CartApi::Init()` resets directory state to root via `dirFunc.ReInit()` and `dirFunc.Prepare()`.
 - After PRG launch transfers, the firmware closes the file, disables the cartridge, re-initializes runtime state, and resumes listening.
@@ -180,7 +180,7 @@ dirFunc.ForceReset();
 ### Hardware Notes (PCB v3)
 - **Pin swap vs breadboard**: IO2=D3 (INT1), EXROM=D2 (PD2). Previously IO2=D2/INT0. PIND bitmask: IO2→0x08
 - **SEL button**: A6 (analog-only — no `digitalRead`). Debounced in `EasySD.ino` with separate press/release thresholds. Release at or before the 1000 ms threshold → `TransferMenu()`. Release strictly after 1000 ms → `ResetNoCartridge()`.
-- **Cold boot policy**: AVR holds C64 `/RESET` LOW during startup, then releases to BASIC through a centralized BASIC-safe idle path. Menu is not auto-loaded on cold boot.
+- **Cold boot policy**: IRQHack64-style — AVR does NOT drive `/RESET` LOW during startup. C64 cold-boots from its own RC reset; AVR initializes SD in parallel. Menu is not auto-loaded on cold boot. **Verified co-required**: parasitic loads on the C64 power rail (Pi1541, IEC2SD on uEliteBoard64 (uni64.com)) must be removed for a stable cold boot.
 - **STATUS_LED**: A7 (NC on PCB — LED is hardware-driven from cartridge 5V rail, always on when powered)
 - **Data bus**: D4-D7 + A0-A3 (PORTD[4:7]/PORTC[0:3]) drive the C64 data bus only while the cartridge transfer path is enabled. Idle state must be true tristate (no AVR pull-ups left latched on the bus). IO1 is NOT connected.
 - **EXROM glitch prevention**: Set `PORTD |= _BV(PD2)` HIGH *before* `DDRD |= _BV(PD2)` output. Otherwise ~1-2µs LOW glitch causes C64 freeze via ROML assertion.

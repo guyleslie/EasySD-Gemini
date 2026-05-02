@@ -66,9 +66,11 @@ deploy-debug.bat
 
 ### Dual-System Design
 
-**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. Cold boot uses explicit state machine: AVR holds C64 `/RESET` LOW → SD init (3 attempts) → cartridge interface returned to BASIC-safe idle state → `/RESET` released via `ReleaseColdBootToBasic` (calls `ResetC64()` directly from the already-LOW state: 1ms additional LOW dwell + single LOW→HIGH rising edge — C64 boots exactly once from that edge) → `cartApi.Init()` → `RUNNING_READY`. The C64 boots to BASIC on cold boot; `TransferMenu()` is invoked only on explicit short `SEL` press. If SD fails, C64 is still released to BASIC (same path) and `SEL` can retry.
+**Arduino firmware** (`Arduino/EasySD/`): Manages SD card, FAT filesystem, directory navigation, file streaming. Entry point is `EasySD.ino`, command routing in `CartApi.cpp`, directory logic in `DirFunction.cpp`. Cold boot is **IRQHack64-style**: AVR does NOT hold C64 `/RESET`. `IOSetup()` drives `/RESET` HIGH from the start; the C64 cold-boots to BASIC on its own RC reset while AVR initializes SD in parallel. `TransferMenu()` is invoked only on explicit short `SEL` press. If SD fails, the C64 is already in BASIC and `SEL` can retry SD init.
 
-**Hardware caveat:** Recent bench sessions indicate intermittent mechanical/contact issues on the current test cartridge assembly (edge connector / module headers). If behavior changes when the cartridge or SD module is touched, treat that as a hardware integrity symptom first, not as proof of a firmware regression.
+**Hardware caveats:**
+- Cartridge edge-connector / SD-module-header contact integrity matters: if behavior changes when the cartridge or SD module is touched, treat that as a hardware integrity symptom first, not as proof of a firmware regression.
+- **Parasitic loads on the C64 power rail** (Pi1541 Zero adapter, MicroSD2IEC, etc.) can destabilize cold boot — verified on the uEliteBoard64 (uni64.com — MMU-252535-based C64 reproduction board) where removing the Pi1541 Zero from the integrated SD CARD/IEC PORT slot was a co-required fix alongside the IRQHack64-style boot. The board's own first-start guide notes "no blinking cursor (especially with a cartridge plugged in) → try another CPU/251715/CIA 6526" — i.e. cartridge-sensitivity at cold boot is a known board-class behavior, not just a firmware bug. Test cold-boot regressions with no auxiliary devices first.
 
 **C64 software** (`EasySD/`): Cartridge ROM with communication library (`Loader/`), main file browser menu (`Menu/EasySD/EasySDMenu.s`), and file-type plugins (`Plugins/`).
 

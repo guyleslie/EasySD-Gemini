@@ -1,6 +1,6 @@
 # EasySD - Unified Changelog
 
-> **Last updated:** 2026-04-26
+> **Last updated:** 2026-05-02
 > **Current version:** v0.5 (public) / current worktree post-v0.5
 > **Project:** EasySD Gemini - C64 Cartridge-based SD card reader
 
@@ -16,7 +16,8 @@ This document contains all significant changes to the EasySD project in chronolo
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
-| **Unreleased** | 2026-04-26 | Cold-boot BASIC release margin hardened; direct PRG launcher now handles hybrid BASIC+ML PRGs such as Beach Head | ✅ Real HW verified |
+| **Unreleased** | 2026-05-02 | IRQHack64-style cold boot: AVR no longer holds C64 `/RESET` LOW; resolves "BASIC text, no cursor" cold-boot symptom | ✅ Real HW verified (uEliteBoard64 (uni64.com)) |
+| **Unreleased** | 2026-04-26 | Cold-boot BASIC release margin hardened; direct PRG launcher now handles hybrid BASIC+ML PRGs such as Beach Head | ⚠️ Superseded 2026-05-02 |
 | **v0.5** | 2026-04-18 | Public stabilization release: BASIC-first cold boot, directory/nav/PRG launch/SEL handling improved on real hardware | ✅ Real HW verified |
 | **v0.3** | 2026-04-14 | First public release: BASIC-first boot, PRG load, folder nav verified on real hardware | ✅ Real HW verified |
 | **v3.1.3** | 2026-03-09 | P2TK Phase 3: full-range PRG load up to $FFFF, 3 bug fixes | ✅ Complete |
@@ -58,6 +59,50 @@ This document contains all significant changes to the EasySD project in chronolo
 ---
 
 ## Chronological Changes
+
+### [Unreleased] - 2026-05-02
+**IRQHack64-style cold boot — cursor freeze resolved**
+
+#### Firmware Change
+
+- `CartInterface::IOSetup()` now drives `/RESET` HIGH from the start (irqhack-style).
+  AVR no longer holds the C64 in reset during boot.
+- Removed the `BootState` enum and the cold-boot state machine in `EasySD.ino setup()`.
+  `setup()` now simply does `delay(300)` + `initSD()` + `cartApi.Init()` while the
+  C64 cold-boots in parallel on its own RC reset.
+- Removed `CartInterface::ReleaseColdBootToBasic()` — no longer needed.
+- The warm-reset path (`ResetNoCartridge()` → `ReleaseToBasic(true)`) is unchanged.
+
+#### Diagnosis Summary
+
+Comparison against the original IRQHack64 firmware (https://github.com/nejat76/IRQHack64)
+revealed three architectural divergences in EasySD: (1) holding `/RESET` LOW for
+470–1000 ms, (2) wiring and reading PHI2 from A4, (3) tristating the data bus when
+"disabled". Of these, the `/RESET` hold was the primary cause of the
+"BASIC text, no cursor" cold-boot symptom — VIC-II / CIA1 internal state was
+disturbed by the non-standard reset duration. Reverting just the `/RESET` hold
+(Test A) was sufficient to fix the symptom.
+
+#### Real Hardware Result (uEliteBoard64 (uni64.com))
+
+- Cold boot reaches BASIC with blinking cursor on every test, both debug and release builds.
+- Warm boot unchanged (still stable).
+- SEL button continues to work in both cases.
+- **Hardware co-requirement:** removing a Pi1541 (Raspberry Pi Zero) parasitic
+  load from the C64 power rail was a co-required fix during validation.
+
+#### Documentation
+
+- `docs/COLD_BOOT_FAILURE_RETROSPECTIVE.md` rewritten to reflect the resolution.
+- `CLAUDE.md`, `GEMINI.md`, `README.md`, `docs/architecture/ARCHITECTURE_REVIEW.md`,
+  `docs/arduino/PCB_BRINGUP_NOTES.md`, `docs/DEVELOPMENT_ROADMAP.md`,
+  `docs/NANO_EVERY_MIGRATION.md` updated to describe IRQHack64-style cold boot.
+
+#### Build Size
+
+- Release: 22958 / 30720 B (74%, 7762 B free) — slightly smaller than before.
+
+---
 
 ### [Unreleased] - 2026-04-26
 **Cold-Boot BASIC Release Margin Hardened**
