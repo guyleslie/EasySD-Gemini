@@ -77,6 +77,25 @@ MAIN:
 	;--- 1. Install resident LOAD hook (RL_STUB + RL_HANDLER images, vectors).
 	JSR RL_INSTALL
 
+	;--- 1b. Settle delay (~250 ms) — race fix.
+	; Arduino's LoadAndLaunchFile() runs Init() + NavigateToPath() (~50–100 ms
+	; combined) AFTER SendMLBootBlob and BEFORE cartInterface.StartListening()
+	; attaches the IO2 ISR. Without this delay, RL_StartTalking's handshake
+	; bytes ($64 $46 $17) are emitted before the ISR is live, the IDLE→
+	; IDENTIFIER_3_OK transition never fires, EnableCartridge() (line 209 in
+	; CartInterface.cpp) is never called, and CARTRIDGE_BANK_VALUE ($80AB)
+	; reads junk RAM during RL_WaitProcessing — typically returns SEC and
+	; MAIN's BCS branches to ml_load_error → reset to BASIC.
+	; ~250 k cycles ≈ 250 ms at PAL 0.985 MHz / 244 ms at NTSC 1.022 MHz.
+	LDX #200
+ml_settle_outer:
+	LDY #0
+ml_settle_inner:
+	DEY
+	BNE ml_settle_inner
+	DEX
+	BNE ml_settle_outer
+
 	;--- 2. Set up Kernal filename pointer.
 	LDA MLBOOT_FIRSTPART_LEN
 	STA KERNAL_FILENAME_LENGTH       ; $B7
@@ -148,9 +167,22 @@ ml_launch_machine:
 	JMP ($008B)                      ; jump indirect via load-address ZP slot
 
 ml_load_error:
-	; Soft-fail visible mode: system reset. RL_INSTALL has patched $0330/$0331
-	; but BASIC cold-start at $FCE2 re-initialises the Kernal vectors so the
-	; resident hook becomes inert; the user can press SEL to retry.
+	; Soft-fail with visible diagnostic: red border + black bg for ~2 s so the
+	; user can distinguish "MLBoot LOAD failed" from a generic crash, then
+	; system-reset to BASIC. RL_INSTALL has patched $0330/$0331 but the cold
+	; start re-initialises the Kernal vectors so the hook becomes inert.
+	LDA #$02
+	STA BORDER                       ; $D020 — red
+	LDA #$00
+	STA SCREEN                       ; $D021 — black
+	LDX #200
+ml_err_outer:
+	LDY #0
+ml_err_inner:
+	DEY
+	BNE ml_err_inner
+	DEX
+	BNE ml_err_outer
 	JMP RESETROUTINE                 ; $FCE2
 
 ;================================================================================
