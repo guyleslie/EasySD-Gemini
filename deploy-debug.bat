@@ -1,5 +1,5 @@
 @echo off
-REM Arduino serial debug deploy: C64 RELEASE build + Arduino DEBUG firmware (serial ON) + SD card update.
+REM Arduino serial debug deploy: full RELEASE artifact refresh + Arduino DEBUG firmware (serial ON) + SD card update.
 REM Use this to test real hardware with Arduino serial logging enabled while running
 REM the release C64 software (EASYSD.PRG from SD card, not the debug C64 build).
 REM Usage: deploy-debug.bat
@@ -16,11 +16,11 @@ echo  (C64 release + Arduino serial)
 echo ==============================
 echo.
 
-echo [1/3] C64 release build (skip Arduino, C64 only)...
-python Tools/build.py release --skip-arduino
+echo [1/3] Fresh release build (refresh C64, SD bundle, and generated Arduino blobs)...
+python Tools/build.py release
 if errorlevel 1 (
     set "STEP1=FAIL"
-    set "FAILED_STEP=C64 release build"
+    set "FAILED_STEP=Release artifact refresh"
     goto :summary_fail
 )
 set "STEP1=OK"
@@ -67,7 +67,7 @@ echo.
 echo ==============================
 echo  Final summary
 echo ==============================
-call :print_step "C64 release build" "%STEP1%"
+call :print_step "Release artifact refresh" "%STEP1%"
 call :print_step "ISP upload" "%STEP2%"
 call :print_step "SD deploy" "%STEP3%"
 powershell -NoProfile -Command "Write-Host ''; Write-Host 'DEBUG DEPLOY COMPLETE' -ForegroundColor Green; Write-Host 'Serial monitor: python Tools/build.py arduino-monitor COM4' -ForegroundColor Cyan"
@@ -79,7 +79,7 @@ echo.
 echo ==============================
 echo  Final summary
 echo ==============================
-call :print_step "C64 release build" "%STEP1%"
+call :print_step "Release artifact refresh" "%STEP1%"
 call :print_step "ISP upload" "%STEP2%"
 call :print_step "SD deploy" "%STEP3%"
 powershell -NoProfile -Command "Write-Host ''; Write-Host 'DEBUG DEPLOY FAILED: %FAILED_STEP%' -ForegroundColor Red"

@@ -81,12 +81,13 @@ V_LOAD   = $0330
 ; Safe: during game execution no plugin loading happens; during menu no resident loader
 ;
 ; V2.1 Memory Layout:
-;   $033C-$0367  RL_STUB code (~38 bytes + padding): early device check, saves X/Y/A/$01, calls RL_HANDLER, restores
-;   $0368-$036A  RL_NMI_REDIRECT: JMP ($0318) — written to $FFFA/$FFFB for $01=$35 NMI dispatch
-;   $036B-$036C  RL_ORIG_VEC (2 bytes): backup of $0330/$0331
-;   $036D        RL_SAVED_01 (1 byte): game's $01 saved during hook
-;   $036E        RL_SAVED_X  (1 byte): game's X register at LOAD call time (SA=0 support)
-;   $036F        RL_SAVED_Y  (1 byte): game's Y register at LOAD call time (SA=0 support)
+;   $033C-$036F  RL_STUB code + padding: early device check, saves X/Y/A/$01/status, calls RL_HANDLER, restores
+;   $0370-$0372  RL_NMI_REDIRECT: JMP ($0318) — written to $FFFA/$FFFB for $01=$35 NMI dispatch
+;   $0373-$0374  RL_ORIG_VEC (2 bytes): backup of $0330/$0331
+;   $0375        RL_SAVED_01 (1 byte): game's $01 saved during hook
+;   $0376        RL_SAVED_X  (1 byte): game's X register at LOAD call time (SA=0 support)
+;   $0377        RL_SAVED_Y  (1 byte): game's Y register at LOAD call time (SA=0 support)
+;   $0378+       low-RAM receive timeout + first-part launch stubs
 ;
 ; Why $FFFA/$FFFB must be updated:
 ;   Writes to $FFFA/$FFFB always reach RAM (6502: writes always go to RAM).
@@ -96,11 +97,11 @@ V_LOAD   = $0330
 ;   With $01=$37 (HIRAM=1): $FFFA/$FFFB reads from Kernal ROM ($FE43) → also dispatches $0318.
 ;
 RL_STUB         = $033C   ; resident stub entry point (patched into $0330/$0331)
-RL_NMI_REDIRECT = $0368   ; JMP ($0318) — installed at $FFFA/$FFFB by RL_INSTALL
-RL_ORIG_VEC     = $036B   ; backup of original $0330/$0331 (2 bytes)
-RL_SAVED_01     = $036D   ; saved $01 value during LOAD hook (1 byte)
-RL_SAVED_X      = $036E   ; saved X register at LOAD call time — SA=0 MEMUSS lo (V2)
-RL_SAVED_Y      = $036F   ; saved Y register at LOAD call time — SA=0 MEMUSS hi (V2)
+RL_NMI_REDIRECT = $0370   ; JMP ($0318) — installed at $FFFA/$FFFB by RL_INSTALL
+RL_ORIG_VEC     = $0373   ; backup of original $0330/$0331 (2 bytes)
+RL_SAVED_01     = $0375   ; saved $01 value during LOAD hook (1 byte)
+RL_SAVED_X      = $0376   ; saved X register at LOAD call time — SA=0 MEMUSS lo (V2)
+RL_SAVED_Y      = $0377   ; saved Y register at LOAD call time — SA=0 MEMUSS hi (V2)
 
 ; ResidentLoader handler + mini-CartLib — lives under Kernal ROM ($E000-$FFFF is RAM with $01=$35)
 ; Writes to this area always go to RAM regardless of $01 setting (6502 write behavior).

@@ -54,8 +54,14 @@
   #ifndef LOG_ENABLE_ML
     #define LOG_ENABLE_ML     0  // default OFF — multiload chain debug only
   #endif
+  #ifndef LOG_ENABLE_LOAD
+    #define LOG_ENABLE_LOAD   0  // concise user-facing load activity log
+  #endif
   #ifndef LOG_ENABLE_ERR
     #define LOG_ENABLE_ERR    1
+  #endif
+  #ifndef LOG_ENABLE_RAW
+    #define LOG_ENABLE_RAW    0  // raw variable prints bypass categories; opt in only
   #endif
 
   //============================================================================
@@ -164,15 +170,83 @@
   #endif
 
   //============================================================================
+  // Concise load activity log
+  //============================================================================
+  #if LOG_ENABLE_LOAD
+    #define LOG_LOAD_MENU() do { Serial.println(F("[LOAD] menu")); } while(0)
+    #define LOG_LOAD_LAUNCH(name, size) do { \
+      Serial.print(F("[LOAD] launch ")); Serial.print(name); \
+      Serial.print(F(" sz=")); Serial.println(size); \
+    } while(0)
+    #define LOG_LOAD_MLBOOT(name) do { Serial.print(F("[LOAD] mlboot ")); Serial.println(name); } while(0)
+    #define LOG_LOAD_PATH(path) do { Serial.print(F("[LOAD] path ")); Serial.println(path); } while(0)
+    #define LOG_LOAD_OPEN(name) do { Serial.print(F("[LOAD] open ")); Serial.println(name); } while(0)
+    #define LOG_LOAD_OPEN_OK() do { Serial.println(F("[LOAD] open ok")); } while(0)
+    #define LOG_LOAD_OPEN_FAIL() do { Serial.println(F("[ERR ][LOAD] open fail")); } while(0)
+    #define LOG_LOAD_INFO_SIZE(size) do { Serial.print(F("[LOAD] size ")); Serial.println(size); } while(0)
+    #define LOG_LOAD_CLOSE() do { Serial.println(F("[LOAD] close")); } while(0)
+    #define LOG_LOAD_DONE() do { Serial.println(F("[LOAD] done")); } while(0)
+    #define LOG_LOAD_READ_BEGIN(pages) do { Serial.print(F("[LOAD] read p=")); Serial.println(pages); } while(0)
+    #define LOG_LOAD_READ_RESULT_(status, pages, bytes, pad) do { \
+      Serial.print(F("[LOAD] read " status " p=")); Serial.print(pages); \
+      Serial.print(F(" b=")); Serial.print(bytes); \
+      Serial.print(F(" pad=")); Serial.println(pad); \
+    } while(0)
+    #define LOG_LOAD_READ_OK(pages, bytes, pad) LOG_LOAD_READ_RESULT_("ok", pages, bytes, pad)
+    #define LOG_LOAD_READ_EOF(pages, bytes, pad) LOG_LOAD_READ_RESULT_("eof", pages, bytes, pad)
+    #define LOG_LOAD_READ_STALL(pages, bytes, pad) LOG_LOAD_READ_RESULT_("stall", pages, bytes, pad)
+    #define LOG_LOAD_READ_NO_FILE() do { Serial.println(F("[ERR ][LOAD] read no file")); } while(0)
+    #define LOG_LOAD_INFO_NO_FILE() do { Serial.println(F("[ERR ][LOAD] info no file")); } while(0)
+    #define LOG_LOAD_SD_FAIL() do { Serial.println(F("[ERR ][LOAD] sd fail")); } while(0)
+    #define LOG_LOAD_MLBOOT_BAD_VERSION(val) do { Serial.print(F("[ERR ][LOAD] mlboot version ")); Serial.println(val); } while(0)
+    #define LOG_LOAD_NAME_TOO_LONG(val) do { Serial.print(F("[ERR ][LOAD] name too long ")); Serial.println(val); } while(0)
+    #define LOG_LOAD_BAD_PATH() do { Serial.println(F("[ERR ][LOAD] bad path")); } while(0)
+    #define LOG_LOAD_PATH_TOO_LONG(val) do { Serial.print(F("[ERR ][LOAD] path too long ")); Serial.println(val); } while(0)
+  #else
+    #define LOG_LOAD_MENU() ((void)0)
+    #define LOG_LOAD_LAUNCH(name, size) ((void)0)
+    #define LOG_LOAD_MLBOOT(name) ((void)0)
+    #define LOG_LOAD_PATH(path) ((void)0)
+    #define LOG_LOAD_OPEN(name) ((void)0)
+    #define LOG_LOAD_OPEN_OK() ((void)0)
+    #define LOG_LOAD_OPEN_FAIL() ((void)0)
+    #define LOG_LOAD_INFO_SIZE(size) ((void)0)
+    #define LOG_LOAD_CLOSE() ((void)0)
+    #define LOG_LOAD_DONE() ((void)0)
+    #define LOG_LOAD_READ_BEGIN(pages) ((void)0)
+    #define LOG_LOAD_READ_RESULT_(status, pages, bytes, pad) ((void)0)
+    #define LOG_LOAD_READ_OK(pages, bytes, pad) ((void)0)
+    #define LOG_LOAD_READ_EOF(pages, bytes, pad) ((void)0)
+    #define LOG_LOAD_READ_STALL(pages, bytes, pad) ((void)0)
+    #define LOG_LOAD_READ_NO_FILE() ((void)0)
+    #define LOG_LOAD_INFO_NO_FILE() ((void)0)
+    #define LOG_LOAD_SD_FAIL() ((void)0)
+    #define LOG_LOAD_MLBOOT_BAD_VERSION(val) ((void)0)
+    #define LOG_LOAD_NAME_TOO_LONG(val) ((void)0)
+    #define LOG_LOAD_BAD_PATH() ((void)0)
+    #define LOG_LOAD_PATH_TOO_LONG(val) ((void)0)
+  #endif
+
+  //============================================================================
   // VARIABLE OUTPUT MACROS
   //============================================================================
-  #define LOG_PRINT(x)          Serial.print(x)
-  #define LOG_PRINTLN(x)        Serial.println(x)
-  #define LOG_PRINT_F(msg)      Serial.print(F(msg))
-  #define LOG_PRINTLN_F(msg)    Serial.println(F(msg))
-  #define LOG_HEX(x)            Serial.print(x, HEX)
-  #define LOG_DEC(x)            Serial.print(x, DEC)
-  #define LOG_NEWLINE()         Serial.println()
+  #if LOG_ENABLE_RAW
+    #define LOG_PRINT(x)        Serial.print(x)
+    #define LOG_PRINTLN(x)      Serial.println(x)
+    #define LOG_PRINT_F(msg)    Serial.print(F(msg))
+    #define LOG_PRINTLN_F(msg)  Serial.println(F(msg))
+    #define LOG_HEX(x)          Serial.print(x, HEX)
+    #define LOG_DEC(x)          Serial.print(x, DEC)
+    #define LOG_NEWLINE()       Serial.println()
+  #else
+    #define LOG_PRINT(x)        ((void)0)
+    #define LOG_PRINTLN(x)      ((void)0)
+    #define LOG_PRINT_F(msg)    ((void)0)
+    #define LOG_PRINTLN_F(msg)  ((void)0)
+    #define LOG_HEX(x)          ((void)0)
+    #define LOG_DEC(x)          ((void)0)
+    #define LOG_NEWLINE()       ((void)0)
+  #endif
 
 #elif defined(EASYSD_RELEASE_LOG)
   //----------------------------------------------------------------------------
@@ -203,14 +277,36 @@
   #define LOGI(cat, msg)       LOGI_##cat##_IMPL(msg)
 
   #define LOG_ML_KV(label, val) ((void)0)
+  #define LOG_LOAD_MENU() ((void)0)
+  #define LOG_LOAD_LAUNCH(name, size) ((void)0)
+  #define LOG_LOAD_MLBOOT(name) ((void)0)
+  #define LOG_LOAD_PATH(path) ((void)0)
+  #define LOG_LOAD_OPEN(name) ((void)0)
+  #define LOG_LOAD_OPEN_OK() ((void)0)
+  #define LOG_LOAD_OPEN_FAIL() ((void)0)
+  #define LOG_LOAD_INFO_SIZE(size) ((void)0)
+  #define LOG_LOAD_CLOSE() ((void)0)
+  #define LOG_LOAD_DONE() ((void)0)
+  #define LOG_LOAD_READ_BEGIN(pages) ((void)0)
+  #define LOG_LOAD_READ_RESULT_(status, pages, bytes, pad) ((void)0)
+  #define LOG_LOAD_READ_OK(pages, bytes, pad) ((void)0)
+  #define LOG_LOAD_READ_EOF(pages, bytes, pad) ((void)0)
+  #define LOG_LOAD_READ_STALL(pages, bytes, pad) ((void)0)
+  #define LOG_LOAD_READ_NO_FILE() ((void)0)
+  #define LOG_LOAD_INFO_NO_FILE() ((void)0)
+  #define LOG_LOAD_SD_FAIL() ((void)0)
+  #define LOG_LOAD_MLBOOT_BAD_VERSION(val) ((void)0)
+  #define LOG_LOAD_NAME_TOO_LONG(val) ((void)0)
+  #define LOG_LOAD_BAD_PATH() ((void)0)
+  #define LOG_LOAD_PATH_TOO_LONG(val) ((void)0)
 
-  #define LOG_PRINT(x)         Serial.print(x)
-  #define LOG_PRINTLN(x)       Serial.println(x)
-  #define LOG_PRINT_F(msg)     Serial.print(F(msg))
-  #define LOG_PRINTLN_F(msg)   Serial.println(F(msg))
-  #define LOG_HEX(x)           Serial.print(x, HEX)
-  #define LOG_DEC(x)           Serial.print(x, DEC)
-  #define LOG_NEWLINE()        Serial.println()
+  #define LOG_PRINT(x)         ((void)0)
+  #define LOG_PRINTLN(x)       ((void)0)
+  #define LOG_PRINT_F(msg)     ((void)0)
+  #define LOG_PRINTLN_F(msg)   ((void)0)
+  #define LOG_HEX(x)           ((void)0)
+  #define LOG_DEC(x)           ((void)0)
+  #define LOG_NEWLINE()        ((void)0)
 
 #else
   //----------------------------------------------------------------------------
@@ -220,6 +316,28 @@
   #define LOGE(cat, msg)        ((void)0)
   #define LOGI(cat, msg)        ((void)0)
   #define LOG_ML_KV(label, val) ((void)0)
+  #define LOG_LOAD_MENU()       ((void)0)
+  #define LOG_LOAD_LAUNCH(name, size) ((void)0)
+  #define LOG_LOAD_MLBOOT(name) ((void)0)
+  #define LOG_LOAD_PATH(path)   ((void)0)
+  #define LOG_LOAD_OPEN(name)   ((void)0)
+  #define LOG_LOAD_OPEN_OK()    ((void)0)
+  #define LOG_LOAD_OPEN_FAIL()  ((void)0)
+  #define LOG_LOAD_INFO_SIZE(size) ((void)0)
+  #define LOG_LOAD_CLOSE()      ((void)0)
+  #define LOG_LOAD_DONE()       ((void)0)
+  #define LOG_LOAD_READ_BEGIN(pages) ((void)0)
+  #define LOG_LOAD_READ_RESULT_(status, pages, bytes, pad) ((void)0)
+  #define LOG_LOAD_READ_OK(pages, bytes, pad) ((void)0)
+  #define LOG_LOAD_READ_EOF(pages, bytes, pad) ((void)0)
+  #define LOG_LOAD_READ_STALL(pages, bytes, pad) ((void)0)
+  #define LOG_LOAD_READ_NO_FILE() ((void)0)
+  #define LOG_LOAD_INFO_NO_FILE() ((void)0)
+  #define LOG_LOAD_SD_FAIL()    ((void)0)
+  #define LOG_LOAD_MLBOOT_BAD_VERSION(val) ((void)0)
+  #define LOG_LOAD_NAME_TOO_LONG(val) ((void)0)
+  #define LOG_LOAD_BAD_PATH()   ((void)0)
+  #define LOG_LOAD_PATH_TOO_LONG(val) ((void)0)
   #define LOG_PRINT(x)          ((void)0)
   #define LOG_PRINTLN(x)        ((void)0)
   #define LOG_PRINT_F(msg)      ((void)0)

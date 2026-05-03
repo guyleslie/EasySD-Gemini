@@ -379,9 +379,6 @@ void CartInterface::ResetIndex() {
 }
 
 void CartInterface::EnableCartridge() {
-  #ifdef EASYSD_DEBUG_SERIAL
-  Serial.println(F("AVR Enabling Cartridge"));
-  #endif
   syncBusChangeToPhi2Low();
   DDRD |= 0xF0;          // D4-D7: OUTPUT (drive data bus)
   DDRC |= 0x0F;          // A0-A3: OUTPUT (drive data bus)

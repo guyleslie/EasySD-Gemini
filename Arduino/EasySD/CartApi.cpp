@@ -54,7 +54,6 @@ static bool OpenMenuFromSdRoot(File &outFile) {
     if (!sd.exists(buf)) { LOGE(SYS, "No SD menu file"); continue; }
     outFile = sd.open(buf, FILE_READ);
     if (outFile) {
-      LOGI(SYS, "Menu from SD");
       return true;
     }
     LOGE(SYS, "SD menu open fail");
@@ -66,6 +65,7 @@ static bool OpenMenuFromSdRoot(File &outFile) {
 void CartApi::Init() {
   Arguments = sharedBuf.args;
   m_argsOk = true;
+  m_multiLoadModeActive = false;
   cartInterface.SetPage(0);
 
   dirFunc.ReInit();
@@ -88,39 +88,88 @@ void CartApi::HandleReadFile() {
   unsigned int dataLength = Arguments[0];
   unsigned int totalLength = dataLength*256;
   unsigned int actualLength = 0;
-  LOG_ML_KV("ReadFile pages: ", dataLength);
+  unsigned int padLength = 0;
+  bool readShort = false;
+  bool readStalled = false;
+  bool fileOpen = workingFile.isOpen();
+
+  LOG_LOAD_READ_BEGIN(dataLength);
   cartInterface.ResetIndex();
   noInterrupts();
   cartInterface.SoftEndListening();
 
-  if (!workingFile.isOpen()) {
+  if (!fileOpen) {
     HandleResponse(FILE_IS_NOT_OPENED, 0);
   } else {
     HandleResponse(SUCCESSFUL, 1);
     delayMicroseconds(1000);
-    while (workingFile.available() > 0 && actualLength < totalLength) {
-      int readCount = workingFile.read(fileBuffer, BUFFER_SIZE);
-      if (readCount > 0) {
-        for (int i = 0; i < readCount; i++) {
-          cartInterface.TransmitByteFastStd(fileBuffer[i]);
-        }
-        actualLength += readCount;
+    while (actualLength < totalLength) {
+      if (workingFile.available() <= 0) {
+        readShort = true;
+        break;
       }
+
+      unsigned int remaining = totalLength - actualLength;
+      uint8_t toRead = (remaining < BUFFER_SIZE) ? (uint8_t)remaining : BUFFER_SIZE;
+      // SdFat 1.x's millis()-based timeouts (waitNotBusy / readData) freeze
+      // under noInterrupts(), so cache-miss SD reads can fail spuriously.
+      // The C64's RL_RECEIVE_WAIT_STUB has a ~0.5 s window per page transfer,
+      // so the few-ms SPI pause between bytes is harmless.
+      interrupts();
+      int readCount = workingFile.read(fileBuffer, toRead);
+      noInterrupts();
+      if (readCount <= 0) {
+        readStalled = true;
+        break;
+      }
+
+      for (int i = 0; i < readCount; i++) {
+        cartInterface.TransmitByteFastStd(fileBuffer[i]);
+      }
+      actualLength += readCount;
       delayMicroseconds(100);
     }
-  }
-  for (unsigned int i = 0;i<(totalLength - actualLength);i++) {
-    cartInterface.TransmitByteFast(0);
+
+    padLength = totalLength - actualLength;
+    for (unsigned int i = 0; i < padLength; i++) {
+      cartInterface.TransmitByteFast(0);
+    }
   }
 
   interrupts();
   cartInterface.SoftStartListening();
+
+  if (!fileOpen) {
+    LOG_LOAD_READ_NO_FILE();
+    return;
+  }
+
+  if (readStalled) {
+    LOG_LOAD_READ_STALL(dataLength, actualLength, padLength);
+    if (workingFile && workingFile.isOpen()) {
+      workingFile.close();
+    }
+  } else if (readShort) {
+    LOG_LOAD_READ_EOF(dataLength, actualLength, padLength);
+  } else {
+    LOG_LOAD_READ_OK(dataLength, actualLength, padLength);
+  }
 }
 
 void CartApi::HandleOpenFile() {
   GetArgumentsDynamic(1);
-  uint8_t flags = Arguments[0];
+  uint8_t protocolFlags = Arguments[0];
   unsigned int fileNameLength = Arguments[1];
+
+  // Protocol historically uses SdFat 1.x flag values: 1=O_READ, 2=O_WRITE.
+  // SdFat 2.x changed those bits: O_RDONLY=0, O_WRONLY=1, O_RDWR=2.
+  // Without translation, raw 1 from C64 opens write-only → read() always fails.
+  uint8_t flags;
+  bool wantRead  = (protocolFlags & 0x01) != 0;
+  bool wantWrite = (protocolFlags & 0x02) != 0;
+  if (wantRead && wantWrite)      flags = O_RDWR | O_CREAT;
+  else if (wantWrite)             flags = O_WRONLY | O_CREAT;
+  else                            flags = O_RDONLY;
 
   if (fileNameLength == 0) { HandleResponse(INVALID_ARGUMENT, 1); return; }
   char* fileName = (char*)&Arguments[2];
@@ -169,7 +218,7 @@ void CartApi::HandleOpenFile() {
     }
   }
 
-  LOG_ML_KV("OpenFile: ", openName);
+  LOG_LOAD_OPEN(openName);
   workingFile = sd.open(openName, flags);
 
   if (restoreCwd && strcmp(savedPath, dirFunc.currentPath) != 0) {
@@ -181,11 +230,11 @@ void CartApi::HandleOpenFile() {
 
   if (workingFile != NULL) {
     LOGI(FILE, "File opened successfully");
-    LOGI(ML, "OpenFile OK");
+    LOG_LOAD_OPEN_OK();
     HandleResponse(SUCCESSFUL, 1);
   } else  {
     LOGE(FILE, "File open failed");
-    LOGE(ML, "OpenFile FAIL");
+    LOG_LOAD_OPEN_FAIL();
     HandleResponse(FILE_CANNOT_BE_OPENED, 1);
   }
 }
@@ -197,6 +246,7 @@ void CartApi::HandleCloseFile() {
     return;
   }
   LOGI(FILE, "File closed");
+  LOG_LOAD_CLOSE();
   workingFile.close();
   HandleResponse(SUCCESSFUL, 1);
 }
@@ -255,17 +305,13 @@ void CartApi::HandleSeekFile() {
   unsigned int seekPosition = (high << 8) | low;
 
   if (!workingFile.isOpen()) {
-    LOGE(ML, "Seek: file not open");
     HandleResponse(FILE_IS_NOT_OPENED, 1);
     return;
   }
-  LOG_ML_KV("Seek dir: ", seekDirection);
-  LOG_ML_KV("Seek pos: ", seekPosition);
   bool ok = false;
   if (seekDirection == SEEK_FROM_BEGINNING)      ok = workingFile.seekSet(seekPosition);
   else if (seekDirection == SEEK_FROM_CURRENT)   ok = workingFile.seekCur(seekPosition);
   else if (seekDirection == SEEK_FROM_END)        ok = workingFile.seekEnd(seekPosition);
-  if (ok) { LOGI(ML, "Seek OK"); } else { LOGE(ML, "Seek FAIL"); }
   HandleResponse(ok ? SUCCESSFUL : CANT_SEEK, 1);
 }
 
@@ -295,7 +341,7 @@ void CartApi::HandleLongSeekFile() {
 void CartApi::HandleGetInfoForFile() {
   GetArgumentsStatic(0);
   if (!workingFile.isOpen()) {
-    LOGE(ML, "GetInfo: file not open");
+    LOG_LOAD_INFO_NO_FILE();
     HandleResponse(FILE_IS_NOT_OPENED, 0);
     return;
   }
@@ -303,7 +349,7 @@ void CartApi::HandleGetInfoForFile() {
   // dirEntry() re-reads the directory sector via SPI and hangs in this context
   // (confirmed: BUG-F). All callers (#GETFILEINFO) only need bytes 28-31 (size).
   uint32_t sz = workingFile.fileSize();
-  LOG_ML_KV("FileSize: ", sz);
+  LOG_LOAD_INFO_SIZE(sz);
   HandleResponse(SUCCESSFUL, 1);
   // Keep 256-byte page framing deterministic for the C64 receiver.
   cartInterface.ResetIndex();
@@ -321,7 +367,6 @@ void CartApi::HandleGetInfoForFile() {
 void CartApi::HandleGetPath() {
   GetArgumentsStatic(0);
   const char* path = dirFunc.currentPath;
-  LOG_ML_KV("GetPath: ", path);
   HandleResponse(SUCCESSFUL, 1);
   // Keep 256-byte page framing deterministic for the C64 receiver.
   cartInterface.ResetIndex();
@@ -352,6 +397,7 @@ void CartApi::HandleGotoPath() {
   path[pathLen] = '\0';
 
   LOGI(DIR, "GotoPath: "); LOG_PRINTLN(path);
+  LOG_LOAD_PATH(path);
 
   bool ok = dirFunc.NavigateToPath(path);
   if (ok) {
@@ -942,6 +988,7 @@ void CartApi::GetArgumentsDynamic(int16_t argumentsLength) {
 void CartApi::HandleApi() {  
   static unsigned long lastSessionActivityMs = 0;
   static bool sessionSawCommand = false;
+  static constexpr unsigned long ML_SESSION_IDLE_TIMEOUT_MS = 2500UL;
   uint8_t state = cartInterface.ReceiveHandler();
 
   if (state == IN_TRANSMISSION) {    
@@ -984,6 +1031,7 @@ void CartApi::HandleApi() {
             // False-positive handshake or line noise can inject random command
             // bytes. Drop session immediately so we don't block the main loop.
             LOGE(SYS, "Unknown cmd");
+            LOG_PRINT_F(" cmd="); LOG_PRINTLN(command);
             cartInterface.DisableCartridge();
             cartInterface.ResetReceive();
             lastSessionActivityMs = 0;
@@ -1005,6 +1053,19 @@ void CartApi::HandleApi() {
 
         cartInterface.SetPage(0);
       } else {
+        if (m_multiLoadModeActive && sessionSawCommand &&
+            (unsigned long)(millis() - lastSessionActivityMs) > ML_SESSION_IDLE_TIMEOUT_MS) {
+          LOGE(SYS, "ML session idle reset");
+          if (workingFile && workingFile.isOpen()) {
+            workingFile.close();
+          }
+          cartInterface.DisableCartridge();
+          cartInterface.ResetReceive();
+          lastSessionActivityMs = 0;
+          sessionSawCommand = false;
+          return;
+        }
+
         // Only reap sessions that never delivered a single command byte.
         // The EasySD menu intentionally keeps one long-lived session open
         // while the user navigates, so resetting an otherwise healthy idle
@@ -1049,15 +1110,36 @@ void CartApi::SendLoaderStub() {
 }
 
 // MLBoot layout — MUST match EasySD/Loader/Bridges/MultiLoad/MLBoot.s
+#define MLBOOT_EXPECTED_VERSION       5
+#define MLBOOT_VERSION_OFFSET         3
 #define MLBOOT_FIRSTPART_LEN_OFFSET   4
 #define MLBOOT_FIRSTPART_NAME_OFFSET  5
 #define MLBOOT_FIRSTPART_NAME_MAX    20
+#define MLBOOT_LAUNCH_PATH_OFFSET    25
+#define MLBOOT_LAUNCH_PATH_MAX       64
 
-void CartApi::SendMLBootBlob(const char* firstPartName) {
+bool CartApi::SendMLBootBlob(const char* firstPartName, const char* launchPath) {
+  uint8_t blobVersion = pgm_read_byte(mlbootData + MLBOOT_VERSION_OFFSET);
+  if (blobVersion != MLBOOT_EXPECTED_VERSION) {
+    LOG_LOAD_MLBOOT_BAD_VERSION(blobVersion);
+    return false;
+  }
+
   size_t nameLen = strlen(firstPartName);
   if (nameLen == 0 || nameLen > MLBOOT_FIRSTPART_NAME_MAX) {
-    LOG_ML_KV("MLBoot: name oversize ", firstPartName);
-    return;
+    LOG_LOAD_NAME_TOO_LONG(firstPartName);
+    return false;
+  }
+
+  if (launchPath == NULL || launchPath[0] != '/') {
+    LOG_LOAD_BAD_PATH();
+    return false;
+  }
+
+  size_t pathLen = strlen(launchPath);
+  if (pathLen == 0 || pathLen >= MLBOOT_LAUNCH_PATH_MAX) {
+    LOG_LOAD_PATH_TOO_LONG(launchPath);
+    return false;
   }
 
   long transferLength = mlboot_len;
@@ -1077,7 +1159,7 @@ void CartApi::SendMLBootBlob(const char* firstPartName) {
   SendLoaderStub();
   #endif
 
-  // Stream the blob, patching the LEN byte and NAME slot on-the-fly.
+  // Stream the blob, patching the launch fields on-the-fly.
   for (int i = 0; i < mlboot_len; i++) {
     uint8_t b;
     if (i == MLBOOT_FIRSTPART_LEN_OFFSET) {
@@ -1086,6 +1168,10 @@ void CartApi::SendMLBootBlob(const char* firstPartName) {
             && i <  MLBOOT_FIRSTPART_NAME_OFFSET + MLBOOT_FIRSTPART_NAME_MAX) {
       int nameIdx = i - MLBOOT_FIRSTPART_NAME_OFFSET;
       b = (nameIdx < (int)nameLen) ? (uint8_t)firstPartName[nameIdx] : 0;
+    } else if (i >= MLBOOT_LAUNCH_PATH_OFFSET
+            && i <  MLBOOT_LAUNCH_PATH_OFFSET + MLBOOT_LAUNCH_PATH_MAX) {
+      int pathIdx = i - MLBOOT_LAUNCH_PATH_OFFSET;
+      b = (pathIdx < (int)pathLen) ? (uint8_t)launchPath[pathIdx] : 0;
     } else {
       b = pgm_read_byte(mlbootData + i);
     }
@@ -1101,6 +1187,7 @@ void CartApi::SendMLBootBlob(const char* firstPartName) {
 
   delayMicroseconds(30);
   cartInterface.DisableCartridge();
+  return true;
 }
 
 bool StartsWith(char *str,const char *pre)
@@ -1129,8 +1216,9 @@ void CartApi::SendHeader(unsigned char startLow, unsigned char startHigh, unsign
 }
 
 void CartApi::TransferMenu() {
-  LOGI(SYS, "TransferMenu");
+  LOG_LOAD_MENU();
 
+  m_multiLoadModeActive = false;
   cartInterface.EndListening();
 
   if (workingFile && workingFile.isOpen()) {
@@ -1235,6 +1323,7 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   // Saves 64B of stack at the deepest point of the invoke+launch call chain.
   char* launchPath = reinterpret_cast<char*>(sharedBuf.ni + 130);
   const bool preserveLaunchPath = (dirFunc.pathDepth > 0);
+  m_multiLoadModeActive = false;
   cartInterface.EndListening();
 
   // Preserve the launch directory for any subdir launch — MultiLoad's
@@ -1253,8 +1342,7 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
 
   if (workingFile ) {
     contentLength = workingFile.size();
-    LOG_ML_KV("Launch: ", selectedFileName);
-    LOG_ML_KV("Launch sz: ", contentLength);
+    LOG_LOAD_LAUNCH(selectedFileName, contentLength);
 
     // MultiLoad-mode: any PRG launched from /MULTILOAD/<game>/ goes through
     // the synthesised MLBoot prologue blob instead of the standard PRG path.
@@ -1264,15 +1352,16 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
                && launchPath[0] == '/'
                && strncasecmp(launchPath + 1, "MULTILOAD/", 10) == 0;
     if (mlMode) {
-      LOG_ML_KV("MLMode launch: ", selectedFileName);
+      LOG_LOAD_MLBOOT(selectedFileName);
       workingFile.close();
-      SendMLBootBlob(selectedFileName);
-      Init();
-      if (preserveLaunchPath) {
-        dirFunc.NavigateToPath(launchPath);
+      if (!SendMLBootBlob(selectedFileName, launchPath)) {
+        cartInterface.SetPage(0);
+        cartInterface.StartListening();
+        return;
       }
+      cartInterface.SetPage(0);
       cartInterface.StartListening();
-      LOGI(ML, "MLBoot launched");
+      m_multiLoadModeActive = true;
       return;
     }
 
@@ -1353,8 +1442,9 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     cartInterface.StartListening();
     //interrupts();
 
-    LOGI(ML, "Launched - C64 running game");
-    LOGI(SYS, "Done");
+    // Standard /PRG/ launch tail — not MLBoot path.
+    LOGI(PRG, "Launched - C64 running game");
+    LOG_LOAD_DONE();
 
     } else {
       LOGE(SYS, "FILENOTFOUND!");
@@ -1362,6 +1452,7 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
 }
 
 void CartApi::ResetNoCartridge() {
+  m_multiLoadModeActive = false;
   cartInterface.ReleaseToBasic(true);
 }
 

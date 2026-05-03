@@ -9,39 +9,45 @@
 ;   pipeline with a single hand-written blob built into FlashLib.h.
 ;
 ; FLOW:
-;   1. Arduino patches MLBOOT_FIRSTPART_LEN/NAME with the on-disk filename and
-;      sends the blob via the standard LoaderStub path.
-;   2. C64 receives, lands at $C019 (MAIN).
+;   1. Arduino patches MLBOOT_FIRSTPART_LEN/NAME and MLBOOT_LAUNCH_PATH with
+;      the selected first-part PRG and game directory, then sends the blob via
+;      the standard LoaderStub path.
+;   2. C64 receives, lands at $C000, then jumps past the patched launch fields
+;      into MAIN.
 ;   3. MAIN calls RL_INSTALL — copies RL_STUB to $033C, RL_HANDLER+
 ;      RL_MINI_CARTLIB to $E800, patches $0330/$0331, writes RL_NMI_REDIRECT
 ;      to $FFFA/$FFFB.
-;   4. MAIN sets up the Kernal filename pointer to MLBOOT_FIRSTPART_NAME and
-;      issues JSR $FFD5 (Kernal LOAD) with device 8, SA=1.
+;   4. MAIN copies MLBOOT_LAUNCH_PATH to RL_DIR_PATH, sets up the Kernal
+;      filename pointer to MLBOOT_FIRSTPART_NAME, and issues JSR $FFD5
+;      (Kernal LOAD) with device 8, SA=1.
 ;   5. The LOAD goes through $0330 → RL_STUB → RL_HANDLER → Arduino's existing
-;      HandleOpenFile/HandleReadFile path. Arduino's CWD is /MULTILOAD/<game>/
-;      because LoadAndLaunchFile re-navigated there before StartListening.
-;   6. After LOAD, MAIN reads the load address from RL_HDR_BUF (briefly under
-;      $01=$35), runs the SHOULD_RUN_BASIC decision tree, and launches the game
-;      via either CLR+RUN (BASIC / hybrid) or JMP indirect (machine code).
+;      HandleGotoPath/HandleOpenFile/HandleReadFile path. The resident loader
+;      restores /MULTILOAD/<game>/ before every LOAD.
+;   6. MAIN jumps to RL_BOOT_LOAD_STUB in low RAM.  That stub performs the
+;      Kernal LOAD and then jumps to RL_LAUNCH_AFTER_LOAD under $01=$35, so
+;      large first-part PRGs may overwrite $C000 without corrupting control flow.
 ;   7. In-game LOAD "X",8,1 calls hit the resident hook at $033C and stream
 ;      from the same SD directory through Arduino.
 ;
 ; LAYOUT (offsets locked — Arduino patches via these byte offsets):
 ;
 ;   $C000   JMP MAIN                         ; 3 bytes
-;   $C003   .byte VERSION                    ; 1 byte sentinel (= 4 for MLBoot)
+;   $C003   .byte VERSION                    ; 1 byte sentinel (= 5 for MLBoot)
 ;   $C004   MLBOOT_FIRSTPART_LEN  .byte 0    ; patched per launch by Arduino
 ;   $C005   MLBOOT_FIRSTPART_NAME .fill 20,0 ; patched, NUL-padded
-;   $C019   MAIN
+;   $C019   MLBOOT_LAUNCH_PATH .fill 64,0 ; patched, NUL-padded
+;   $C059   MAIN
 ;
 ; Filename field budget: 20 bytes incl. ".PRG" = 16-char PETSCII max.
 ;================================================================================
 
 ; Layout offsets — keep in sync with CartApi.cpp::SendMLBootBlob
-MLBOOT_VERSION               = 4
+MLBOOT_VERSION               = 5
 MLBOOT_FIRSTPART_LEN_OFFSET  = $04
 MLBOOT_FIRSTPART_NAME_OFFSET = $05
 MLBOOT_FIRSTPART_NAME_MAX    = 20
+MLBOOT_LAUNCH_PATH_OFFSET    = $19
+MLBOOT_LAUNCH_PATH_MAX       = 64
 
 ;-----------------------------------------------------------------------
 ; Includes — MLBoot is a self-contained standalone-buildable blob, so it
@@ -67,9 +73,11 @@ MLBOOT_FIRSTPART_LEN:
 	.byte 0                          ; $C004 — patched by Arduino
 MLBOOT_FIRSTPART_NAME:
 	.fill 20, 0                      ; $C005-$C018 — patched by Arduino
+MLBOOT_LAUNCH_PATH:
+	.fill 64, 0                      ; $C019-$C058 — patched by Arduino
 
 ;================================================================================
-; MAIN — entry point ($C019)
+; MAIN — entry point (after patched launch fields)
 ; Runs in default $01=$37 (BASIC ROM + Kernal ROM + I/O all visible).
 ;================================================================================
 
@@ -77,15 +85,20 @@ MAIN:
 	;--- 1. Install resident LOAD hook (RL_STUB + RL_HANDLER images, vectors).
 	JSR RL_INSTALL
 
-	;--- 1b. Settle delay (~250 ms) — race fix.
-	; Arduino's LoadAndLaunchFile() runs Init() + NavigateToPath() (~50–100 ms
-	; combined) AFTER SendMLBootBlob and BEFORE cartInterface.StartListening()
-	; attaches the IO2 ISR. Without this delay, RL_StartTalking's handshake
-	; bytes ($64 $46 $17) are emitted before the ISR is live, the IDLE→
-	; IDENTIFIER_3_OK transition never fires, EnableCartridge() (line 209 in
-	; CartInterface.cpp) is never called, and CARTRIDGE_BANK_VALUE ($80AB)
-	; reads junk RAM during RL_WaitProcessing — typically returns SEC and
-	; MAIN's BCS branches to ml_load_error → reset to BASIC.
+	;--- 1b. Persist launch directory for the resident chdir safety path.
+	LDY #0
+ml_copy_path:
+	LDA MLBOOT_LAUNCH_PATH, Y
+	STA RL_DIR_PATH, Y
+	INY
+	CPY #MLBOOT_LAUNCH_PATH_MAX
+	BNE ml_copy_path
+
+	;--- 1c. Settle delay (~250 ms) — race fix.
+	; Arduino's LoadAndLaunchFile() attaches cartInterface.StartListening()
+	; immediately after SendMLBootBlob returns. This delay leaves margin for
+	; the C64 transfer launcher to exit and for the Arduino IO2 ISR to be live
+	; before RL_StartTalking emits the first handshake bytes ($64 $46 $17).
 	; ~250 k cycles ≈ 250 ms at PAL 0.985 MHz / 244 ms at NTSC 1.022 MHz.
 	LDX #200
 ml_settle_outer:
@@ -110,121 +123,10 @@ ml_settle_inner:
 	LDA #8
 	STA KERNAL_DEVICE_NUMBER         ; $BA
 
-	;--- 4. Kernal LOAD. Goes through $0330 → RL_STUB → RL_HANDLER → Arduino.
-	;   Returns: A=0 ok / error code, X/Y = end address (exclusive).
-	;   C set on error.
-	LDA #0                           ; LOAD operation (vs VERIFY=1)
-	JSR $FFD5
-	BCS ml_load_error
-
-	;--- 5. Cache end address and read the load address from RL_HDR_BUF.
-	;   RL_HANDLER stored the PRG header at $E8C4..$E8C5 under $01=$35.
-	;   We are back in $01=$37 here so Kernal ROM is mapped at $E000-$FFFF;
-	;   reading $E8C4 directly would see ROM, not the header. Switch banking
-	;   briefly to copy the load address out into ZP scratch.
-	STX $8D                          ; end_lo  (post-LOAD: byte after last)
-	STY $8E                          ; end_hi
-
-	SEI
-	LDA #PP_CONFIG_RAM_ON_ROM        ; $35 — Kernal RAM visible
-	STA PROCESSOR_PORT
-	LDA RL_HDR_BUF                   ; $E8C4
-	STA $8B                          ; load_lo
-	LDA RL_HDR_BUF + 1
-	STA $8C                          ; load_hi
-	LDA #PP_CONFIG_DEFAULT           ; $37 — restore default banking
-	STA PROCESSOR_PORT
-
-	;--- 6. İlker Fıçıcılar's fix: program system pointers so BASIC/CLR
-	;   does not overwrite the loaded program.
-	LDA $8D
-	STA $2D
-	STA $2F
-	STA $AE                          ; LOAD_START_LO
-	LDA $8E
-	STA $2E
-	STA $30
-	STA $AF                          ; LOAD_START_HI
-
-	;--- 7. Re-init system regs for game launch (mirror of LoaderStub.65s).
-	LDA #$08                         ; current device = 8
-	STA KERNAL_DEVICE_NUMBER
-	LDA #$1B                         ; %00011011 — VIC display enabled
-	STA VIC_CONTROL_1
-	LDA #$81                         ; %10000001 — CIA1 timer-A IRQ enable (jiffy)
-	STA CIA_1_BASE + CIA_INT_MASK    ; $DC0D
-	CLI
-
-	;--- 8. SHOULD_RUN_BASIC decision tree (mirror of LoaderStub.65s).
-	JSR ml_should_run_basic
-	BCS ml_launch_machine
-
-	;--- BASIC launch path -----------------------------------------------
-	JSR $A659                        ; "CLR"
-	JMP $A7AE                        ; "RUN"
-
-ml_launch_machine:
-	JMP ($008B)                      ; jump indirect via load-address ZP slot
-
-ml_load_error:
-	; Soft-fail with visible diagnostic: red border + black bg for ~2 s so the
-	; user can distinguish "MLBoot LOAD failed" from a generic crash, then
-	; system-reset to BASIC. RL_INSTALL has patched $0330/$0331 but the cold
-	; start re-initialises the Kernal vectors so the hook becomes inert.
-	LDA #$02
-	STA BORDER                       ; $D020 — red
-	LDA #$00
-	STA SCREEN                       ; $D021 — black
-	LDX #200
-ml_err_outer:
-	LDY #0
-ml_err_inner:
-	DEY
-	BNE ml_err_inner
-	DEX
-	BNE ml_err_outer
-	JMP RESETROUTINE                 ; $FCE2
-
-;================================================================================
-; ml_should_run_basic — mirror of LoaderStub.65s SHOULD_RUN_BASIC.
-;   In:  $8B/$8C = load address, $8D/$8E = end address (exclusive)
-;   Out: C=0 → BASIC RUN, C=1 → JMP indirect to load address
-;================================================================================
-
-ml_should_run_basic:
-	LDA $8C
-	CMP #$08
-	BNE ml_chk_hybrid
-	LDA $8B
-	CMP #$01
-	BNE ml_machine
-	; Load address is $0801 — check if first BASIC line is non-empty.
-	; $00 means end-of-line immediately (empty BASIC header e.g. Last Ninja+);
-	; treat as machine code so the indirect JMP lands on real code.
-	LDA $0805
-	BEQ ml_machine
-ml_basic:
-	CLC
-	RTS
-ml_machine:
-	SEC
-	RTS
-
-ml_chk_hybrid:
-	BCS ml_machine                   ; load address > $08xx → not BASIC
-	LDA $8E
-	CMP #$08
-	BCC ml_machine                   ; end < $08xx
-	BNE ml_chk_sys
-	LDA $8D
-	CMP #$09
-	BCC ml_machine                   ; end < $0809
-ml_chk_sys:
-	LDA $0805
-	CMP #$9E
-	BNE ml_machine
-	CLC                              ; $9E found → hybrid BASIC PRG
-	RTS
+	;--- 4. Kernal LOAD + launch.  The JSR $FFD5 lives in low RAM so the
+	;   return address cannot point into this $C000 blob after a large PRG
+	;   overwrites it.  This never returns on success.
+	JMP RL_BOOT_LOAD_STUB
 
 ;================================================================================
 ; ResidentLoader (RL_STUB_IMAGE, RL_HANDLER_IMAGE, RL_INSTALL, RL_UNINSTALL)

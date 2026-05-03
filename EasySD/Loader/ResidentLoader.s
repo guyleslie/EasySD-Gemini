@@ -9,7 +9,7 @@
 ;
 ; V2 CHANGES (fixes 5 V1 bugs):
 ;   1. Extended RL_STUB saves X/Y for SA=0 (MEMUSS) support.
-;   2. RL_NMI_REDIRECT at $0368: JMP ($0318) written to $FFFA/$FFFB by
+;   2. RL_NMI_REDIRECT at $0370: JMP ($0318) written to $FFFA/$FFFB by
 ;      RL_INSTALL so NMI dispatch works correctly under $01=$35.
 ;   3. SA=0 support: handler checks $B9 and uses RL_SAVED_X/Y as load target.
 ;   4. Embedded RL_MINI_CARTLIB at $EA00 — NO #SETBANK anywhere.
@@ -33,12 +33,13 @@
 ;
 ; MEMORY LAYOUT (constants in Common/System.inc):
 ;   $0330/$0331   Kernal LOAD vector       → patched to $033C (RL_STUB)
-;   $033C-$0367   RL_STUB code (38 bytes) + padding to $0368
-;   $0368-$036A   RL_NMI_REDIRECT: JMP ($0318) — written to $FFFA/$FFFB
-;   $036B-$036C   RL_ORIG_VEC (2 bytes)     backup of original $0330/$0331
-;   $036D         RL_SAVED_01 (1 byte)      game's $01 during hook
-;   $036E         RL_SAVED_X  (1 byte)      game's X at LOAD call (SA=0)
-;   $036F         RL_SAVED_Y  (1 byte)      game's Y at LOAD call (SA=0)
+;   $033C-$036F   RL_STUB code + padding to RL_NMI_REDIRECT
+;   $0370-$0372   RL_NMI_REDIRECT: JMP ($0318) — written to $FFFA/$FFFB
+;   $0373-$0374   RL_ORIG_VEC (2 bytes)     backup of original $0330/$0331
+;   $0375         RL_SAVED_01 (1 byte)      game's $01 during hook
+;   $0376         RL_SAVED_X  (1 byte)      game's X at LOAD call (SA=0)
+;   $0377         RL_SAVED_Y  (1 byte)      game's Y at LOAD call (SA=0)
+;   $0378+        RL receive/launch stubs    low-RAM wait loop + first launch tail
 ;   $E800         RL_HANDLER entry point
 ;   $E840         RL_DIR_PATH (64 bytes)    game directory for chdir safety
 ;   $E880         RL_FNAME_BUF (36 bytes)   assembled filename
@@ -76,11 +77,13 @@ RL_STUB_ENTRY:
 	CMP #8
 	BEQ rl_stub_dev8
 	PLA                         ; restore A — original X/Y/$01/stack intact
-	JMP (RL_ORIG_VEC)           ; forward to original Kernal LOAD ($036B)
+	JMP (RL_ORIG_VEC)           ; forward to original Kernal LOAD
 
 rl_stub_dev8:
 	;--- Device 8: enter resident loader ---
 
+	PHP                         ; preserve caller IRQ/status; return C is restored below
+	SEI                         ; no IRQ while $01=$35 exposes RAM vectors
 	STX RL_SAVED_X              ; save X (= MEMUSS lo if SA=0)
 	STY RL_SAVED_Y              ; save Y (= MEMUSS hi if SA=0)
 	LDA PROCESSOR_PORT
@@ -88,35 +91,119 @@ rl_stub_dev8:
 	LDA #PP_CONFIG_RAM_ON_ROM   ; $35: Kernal RAM visible, ROML accessible
 	STA PROCESSOR_PORT
 	JSR RL_HANDLER              ; → $E800; returns C=0/1, X=end_lo, Y=end_hi
+	PHP                         ; keep handler carry while restoring banking/status
 	LDA RL_SAVED_01
-	STA PROCESSOR_PORT          ; restore game's banking (IRQs still masked)
-	CLI                         ; safe to re-enable IRQs now ($01 is restored)
-	PLA                         ; restore A; carry flag preserved from handler
+	STA PROCESSOR_PORT          ; restore game's banking while IRQs are still masked
+	PLP                         ; restore handler carry for the branch below
+	BCS rl_stub_return_error
+	PLP                         ; restore caller IRQ/status
+	PLA                         ; restore A
+	CLC                         ; success from RL_HANDLER
+	RTS                         ; X/Y = end address from RL_HANDLER
+rl_stub_return_error:
+	PLP                         ; restore caller IRQ/status
+	PLA                         ; restore A
+	SEC                         ; error from RL_HANDLER
 	RTS                         ; X/Y = end address from RL_HANDLER
 
-; Ensure stub code ends before RL_NMI_REDIRECT ($0368)
-; Stub now uses $033C-$0367 range (44 bytes max, was 32)
-.if * > $0368
-	.error "RL_STUB code exceeds $0367 — reduce stub size"
+; Ensure stub code ends before RL_NMI_REDIRECT ($0370)
+; Stub now uses $033C-$036F range.
+.if * > RL_NMI_REDIRECT
+	.error "RL_STUB code exceeds RL_NMI_REDIRECT — reduce stub size"
 .endif
 
-; --- padding to $0368 ---
-.fill $0368 - *, $00
+; --- padding to RL_NMI_REDIRECT ---
+.fill RL_NMI_REDIRECT - *, $00
 
-; --- RL_NMI_REDIRECT at $0368 ---
+; --- RL_NMI_REDIRECT ---
 ; JMP ($0318): on NMI with $01=$35, CPU reads $FFFA/$FFFB from RAM (written
 ; by RL_INSTALL), arrives here, then dispatches via SOFTNMIVECTOR → $80AF.
-; Label NOT redefined here — RL_NMI_REDIRECT = $0368 lives in System.inc.
-.fill $0368 - *, $00
+; Label NOT redefined here — RL_NMI_REDIRECT lives in System.inc.
+.fill RL_NMI_REDIRECT - *, $00
 	JMP ($0318)                 ; 3 bytes: $6C $18 $03
 
-; --- metadata cells at $036B-$036F ---
+; --- metadata cells after RL_NMI_REDIRECT ---
 ; Labels NOT redefined here — RL_ORIG_VEC/$SAVED_01/X/Y live in System.inc.
 ; These bytes are initialised on copy; RL_INSTALL / RL_STUB overwrite at runtime.
-	.byte $00, $00             ; $036B-$036C: RL_ORIG_VEC placeholder
-	.byte $37                  ; $036D: RL_SAVED_01 placeholder (default $01=$37)
-	.byte $00                  ; $036E: RL_SAVED_X placeholder
-	.byte $00                  ; $036F: RL_SAVED_Y placeholder
+	.byte $00, $00             ; RL_ORIG_VEC placeholder
+	.byte $37                  ; RL_SAVED_01 placeholder (default $01=$37)
+	.byte $00                  ; RL_SAVED_X placeholder
+	.byte $00                  ; RL_SAVED_Y placeholder
+
+; --- low-RAM wait/launch stubs after metadata ---
+; These routines are visible in every banking mode.  The resident handler runs
+; under $01=$35 at $E800, but the proven NMI receive path waits under $01=$37,
+; and first-part launch must not return to MLBoot's overwriteable $C000 code.
+RL_RECEIVE_WAIT_STUB:
+	LDA #$FF
+	STA RL_WAIT_TIMEOUT_LO
+	STA RL_WAIT_TIMEOUT_MID
+	LDA #$08
+	STA RL_WAIT_TIMEOUT_HI
+	LDA #PP_CONFIG_DEFAULT
+	STA PROCESSOR_PORT
+	LDX ZP_IRQ_API_DATA_LENGTH
+	LDY #$00
+	CLV
+-
+	BIT ZP_IRQ_STATE_WAITHANDLE
+	BVS rl_wait_done
+	DEC RL_WAIT_TIMEOUT_LO
+	BNE -
+	DEC RL_WAIT_TIMEOUT_MID
+	BNE -
+	DEC RL_WAIT_TIMEOUT_HI
+	BNE -
+	LDA #$02
+	STA BORDER
+	LDA #PP_CONFIG_RAM_ON_ROM
+	STA PROCESSOR_PORT
+	SEC
+	RTS
+rl_wait_done:
+	LDA #PP_CONFIG_RAM_ON_ROM
+	STA PROCESSOR_PORT
+	CLC
+	RTS
+
+RL_WAIT_TIMEOUT_LO:
+	.byte $00
+RL_WAIT_TIMEOUT_MID:
+	.byte $00
+RL_WAIT_TIMEOUT_HI:
+	.byte $00
+
+; Called by MLBoot after RL_INSTALL and filename setup.  The JSR $FFD5 must
+; live in low RAM: large first-part PRGs can overwrite the $C000 MLBoot blob
+; before Kernal LOAD returns.
+RL_BOOT_LOAD_STUB:
+	LDA #$00
+	JSR $FFD5
+	PHP
+	LDA #PP_CONFIG_RAM_ON_ROM
+	STA PROCESSOR_PORT
+	PLP
+	JMP RL_LAUNCH_AFTER_LOAD
+
+RL_BASIC_RUN_STUB:
+	LDA #PP_CONFIG_DEFAULT
+	STA PROCESSOR_PORT
+	JSR $A659
+	JMP $A7AE
+
+RL_MACHINE_JUMP_STUB:
+	LDA #PP_CONFIG_DEFAULT
+	STA PROCESSOR_PORT
+	JMP ($008B)
+
+RL_RESET_ERROR_STUB:
+	LDA #PP_CONFIG_DEFAULT
+	STA PROCESSOR_PORT
+	JMP RESETROUTINE
+
+RL_STAGE_BORDER:
+	STA BORDER
+	RTS
 
 .here
 RL_STUB_IMAGE_END:
@@ -146,6 +233,15 @@ RL_HANDLER_IMAGE:
 ;----------------------------------------------
 RL_HANDLER:
 	; Device check already done by RL_STUB — only device 8 reaches here.
+	LDA VIC_CONTROL_1
+	STA rl_saved_d011
+	AND #$EF                    ; display off during bus-sensitive transfer
+	STA VIC_CONTROL_1
+	LDA VIC_INT_CONTROL
+	STA rl_saved_d01a
+	ASL VIC_INT_ACK             ; ack pending VIC IRQ flags
+	LDA #$00
+	STA VIC_INT_CONTROL         ; disable VIC IRQ sources, restore on exit
 	JMP rl_main
 
 ;----------------------------------------------
@@ -154,6 +250,8 @@ RL_HANDLER:
 ;----------------------------------------------
 
 ; Saved game NMI vector ($0318/$0319) — restored after each transfer
+rl_saved_d011: .byte 0
+rl_saved_d01a: .byte 0
 rl_saved_nmi_lo: .byte 0
 rl_saved_nmi_hi: .byte 0
 
@@ -184,6 +282,8 @@ rl_hdr_area:
 ; $01=$35 throughout — restored by RL_STUB on return.
 ;----------------------------------------------
 rl_main:
+	LDA #$06
+	JSR RL_STAGE_BORDER
 	; chdir to game directory before every access (safety against Arduino CWD drift)
 	JSR rl_chdir_to_game
 	BCS rl_error_pre_talking    ; chdir failed, session wasn't started
@@ -253,11 +353,15 @@ rl_fname_done:
 	LDX #<rl_fname_area
 	LDY #>rl_fname_area
 	JSR RL_SetName
+	LDA #$04
+	JSR RL_STAGE_BORDER
 	LDX #$01
 	JSR RL_OpenFile
 	BCC rl_opened_ok
 	JMP rl_error_talking        ; open failed, EndTalking still needed
 rl_opened_ok:
+	LDA #$05
+	JSR RL_STAGE_BORDER
 	;--- Get file size ---
 	LDA #<rl_fileinfo_area
 	STA ZP_IRQ_API_DATA_LO
@@ -285,10 +389,14 @@ rl_info_ok:
 	LDA #1
 	STA ZP_IRQ_API_DATA_LENGTH
 	LDY #$00
+	LDA #$07
+	JSR RL_STAGE_BORDER
 	JSR RL_ReadFileNoCallback
 	BCC rl_hdr_ok
 	JMP rl_error_opened
 rl_hdr_ok:
+	LDA #$0D
+	JSR RL_STAGE_BORDER
 	;--- Determine load target address ---
 	; SA=0: load target comes from X/Y at call time (saved in RL_SAVED_X/Y).
 	;       The file still has a 2-byte header on disk but it is skipped;
@@ -359,11 +467,15 @@ rl_copy_254:
 	LDA #$01
 	STA ZP_LOADFILE_API_SKIP_HI
 
+	LDA #$0E
+	JSR RL_STAGE_BORDER
 	JSR RL_LoadFileBySize
 	BCC rl_after_load
 	JMP rl_error_opened
 
 rl_after_load:
+	LDA #$03
+	JSR RL_STAGE_BORDER
 	;--- Compute end address = load_addr + file_size - 2 ---
 	CLC
 	LDA $8B
@@ -383,6 +495,7 @@ rl_after_load:
 
 	JSR RL_CloseFile
 	JSR RL_EndTalking           ; NO #SETBANK — $01=$35 preserved for RL_STUB
+	JSR rl_restore_vic_state
 	CLC                         ; success: C=0, X=end_lo, Y=end_hi
 	RTS
 
@@ -392,7 +505,206 @@ rl_error_opened:
 rl_error_talking:
 	JSR RL_EndTalking           ; NO #SETBANK
 rl_error_pre_talking:
+	JSR rl_restore_vic_state
 	SEC
+	RTS
+
+rl_restore_vic_state:
+	LDA rl_saved_d011
+	STA VIC_CONTROL_1
+	LDA rl_saved_d01a
+	STA VIC_INT_CONTROL
+	RTS
+
+;----------------------------------------------
+; RL_LAUNCH_AFTER_LOAD
+; Entered from RL_BOOT_LOAD_STUB in low RAM after the first-part Kernal LOAD.
+; The stub switches to $01=$35 before jumping here, so this code is safe under
+; Kernal RAM even when the loaded PRG overwrote MLBoot's $C000 blob.
+;----------------------------------------------
+RL_LAUNCH_AFTER_LOAD:
+	BCC rl_launch_load_ok
+	JMP rl_launch_load_error
+
+rl_launch_load_ok:
+	LDA #$0A
+	JSR RL_STAGE_BORDER
+	STX $8D                         ; end_lo  (post-LOAD: byte after last)
+	STY $8E                         ; end_hi
+
+	LDA rl_hdr_area                 ; first PRG header byte, already in $E8C4 RAM
+	STA $8B                         ; load_lo
+	LDA rl_hdr_area + 1
+	STA $8C                         ; load_hi
+
+	; Program system pointers so BASIC/CLR does not overwrite the loaded PRG.
+	LDA $8D
+	STA $2D
+	STA $2F
+	STA $AE                         ; LOAD_START_LO
+	LDA $8E
+	STA $2E
+	STA $30
+	STA $AF                         ; LOAD_START_HI
+
+	; Start the game with the same clean vector/device state as normal PRG load.
+	LDA #$47
+	STA SOFTNMIVECTOR
+	LDA #$FE
+	STA SOFTNMIVECTOR + 1
+	LDA #$31
+	STA IRQVECTOR
+	LDA #$EA
+	STA IRQVECTOR + 1
+	LDA #$1B
+	STA VIC_CONTROL_1
+	LDA #$08
+	STA KERNAL_DEVICE_NUMBER
+	LDA #$81
+	STA CIA_1_BASE + CIA_INT_MASK
+
+	JSR RL_ShouldRunBasic
+	BCS rl_launch_machine
+
+	LDA #$00
+	STA BORDER
+	JMP RL_BASIC_RUN_STUB
+
+rl_launch_machine:
+	LDA #$00
+	STA BORDER
+	JMP RL_MACHINE_JUMP_STUB
+
+rl_launch_load_error:
+	LDA #$02
+	STA BORDER
+	LDA #$00
+	STA SCREEN
+	LDX #200
+rl_launch_err_outer:
+	LDY #0
+rl_launch_err_inner:
+	DEY
+	BNE rl_launch_err_inner
+	DEX
+	BNE rl_launch_err_outer
+	JMP RL_RESET_ERROR_STUB
+
+; Decide whether the loaded first-part PRG should be launched through BASIC.
+; C=0 => BASIC RUN, C=1 => machine launch via $8B/$8C.
+RL_ShouldRunBasic:
+	LDA $8C
+	CMP #$08
+	BNE rl_chk_hybrid
+	LDA $8B
+	CMP #$01
+	BEQ rl_chk_0801
+	JMP rl_machine_decision
+
+rl_chk_0801:
+	LDA $0805
+	BEQ rl_dummy_0801
+	CLC
+	RTS
+
+rl_dummy_0801:
+	JSR RL_ParseHiddenSys
+	SEC
+	RTS
+
+rl_chk_hybrid:
+	BCS rl_machine_decision          ; load address > $08xx -> not BASIC
+	LDA $8E
+	CMP #$08
+	BCC rl_machine_decision
+	BNE rl_chk_sys_token
+	LDA $8D
+	CMP #$09
+	BCC rl_machine_decision
+rl_chk_sys_token:
+	LDA $0805
+	CMP #$9E
+	BNE rl_machine_decision
+	CLC
+	RTS
+
+rl_machine_decision:
+	SEC
+	RTS
+
+; Dummy $0801 loaders often hide a tokenized SYS line after an empty first
+; BASIC line.  Last Ninja+ uses this pattern: $0805=$00, then token $9E and
+; decimal entry address later in the same first page.
+RL_ParseHiddenSys:
+	LDA #$12
+	STA $8B
+	LDA #$08
+	STA $8C
+	LDY #$06
+rl_find_hidden_sys:
+	CPY #$20
+	BCS rl_parse_sys_done
+	LDA $0800, Y
+	CMP #$9E
+	BEQ rl_parse_sys_digits
+	INY
+	BNE rl_find_hidden_sys
+
+rl_parse_sys_digits:
+	INY
+	LDA #$00
+	STA $8B
+	STA $8C
+rl_parse_digit_loop:
+	LDA $0800, Y
+	CMP #'0'
+	BCC rl_parse_digit_done
+	CMP #$3A
+	BCS rl_parse_digit_done
+	SEC
+	SBC #'0'
+	STA ZP_IRQ_TMP_SCRATCH
+
+	LDA $8B
+	STA $8D
+	LDA $8C
+	STA $8E
+	ASL $8D
+	ROL $8E                         ; temp = old * 2
+	LDA $8D
+	STA $8B
+	LDA $8E
+	STA $8C
+	ASL $8B
+	ROL $8C
+	ASL $8B
+	ROL $8C                         ; acc = old * 8
+	CLC
+	LDA $8B
+	ADC $8D
+	STA $8B
+	LDA $8C
+	ADC $8E
+	STA $8C                         ; acc = old * 10
+	CLC
+	LDA $8B
+	ADC ZP_IRQ_TMP_SCRATCH
+	STA $8B
+	BCC rl_parse_no_carry
+	INC $8C
+rl_parse_no_carry:
+	INY
+	BNE rl_parse_digit_loop
+
+rl_parse_digit_done:
+	LDA $8B
+	ORA $8C
+	BNE rl_parse_sys_done
+	LDA #$12
+	STA $8B
+	LDA #$08
+	STA $8C
+rl_parse_sys_done:
 	RTS
 
 ;----------------------------------------------
@@ -587,11 +899,10 @@ RL_DisableInterrupts:
 	RTS
 
 ;--- RL_ReceiveFragmentNoCallback ---
-; NO #SETBANK: RL_INSTALL has written RL_NMI_REDIRECT ($0368) to $FFFA/$FFFB.
-; With $01=$35 (HIRAM=0): reads from $FFFA/$FFFB see RAM → RL_NMI_REDIRECT →
-;   JMP ($0318) → TransferHandler at $80AF (in ROML, accessible).
-; With $01=$37: reads from $FFFA/$FFFB see Kernal ROM ($FE43) → JMP ($0318).
-; Both cases dispatch correctly — no #SETBANK needed.
+; The setup runs in RL_HANDLER under $01=$35, but the actual NMI receive wait
+; is delegated to RL_RECEIVE_WAIT_STUB in low RAM. That stub switches to
+; $01=$37 while waiting so the NMI path uses the same Kernal trampoline and
+; timing as the stable CartLib PROT_ReceiveFragmentNoCallback path.
 ;
 ; Setup: ZP_IRQ_API_DATA_LO/HI = target; ZP_IRQ_API_DATA_LENGTH = page count.
 ; Y in: transfer mode (0=x1, 1=x4, 2=x8).
@@ -611,16 +922,8 @@ RL_ReceiveFragmentNoCallback:
 	LDA #$00
 	STA ZP_IRQ_STATE_WAITHANDLE
 
-	; NO #SETBANK here (V2 change — NMI works via RAM $FFFA vector under $01=$35)
-
-	LDX ZP_IRQ_API_DATA_LENGTH
-	LDY #$00
-
-	CLV
-	; #WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC — expanded inline:
--
-	BIT ZP_IRQ_STATE_WAITHANDLE
-	BVC -
+	JSR RL_RECEIVE_WAIT_STUB
+	PHP
 
 	; Restore game's NMI vector
 	LDA rl_saved_nmi_lo
@@ -628,8 +931,15 @@ RL_ReceiveFragmentNoCallback:
 	LDA rl_saved_nmi_hi
 	STA SOFTNMIVECTOR + 1
 
+	PLP
+	BCS rl_receive_timeout
 	LDA #0
 	CLC
+	RTS
+
+rl_receive_timeout:
+	LDA #0
+	SEC
 	RTS
 
 ;--- RL_WaitProcessing ---
@@ -823,12 +1133,12 @@ RL_HANDLER_IMAGE_SIZE = RL_HANDLER_IMAGE_END - RL_HANDLER_IMAGE
 ; RL_INSTALL (call once on entry):
 ;   1. Copy RL_STUB_IMAGE  → $033C (writes always reach RAM, $01-independent).
 ;   2. Copy RL_HANDLER_IMAGE → $E800 (same — writes go to RAM regardless of $01).
-;   3. Write RL_NMI_REDIRECT address ($0368) to $FFFA/$FFFB (RAM NMI vector).
-;   4. Backup original $0330/$0331 → RL_ORIG_VEC ($036B).
+;   3. Write RL_NMI_REDIRECT address to $FFFA/$FFFB (RAM NMI vector).
+;   4. Backup original $0330/$0331 → RL_ORIG_VEC.
 ;   5. Patch $0330/$0331 → RL_STUB ($033C).
 ;
 ; RL_UNINSTALL (call on error exit, before returning to menu):
-;   Restores $0330/$0331 from RL_ORIG_VEC ($036B).
+;   Restores $0330/$0331 from RL_ORIG_VEC.
 ;   Without this, every subsequent LOAD goes through the resident stub
 ;   (which has no valid game context) and PRG loading breaks until power cycle.
 ;   The NMI vector ($FFFA/$FFFB RAM) is left as-is: with $01=$37 the CPU reads
@@ -846,8 +1156,8 @@ RL_INSTALL:
 	PHA
 
 	;--- 1. Copy RL_STUB_IMAGE to $033C ---
-	; Image includes stub code + padding + NMI redirect + metadata cells.
-	; Total = $0370 - $033C = 52 bytes — single Y loop is sufficient.
+	; Image includes stub code + padding + NMI redirect + metadata cells
+	; and the low-RAM receive wait stub. Single Y loop is sufficient.
 	LDY #0
 rl_inst_stub_loop:
 	LDA RL_STUB_IMAGE, Y
@@ -898,14 +1208,14 @@ rl_inst_nmi:
 	; Under $01=$35 (HIRAM=0): reads from $FFFA/$FFFB also see RAM.
 	; Under $01=$37 (HIRAM=1): reads see Kernal ROM ($FE43) → JMP ($0318).
 	; Both are fine — belt-and-suspenders safety.
-	LDA #<RL_NMI_REDIRECT       ; = $68
+	LDA #<RL_NMI_REDIRECT
 	STA $FFFA
-	LDA #>RL_NMI_REDIRECT       ; = $03
+	LDA #>RL_NMI_REDIRECT
 	STA $FFFB
 
 	;--- 4. Backup original $0330/$0331 ---
 	LDA $0330
-	STA RL_ORIG_VEC             ; = $036B (already copied to RAM in step 1)
+	STA RL_ORIG_VEC             ; already copied to RAM in step 1
 	LDA $0331
 	STA RL_ORIG_VEC + 1
 

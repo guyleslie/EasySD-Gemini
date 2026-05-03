@@ -862,13 +862,13 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
         "--build-path", str(build_path),
     ]
     if debug_mode:
-        # Reduce HardwareSerial TX/RX ring buffers from 64B each to 16B each.
+        # Reduce HardwareSerial TX/RX ring buffers from 64B each.
         # Default 128B total is the main cause of SRAM exhaustion in debug builds
         # (static allocation happens at Serial.begin(), invisible to the compiler).
-        # 16+16=32B saves 96B of SRAM, keeping sd.exists() / TransferMenu stable.
+        # RX is not used by the firmware; keep it at a minimal ring size.
         compile_args += [
-            "--build-property", "compiler.cpp.extra_flags=-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=16 -DLOG_ENABLE_ML=1 -DLOG_ENABLE_PRG=1",
-            "--build-property", "compiler.c.extra_flags=-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=16 -DLOG_ENABLE_ML=1 -DLOG_ENABLE_PRG=1",
+            "--build-property", "compiler.cpp.extra_flags=-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=2 -DLOG_ENABLE_LOAD=1 -DLOG_ENABLE_SYS=0 -DLOG_ENABLE_SD=0 -DLOG_ENABLE_DIR=0 -DLOG_ENABLE_FILE=0 -DLOG_ENABLE_PRG=0 -DLOG_ENABLE_ML=0",
+            "--build-property", "compiler.c.extra_flags=-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=2 -DLOG_ENABLE_LOAD=1 -DLOG_ENABLE_SYS=0 -DLOG_ENABLE_SD=0 -DLOG_ENABLE_DIR=0 -DLOG_ENABLE_FILE=0 -DLOG_ENABLE_PRG=0 -DLOG_ENABLE_ML=0",
         ]
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)

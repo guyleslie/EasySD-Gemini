@@ -206,7 +206,7 @@ class D64Image:
                     print(f"[MULTILOAD] Warning: '{name}' has <2 bytes of data, skipping.")
                     continue
 
-                files.append({"name": name, "data": data})
+                files.append({"name": name, "raw_name": bytes(raw_name), "data": data})
 
         return files
 
@@ -327,7 +327,7 @@ class D81Image:
                     print(f"[MULTILOAD] Warning: '{name}' has <2 bytes of data, skipping.")
                     continue
 
-                files.append({"name": name, "data": data})
+                files.append({"name": name, "raw_name": bytes(raw_name), "data": data})
 
         return files
 
@@ -405,7 +405,7 @@ class T64Image:
 
             # Prepend 2-byte load address (T64 does not store it in data)
             raw_bytes = struct.pack("<H", load_start) + data[offset:offset + file_size]
-            files.append({"name": name, "data": raw_bytes})
+            files.append({"name": name, "raw_name": bytes(raw_name), "data": raw_bytes})
 
         return files
 
@@ -584,6 +584,26 @@ def cmd_list_only(disk_paths: list) -> None:
 # Section E: Folder extractor
 # ---------------------------------------------------------------------------
 
+def write_manifest(all_files: list, target_dir: str) -> None:
+    """Write a simple future-proof C64-name to FAT-name manifest."""
+    manifest_path = os.path.join(target_dir, "EASYSD-ML.MF")
+    with open(manifest_path, "w", encoding="ascii", newline="\n") as fh:
+        fh.write("# EasySD MultiLoad manifest v1\n")
+        fh.write("# fat_name\tc64_name\tpetscii_hex\tsize\tload\n")
+        for f in all_files:
+            data = f["data"]
+            load_addr = data[0] | (data[1] << 8) if len(data) >= 2 else 0
+            fat_name = f["name"] + ".PRG"
+            raw_name = f.get("raw_name", b"")
+            if isinstance(raw_name, str):
+                raw_hex = raw_name.encode("ascii", "replace").hex().upper()
+            else:
+                raw_hex = bytes(raw_name).hex().upper()
+            fh.write(
+                f"{fat_name}\t{f['name']}\t{raw_hex}\t{len(data)}\t{load_addr:04X}\n"
+            )
+
+
 def extract_to_folder(all_files: list, game_name: str, output_dir: str) -> None:
     """Write extracted PRGs to <output_dir>/<game_name>/<NAME>.PRG."""
     if not all_files:
@@ -598,9 +618,12 @@ def extract_to_folder(all_files: list, game_name: str, output_dir: str) -> None:
         with open(out_path, "wb") as fh:
             fh.write(f["data"])
 
+    write_manifest(all_files, target_dir)
+
     total_kb = sum(len(f["data"]) for f in all_files) / 1024
     print(f"[MULTILOAD] Game folder : {game_name}")
     print(f"[MULTILOAD] PRG files   : {len(all_files)}  ({total_kb:.1f} KB total)")
+    print(f"[MULTILOAD] Manifest    : {os.path.join(target_dir, 'EASYSD-ML.MF')}")
     print(f"[MULTILOAD] Output dir  : {target_dir}")
     print(f"[MULTILOAD] OK")
     print()

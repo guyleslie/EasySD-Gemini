@@ -86,6 +86,7 @@ class CartApi {
 
  protected:
   File    workingFile;
+  bool    m_multiLoadModeActive;
   // Arguments buffer lives in the file-scope sharedBuf union (CartApi.cpp).
   // Declared here as a pointer so all Handle* methods can access it unchanged.
   uint8_t *Arguments;
@@ -131,7 +132,7 @@ class CartApi {
   void Init();
   void HandleApi();
   void SendLoaderStub();
-  void SendMLBootBlob(const char* firstPartName);
+  bool SendMLBootBlob(const char* firstPartName, const char* launchPath);
   void TransferMenu();
   void ResetNoCartridge();
   void LoadAndLaunchFile(const char* path);

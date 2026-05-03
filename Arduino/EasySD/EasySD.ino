@@ -5,7 +5,6 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <SdFat.h>
-#include <FreeStack.h>
 
 SdFat sd;
 DirFunction dirFunc;
@@ -34,9 +33,6 @@ const unsigned long BUTTON_LONG_PRESS_MS = 1000;
 const unsigned long SEL_STABLE_MS = 8;
 const int SEL_PRESSED_THRESHOLD = 256;
 const int SEL_RELEASED_THRESHOLD = 768;
-static constexpr uint16_t SRAM_WARN_FREE_BYTES = 350;
-static constexpr uint16_t SRAM_CRITICAL_FREE_BYTES = 300;
-
 static void suppressButtonsFor(unsigned long delayMs) {
   buttonEnableAtMs = millis() + delayMs;
   state = stateNone;
@@ -75,21 +71,6 @@ static bool serviceSelReleased() {
   return selStableReleased;
 }
 
-static void logRamBudget(const __FlashStringHelper* phase) {
-  uint16_t freeBytes = FreeStack();
-  LOG_PRINT(phase);
-  LOG_PRINT_F(" RAM free=");
-  LOG_PRINT(freeBytes);
-
-  if (freeBytes < SRAM_CRITICAL_FREE_BYTES) {
-    LOG_PRINTLN_F(" CRITICAL");
-  } else if (freeBytes < SRAM_WARN_FREE_BYTES) {
-    LOG_PRINTLN_F(" LOW");
-  } else {
-    LOG_PRINTLN_F(" OK");
-  }
-}
-
 // Cold Boot SD Initialization with Retry Logic
 bool initSD() {
   const uint8_t SD_RETRY_COUNT = 3;
@@ -98,22 +79,8 @@ bool initSD() {
   for (uint8_t retry = 0; retry < SD_RETRY_COUNT; retry++) {
     if (sd.begin(chipSelect, SPI_HALF_SPEED)) {
       delay(50);  // Let card stabilize after init
-      if (retry > 0) {
-        LOG_PRINT_F("SD: OK after ");
-        LOG_PRINT(retry + 1);
-        LOGI(SD, " attempts");
-      }
       return true;
     }
-
-    LOG_PRINT_F("SD: Init attempt ");
-    LOG_PRINT(retry + 1);
-    LOG_PRINT_F("/");
-    LOG_PRINT(SD_RETRY_COUNT);
-    LOG_PRINT_F(" failed ec=0x");
-    LOG_HEX(sd.sdErrorCode());
-    LOG_PRINT_F(" ed=0x");
-    LOG_PRINTLN(sd.sdErrorData());
 
     if (retry < SD_RETRY_COUNT - 1) {
       delay(SD_RETRY_DELAY_MS);
@@ -154,22 +121,14 @@ bool recoverSD() {
     }
   }
   dirFunc.ForceReset();
-  LOGI(SD, "Recovered");
   return true;
 }
 
-void printStartupBanner() {
-  LOGI(SYS, "EasySD v3.1.3");
-}
-
 void printSDStatus(bool sdInitSuccess) {
-  if (sdInitSuccess) {
-    LOGI(SD, "SD OK");
-    logRamBudget(F("Boot"));
-  } else {
+  if (!sdInitSuccess) {
+    LOG_LOAD_SD_FAIL();
     LOGE(SD, "SD FAIL - check card");
   }
-  LOG_NEWLINE();
 }
 
 void setup() {
@@ -178,8 +137,6 @@ void setup() {
   cartInterface.Init();
 
   LOG_BEGIN(57600);
-  printStartupBanner();
-  LOGI(SYS, "Boot: irqhack-style (no reset hold)");
 
   pinMode(chipSelect, OUTPUT);
   digitalWrite(chipSelect, HIGH);
@@ -193,17 +150,12 @@ void setup() {
   // before accepting SPI commands. C64 boots to BASIC in parallel during this wait.
   delay(300);
 
-  LOGI(SYS, "Boot: init SD");
   bool sdOk = initSD();
   printSDStatus(sdOk);
 
   if (sdOk) {
     cartApi.Init();
     runtimeReady = true;
-    LOGI(SYS, "Boot: ready (BASIC)");
-    logRamBudget(F("Ready"));
-  } else {
-    LOGE(SYS, "Boot: SD fail");
   }
 
   suppressButtonsFor(BUTTON_BOOT_GUARD_MS);
@@ -231,11 +183,9 @@ void loop() {
       if (elapsedMs >= BUTTON_DEBOUNCE_MS) {
         if (elapsedMs > BUTTON_LONG_PRESS_MS) {
           // Long press: release strictly after the 1000 ms threshold -> BASIC.
-          LOGI(SYS, "SEL long press -> reset");
           cartApi.ResetNoCartridge();
         } else {
           // Short press: release at or before the 1000 ms threshold -> menu.
-          LOGI(SYS, "SEL press -> menu");
           if (ensureRuntimeReady()) {
             cartApi.TransferMenu();
           }
