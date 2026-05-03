@@ -1048,6 +1048,61 @@ void CartApi::SendLoaderStub() {
   cartInterface.ResetIndex();
 }
 
+// MLBoot layout — MUST match EasySD/Loader/Bridges/MultiLoad/MLBoot.s
+#define MLBOOT_FIRSTPART_LEN_OFFSET   4
+#define MLBOOT_FIRSTPART_NAME_OFFSET  5
+#define MLBOOT_FIRSTPART_NAME_MAX    20
+
+void CartApi::SendMLBootBlob(const char* firstPartName) {
+  size_t nameLen = strlen(firstPartName);
+  if (nameLen == 0 || nameLen > MLBOOT_FIRSTPART_NAME_MAX) {
+    LOG_ML_KV("MLBoot: name oversize ", firstPartName);
+    return;
+  }
+
+  long transferLength = mlboot_len;
+  long padBytes = (transferLength % 256 == 0) ? 0 : 256 - transferLength % 256;
+  byte transferPages = (byte)(transferLength / 256 + (padBytes > 0 ? 1 : 0));
+
+  cartInterface.ResetIndex();
+  cartInterface.EnableCartridge();
+  cartInterface.ResetC64();
+  delay(200);
+
+  noInterrupts();
+  // MLBoot blob loads to $C000 (load-address bytes already stripped by 64tass -b).
+  SendHeader(0x00, 0xC0, transferPages, transferLength, TYPE_STANDARD_PRG, cartInterface.TransferMode);
+
+  #ifdef USERAMLAUNCHER
+  SendLoaderStub();
+  #endif
+
+  // Stream the blob, patching the LEN byte and NAME slot on-the-fly.
+  for (int i = 0; i < mlboot_len; i++) {
+    uint8_t b;
+    if (i == MLBOOT_FIRSTPART_LEN_OFFSET) {
+      b = (uint8_t)nameLen;
+    } else if (i >= MLBOOT_FIRSTPART_NAME_OFFSET
+            && i <  MLBOOT_FIRSTPART_NAME_OFFSET + MLBOOT_FIRSTPART_NAME_MAX) {
+      int nameIdx = i - MLBOOT_FIRSTPART_NAME_OFFSET;
+      b = (nameIdx < (int)nameLen) ? (uint8_t)firstPartName[nameIdx] : 0;
+    } else {
+      b = pgm_read_byte(mlbootData + i);
+    }
+    cartInterface.TransmitByteFast(b);
+  }
+
+  if (padBytes > 0) {
+    for (int i = 0; i < padBytes; i++) {
+      cartInterface.TransmitByteFast(0x00);
+    }
+  }
+  interrupts();
+
+  delayMicroseconds(30);
+  cartInterface.DisableCartridge();
+}
+
 bool StartsWith(char *str,const char *pre)
 {
     size_t lenpre = strlen(pre),
@@ -1195,9 +1250,31 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   uint16_t contentLength = 0;
 
   workingFile = sd.open(selectedFileName);
-  
+
   if (workingFile ) {
     contentLength = workingFile.size();
+    LOG_ML_KV("Launch: ", selectedFileName);
+    LOG_ML_KV("Launch sz: ", contentLength);
+
+    // MultiLoad-mode: any PRG launched from /MULTILOAD/<game>/ goes through
+    // the synthesised MLBoot prologue blob instead of the standard PRG path.
+    // The on-disk file is *not* opened/read here — the C64 will request it
+    // via the resident LOAD hook installed by MLBoot.MAIN (see P4).
+    bool mlMode = preserveLaunchPath
+               && launchPath[0] == '/'
+               && strncasecmp(launchPath + 1, "MULTILOAD/", 10) == 0;
+    if (mlMode) {
+      LOG_ML_KV("MLMode launch: ", selectedFileName);
+      workingFile.close();
+      SendMLBootBlob(selectedFileName);
+      Init();
+      if (preserveLaunchPath) {
+        dirFunc.NavigateToPath(launchPath);
+      }
+      cartInterface.StartListening();
+      LOGI(ML, "MLBoot launched");
+      return;
+    }
 
     if (strcmp(selectedFileName, "keybooter.prg") == 0 || ( IsMatchLast(selectedFileName, ".irq") || IsMatchLast(selectedFileName, ".IRQ") ) ) {
       booter = 1;
@@ -1276,6 +1353,7 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     cartInterface.StartListening();
     //interrupts();
 
+    LOGI(ML, "Launched - C64 running game");
     LOGI(SYS, "Done");
 
     } else {

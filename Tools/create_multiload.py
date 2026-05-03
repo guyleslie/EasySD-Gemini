@@ -1,62 +1,38 @@
 #!/usr/bin/env python3
-"""create_multiload.py — MultiLoad ZIP builder from a raw launcher template.
+"""create_multiload.py — Disk-image extractor for EasySD MultiLoad.
 
-Legacy mode: patch the raw template with a game-specific first-part name.
-Disk mode:   convert D64/D71/D81/T64 disk image(s) -> ready-to-extract ZIP.
+Converts a Commodore D64/D71/D81/T64 disk image (or several merged together)
+into a flat directory of `.PRG` files under `multiload/<GAME>/`. Copy that
+directory into `MULTILOAD/<GAME>/` on the SD card, then select any first-part
+PRG inside it from the EasySD menu — the cartridge synthesises the MLBoot
+prologue blob on the fly (no per-game `EASYLOAD.PRG`, no template patching).
 
 Usage:
-  V2 (patch only):
-    python Tools/create_multiload.py LOADER
-    python Tools/create_multiload.py ROBBIE
-
-  V3 (from disk image):
     python Tools/create_multiload.py --from-disk TURRICAN.D64
-    python Tools/create_multiload.py --from-disk TURRICAN.D64 --first-part TURRICAN
     python Tools/create_multiload.py --from-disk 1.d64 2.d64
     python Tools/create_multiload.py --from-autoswap autoswap.lst
-    python Tools/create_multiload.py --from-autoswap autoswap.lst --first-part AUTODUEL
     python Tools/create_multiload.py --from-disk TURRICAN.D64 --list-only
 
-Output (Disk mode): EasySD/build/multiload/GAMENAME.ZIP
-  Extract ZIP to SD card root. Select MULTILOAD/GAMENAME/EASYLOAD.PRG in EasySD menu.
+Output:
+    multiload/<GAME>/<NAME>.PRG  (one file per closed PRG entry on the disk)
 
-Raw template must be pre-built:
-    python Tools/build.py multiload
+Old per-game `*.ZIP` artefacts produced by previous versions of this script
+are obsolete; they may be deleted or ignored. The MLBoot pipeline reads PRGs
+straight from `MULTILOAD/<GAME>/` on the SD card.
 
-EASYLOAD.PRG file layout (generated output):
-    Bytes 0-1   : PRG load address header ($00 $C0 = $C000) - prepended by this script
-    Byte  2     : $4C (JMP)                                  (= $C000 in C64 RAM)
-    Byte  3     : low byte of MAIN address                   (= $C001)
-    Byte  4     : $C0                                        (= $C002)
-    Byte  5     : ML_CONFIG_VERSION = 3                      (= $C003 in C64 RAM)
-    Byte  6     : ML_FIRST_PART_LEN                          (= $C004)
-    Bytes 7-26  : ML_FIRST_PART_NAME, 20 bytes, null-padded  (= $C005-$C018)
-
-multiload_template.bin layout (raw binary, no header):
-    OFFSET_VERSION = 3  → $C003, OFFSET_LEN = 4 → $C004, OFFSET_NAME = 5 → $C005
+Supported formats: D64, D71, D81, T64.
 """
 
 import argparse
-import io
 import os
 import struct
 import sys
-import zipfile
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-TEMPLATE_REL = "EasySD/build/plugins/multiload_template.bin"
-OUTPUT_DIR   = "multiload"
-
-# multiload_template.bin is raw binary (64tass -b flag = no load address header).
-# Plugin assembles at * = $C000; file offset = RAM address - $C000.
-OFFSET_VERSION = 3    # ML_CONFIG_VERSION  at $C003 → file offset 3
-OFFSET_LEN     = 4    # ML_FIRST_PART_LEN  at $C004 → file offset 4
-OFFSET_NAME    = 5    # ML_FIRST_PART_NAME at $C005 → file offset 5-20
-CONFIG_VERSION = 3
-MAX_NAME_LEN   = 20   # C64 PETSCII name (16) + ".PRG" (4)
+OUTPUT_DIR = "multiload"
 
 # D64 sectors per track (index = track number, 1-based; index 0 unused)
 _D64_SPT = [0] + [21]*17 + [19]*7 + [18]*6 + [17]*5   # tracks 1-35
@@ -575,66 +551,7 @@ def derive_game_name(disk_paths: list, disk_labels: list) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Section D: Template patching
-# ---------------------------------------------------------------------------
-
-def patch_template(template_data: bytearray, first_part_name: str) -> bytearray:
-    """Patch ML_FIRST_PART_LEN and ML_FIRST_PART_NAME in the template bytearray.
-
-    Args:
-        template_data: Mutable copy of the raw template binary.
-        first_part_name: Uppercase ASCII name without extension (e.g. "LAST NINJA 2").
-            ".PRG" is appended automatically. Total length must not exceed MAX_NAME_LEN.
-
-    Returns:
-        The patched bytearray.
-    """
-    full_name = first_part_name + ".PRG"
-    if len(full_name) > MAX_NAME_LEN:
-        print(f"Error: first-part name '{first_part_name}' + '.PRG' = {len(full_name)} chars, "
-              f"exceeds {MAX_NAME_LEN}-byte config field.")
-        sys.exit(1)
-    name_bytes = full_name.encode("ascii")
-    template_data[OFFSET_LEN] = len(name_bytes)
-    for i in range(MAX_NAME_LEN):
-        template_data[OFFSET_NAME + i] = name_bytes[i] if i < len(name_bytes) else 0
-    return template_data
-
-
-def load_template(repo_root: str, override_path: str = None) -> bytearray:
-    """Load the raw MultiLoad template and validate it.
-
-    The template is a raw binary (64tass -b, no 2-byte load address header).
-    Plugin is assembled at $C000; file offset = RAM address - $C000.
-    """
-    template_path = override_path if override_path else os.path.join(repo_root, TEMPLATE_REL)
-    if not os.path.exists(template_path):
-        print(f"Error: template not found: {template_path}")
-        print("Build it first with: python Tools/build.py multiload")
-        sys.exit(1)
-
-    with open(template_path, "rb") as f:
-        data = bytearray(f.read())
-
-    if len(data) < OFFSET_NAME + MAX_NAME_LEN:
-        print(f"Error: template file too small ({len(data)} bytes).")
-        sys.exit(1)
-
-    # Sanity check: first 3 bytes should be JMP MAIN ($4C xx $C0)
-    if data[0] != 0x4C or data[2] != 0xC0:
-        print(f"Warning: unexpected template entry bytes "
-              f"${data[0]:02X} ${data[1]:02X} ${data[2]:02X} (expected 4C xx C0).")
-
-    actual_version = data[OFFSET_VERSION]
-    if actual_version != CONFIG_VERSION:
-        print(f"Warning: ML_CONFIG_VERSION = {actual_version}, expected {CONFIG_VERSION}.")
-        print("         The template may be from an older build. Proceeding anyway.")
-
-    return data
-
-
-# ---------------------------------------------------------------------------
-# Section E: --list-only display
+# Section D: --list-only display
 # ---------------------------------------------------------------------------
 
 def cmd_list_only(disk_paths: list) -> None:
@@ -643,7 +560,6 @@ def cmd_list_only(disk_paths: list) -> None:
 
     for i, (path, label) in enumerate(zip(disk_paths, disk_labels)):
         disk_num = i + 1
-        files_this_disk = []    # find files from this disk (by tracking order)
         print(f"[MULTILOAD] Disk {disk_num}: {os.path.basename(path)}"
               + (f" ({label})" if label else ""))
 
@@ -661,75 +577,41 @@ def cmd_list_only(disk_paths: list) -> None:
     for i, f in enumerate(all_files):
         size_b  = len(f["data"])
         size_kb = size_b / 1024
-        marker  = "  <-- first part (auto)" if i == 0 else ""
-        print(f"  [{i+1:3d}] {f['name']:<20s}  {size_b:6d} B  ({size_kb:5.1f} KB){marker}")
+        print(f"  [{i+1:3d}] {f['name']:<20s}  {size_b:6d} B  ({size_kb:5.1f} KB)")
 
 
 # ---------------------------------------------------------------------------
-# Section F: ZIP builder
+# Section E: Folder extractor
 # ---------------------------------------------------------------------------
 
-def build_zip(all_files: list, first_part_name, template_data: bytearray,
-              game_name: str, output_zip_path: str) -> None:
-    """Build the MultiLoad ZIP from the merged file list."""
+def extract_to_folder(all_files: list, game_name: str, output_dir: str) -> None:
+    """Write extracted PRGs to <output_dir>/<game_name>/<NAME>.PRG."""
     if not all_files:
         print("[MULTILOAD] Error: no PRG files found across all disk images.")
         sys.exit(1)
 
-    # Resolve first-part name
-    if first_part_name:
-        first_part_name = first_part_name.strip().upper()
-        if len(first_part_name) > MAX_NAME_LEN:
-            print(f"Error: --first-part name '{first_part_name}' exceeds "
-                  f"{MAX_NAME_LEN} characters.")
-            sys.exit(1)
-        if not any(f["name"] == first_part_name for f in all_files):
-            available = ", ".join(f["name"] for f in all_files)
-            print(f"[MULTILOAD] Error: '{first_part_name}' not found in disk image(s).")
-            print(f"[MULTILOAD] Available: {available}")
-            sys.exit(1)
-    else:
-        first_part_name = all_files[0]["name"]
-        if len(first_part_name) > MAX_NAME_LEN:
-            print(f"[MULTILOAD] Error: auto-selected first part '{first_part_name}' "
-                  f"exceeds {MAX_NAME_LEN} chars. Use --first-part NAME to specify one.")
-            sys.exit(1)
-        print(f"[MULTILOAD] Auto-selected first part: {first_part_name}")
-        print(f"[MULTILOAD] Re-run with --first-part NAME to override.")
+    target_dir = os.path.join(output_dir, game_name)
+    os.makedirs(target_dir, exist_ok=True)
 
-    patched = patch_template(bytearray(template_data), first_part_name)
-    # Prepend 2-byte PRG load address header ($00 $C0 = $C000).
-    # multiload_template.bin is a raw binary (no header); KernalBridge reads the first
-    # 2 bytes as load address.  Without the header it reads $4C $15 = $154C
-    # instead of $C000, P2TK never triggers, and the plugin crashes.
-    prg_with_header = bytes([0x00, 0xC0]) + bytes(patched)
-    folder  = f"MULTILOAD/{game_name}/"
-
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(folder + "EASYLOAD.PRG", prg_with_header)
-        for f in all_files:
-            zf.writestr(folder + f["name"] + ".PRG", f["data"])
-
-    os.makedirs(os.path.dirname(output_zip_path) or ".", exist_ok=True)
-    with open(output_zip_path, "wb") as out:
-        out.write(buf.getvalue())
+    for f in all_files:
+        out_path = os.path.join(target_dir, f["name"] + ".PRG")
+        with open(out_path, "wb") as fh:
+            fh.write(f["data"])
 
     total_kb = sum(len(f["data"]) for f in all_files) / 1024
     print(f"[MULTILOAD] Game folder : {game_name}")
-    print(f"[MULTILOAD] First part  : {first_part_name}")
     print(f"[MULTILOAD] PRG files   : {len(all_files)}  ({total_kb:.1f} KB total)")
-    print(f"[MULTILOAD] Output ZIP  : {output_zip_path}")
+    print(f"[MULTILOAD] Output dir  : {target_dir}")
     print(f"[MULTILOAD] OK")
     print()
-    print(f"  Extract ZIP to SD card root:")
-    print(f"    {folder}EASYLOAD.PRG")
-    for f in all_files:
-        print(f"    {folder}{f['name']}.PRG")
+    print(f"  Copy contents to the SD card:")
+    print(f"    MULTILOAD/{game_name}/")
+    print(f"  Then select any PRG inside MULTILOAD/{game_name}/ from the EasySD menu.")
+    print(f"  The cartridge synthesises the MLBoot prologue automatically.")
 
 
 # ---------------------------------------------------------------------------
-# Section G: V3 main dispatcher
+# Section F: Main dispatcher
 # ---------------------------------------------------------------------------
 
 def main_from_disk(args) -> None:
@@ -752,109 +634,48 @@ def main_from_disk(args) -> None:
         cmd_list_only(disk_paths)
         return
 
-    # Load template
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    repo_root  = os.path.dirname(script_dir)
-    template_data = load_template(repo_root, getattr(args, 'template', None))
-
     # Merge disks
     all_files, disk_labels, warnings = merge_disks(disk_paths)
     for w in warnings:
         print(f"[MULTILOAD] WARNING: {w}")
 
     # Derive game name and output path
-    game_name  = derive_game_name(disk_paths, disk_labels)
-    output_dir = os.path.join(repo_root, OUTPUT_DIR)
-    output_zip = os.path.join(output_dir, game_name + ".ZIP")
-
-    build_zip(all_files, args.first_part, template_data, game_name, output_zip)
-
-
-# ---------------------------------------------------------------------------
-# Section H: V2 legacy mode
-# ---------------------------------------------------------------------------
-
-def main_legacy(first_part: str) -> None:
-    """Legacy mode: patch template and write EASYLOAD.PRG."""
-    first_part = first_part.strip().upper()
-
-    if not first_part:
-        print("Error: first-part name cannot be empty.")
-        sys.exit(1)
-
-    if len(first_part) > MAX_NAME_LEN:
-        print(f"Error: first-part name too long (max {MAX_NAME_LEN} chars, "
-              f"got {len(first_part)}).")
-        sys.exit(1)
-
     script_dir = os.path.dirname(os.path.abspath(__file__))
     repo_root  = os.path.dirname(script_dir)
-    template_data = load_template(repo_root)
+    game_name  = derive_game_name(disk_paths, disk_labels)
+    output_dir = os.path.join(repo_root, OUTPUT_DIR)
 
-    patched = patch_template(bytearray(template_data), first_part)
-    # Prepend 2-byte PRG load address header ($00 $C0 = $C000).
-    prg_with_header = bytes([0x00, 0xC0]) + bytes(patched)
-
-    output_dir  = os.path.join(repo_root, OUTPUT_DIR)
-    output_path = os.path.join(output_dir, "EASYLOAD.PRG")
-    os.makedirs(output_dir, exist_ok=True)
-    with open(output_path, "wb") as f:
-        f.write(prg_with_header)
-
-    print(f"[MULTILOAD] Patched: FIRST_PART = '{first_part}' ({len(first_part)} bytes)")
-    print(f"[MULTILOAD] Output:  {output_path}")
-    print()
-    print(f"  Copy EASYLOAD.PRG to the game directory on your SD card:")
-    print(f"    /MULTILOAD/{first_part}/EASYLOAD.PRG")
-    print(f"    /MULTILOAD/{first_part}/{first_part}.PRG")
-    print(f"    /MULTILOAD/{first_part}/LEVEL1.PRG  (etc.)")
+    extract_to_folder(all_files, game_name, output_dir)
 
 
 # ---------------------------------------------------------------------------
-# Section I: Argument parsing and entry point
+# Section G: Argument parsing and entry point
 # ---------------------------------------------------------------------------
 
 def parse_args():
     ap = argparse.ArgumentParser(
         prog="create_multiload.py",
-        description="MultiLoad ZIP builder and template patcher for EasySD.",
+        description="Disk-image extractor for EasySD MultiLoad.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""\
-V2 mode (patch template only):
-  python Tools/create_multiload.py LOADER
-
-V3 mode (from disk image):
+Examples:
   python Tools/create_multiload.py --from-disk TURRICAN.D64
-  python Tools/create_multiload.py --from-disk TURRICAN.D64 --first-part TURRICAN
   python Tools/create_multiload.py --from-disk 1.d64 2.d64
   python Tools/create_multiload.py --from-autoswap autoswap.lst
-  python Tools/create_multiload.py --from-autoswap autoswap.lst --first-part AUTODUEL
   python Tools/create_multiload.py --from-disk TURRICAN.D64 --list-only
 
 Supported formats: D64, D71, D81, T64
 """)
 
-    # V2 legacy positional
-    ap.add_argument(
-        "loader", nargs="?", metavar="FIRST_PART_NAME",
-        help="(V2 mode) Name of first-part PRG without extension, e.g. LOADER")
-
-    # V3 flags
     ap.add_argument(
         "--from-disk", nargs="+", metavar="DISK_IMAGE",
-        help="One or more disk images (D64/D71/D81/T64) to convert")
+        help="One or more disk images (D64/D71/D81/T64) to extract")
     ap.add_argument(
         "--from-autoswap", metavar="AUTOSWAP_LST",
         help="Read disk image list from autoswap.lst (SD2IEC format)")
     ap.add_argument(
-        "--first-part", metavar="NAME",
-        help="Override auto-selected first-part name (default: first PRG in directory)")
-    ap.add_argument(
         "--list-only", action="store_true",
-        help="List disk contents and exit without creating ZIP")
-    ap.add_argument(
-        "--template", metavar="PRG_FILE",
-        help="Override raw template path (default: EasySD/build/plugins/multiload_template.bin)")
+        help="List disk contents and exit without writing PRGs")
 
     return ap.parse_args()
 
@@ -862,23 +683,18 @@ Supported formats: D64, D71, D81, T64
 def main():
     args = parse_args()
 
-    if args.from_disk or args.from_autoswap:
-        if args.from_disk and args.from_autoswap:
-            print("Error: --from-disk and --from-autoswap are mutually exclusive.")
-            sys.exit(1)
-        main_from_disk(args)
-    elif args.loader:
-        if args.first_part or args.list_only:
-            print("Error: --first-part and --list-only require --from-disk or --from-autoswap.")
-            sys.exit(1)
-        main_legacy(args.loader)
-    else:
+    if not (args.from_disk or args.from_autoswap):
         print("Usage:")
-        print("  python Tools/create_multiload.py FIRST_PART_NAME")
         print("  python Tools/create_multiload.py --from-disk DISK_IMAGE [...]")
         print("  python Tools/create_multiload.py --from-autoswap autoswap.lst")
         print("  python Tools/create_multiload.py --help")
         sys.exit(1)
+
+    if args.from_disk and args.from_autoswap:
+        print("Error: --from-disk and --from-autoswap are mutually exclusive.")
+        sys.exit(1)
+
+    main_from_disk(args)
 
 
 if __name__ == "__main__":

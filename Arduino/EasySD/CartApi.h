@@ -131,6 +131,7 @@ class CartApi {
   void Init();
   void HandleApi();
   void SendLoaderStub();
+  void SendMLBootBlob(const char* firstPartName);
   void TransferMenu();
   void ResetNoCartridge();
   void LoadAndLaunchFile(const char* path);

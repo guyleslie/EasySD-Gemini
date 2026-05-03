@@ -32,7 +32,9 @@ sdcard/*.CVD
 sdcard/*.cvd
 
 # Multiload game images (commercial ROMs — kept locally only)
-multiload/
+# Anchored to repo root so EasySD/Loader/Bridges/MultiLoad/ is NOT matched
+# (Windows is case-insensitive; an unanchored "multiload/" eats both).
+/multiload/
 
 # Charset preview working files (commercial font extracts)
 tmp_charset_preview/

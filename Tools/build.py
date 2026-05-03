@@ -386,7 +386,7 @@ def stage_release_bundle(ctx: Context, preferred_menu_name: str, mode_label: str
     menu_src = _resolve_menu_artifact(ctx, preferred_menu_name)
     shutil.copyfile(menu_src, c64_dir / menu_src.name)
 
-    core_optional = ["keybooter.prg", "warning.prg", "IRQLoaderRom.bin", "FlashLib.h", "defaultmenu.h", "LoaderStub.h"]
+    core_optional = ["keybooter.prg", "warning.prg", "IRQLoaderRom.bin", "FlashLib.h", "defaultmenu.h", "LoaderStub.h", "MLBoot.h"]
     for name in core_optional:
         src = ctx.build_dir / name
         if src.exists():
@@ -555,9 +555,11 @@ def count_regex_in_files(files: Iterable[Path], pattern: re.Pattern[str]) -> int
 def prebuild_checks(ctx: Context) -> None:
     """
     Python port of PreBuild.bat:
-    - CartZpMap.inc must be included exactly once and only from Loader/CartLibStream.s
-    - CartLibCommon.s must be included exactly once and only from Loader/CartLib.s
-    - Plugins must NOT include either directly
+    - CartZpMap.inc may be included from Loader/CartLibStream.s and from
+      Loader/Bridges/MultiLoad/MLBoot.s (standalone-buildable blob, not a plugin).
+      Total includes must equal the sum of these whitelisted sources — no others.
+    - CartLibCommon.s must be included exactly once and only from Loader/CartLib.s.
+    - Plugins must NOT include either directly.
     """
     pat_zpmap = re.compile(r"^[ \t]*\.include[ \t]+.*CartZpMap\.inc", re.IGNORECASE | re.MULTILINE)
     pat_common = re.compile(r"^[ \t]*\.include[ \t]+.*CartLibCommon\.s", re.IGNORECASE | re.MULTILINE)
@@ -569,17 +571,24 @@ def prebuild_checks(ctx: Context) -> None:
     cnt_common = count_regex_in_files(all_sources, pat_common)
 
     stream_file = ctx.irq_root / "Loader" / "CartLibStream.s"
+    mlboot_file = ctx.irq_root / "Loader" / "Bridges" / "MultiLoad" / "MLBoot.s"
     root_file = ctx.irq_root / "Loader" / "CartLib.s"
 
     cnt_zpmap_stream = count_regex_in_files([stream_file], pat_zpmap)
+    cnt_zpmap_mlboot = count_regex_in_files([mlboot_file], pat_zpmap)
     cnt_common_root = count_regex_in_files([root_file], pat_common)
 
     failed = False
-    if cnt_zpmap != 1:
-        print(f"ERROR: CartZpMap.inc include count is {cnt_zpmap} (expected: 1)")
+    expected_zpmap = cnt_zpmap_stream + cnt_zpmap_mlboot
+    if cnt_zpmap != expected_zpmap:
+        print(f"ERROR: CartZpMap.inc include count is {cnt_zpmap} "
+              f"(expected: {expected_zpmap} — CartLibStream.s={cnt_zpmap_stream}, MLBoot.s={cnt_zpmap_mlboot})")
         failed = True
     if cnt_zpmap_stream != 1:
         print(f"ERROR: CartZpMap.inc must be included from Loader/CartLibStream.s (expected: 1 match there)")
+        failed = True
+    if cnt_zpmap_mlboot > 1:
+        print(f"ERROR: CartZpMap.inc must be included at most once from MLBoot.s (got {cnt_zpmap_mlboot})")
         failed = True
     if cnt_common != 1:
         print(f"ERROR: CartLibCommon.s include count is {cnt_common} (expected: 1)")
@@ -614,7 +623,6 @@ PLUGIN_MATRIX = [
     ("Plugins/PetsciiDisplayer",        "PetsciiDisplayer.s", "petgplugin"),
     ("Plugins/WavPlayer",               "WavPlayer.s",        "wavplugin"),
     ("Loader/Bridges/KernalBridge",     "KernalBridge.s",     "prgplugin"),
-    ("Loader/Bridges/MultiLoad",        "MultiLoad.s",        "bootplugin"),
     ("Plugins/HWTest",                  "HWTest.s",           "hwtplugin"),
 ]
 
@@ -685,6 +693,14 @@ def build_core(ctx: Context, *, build_arduino: bool, arduino_debug: int, menu_pr
         print(f"[CORE] 64tass: {stub_src.relative_to(ctx.irq_root)}")
         run_cmd([tass, "-c", "-b", str(stub_src), "-o", str(stub_bin), "--labels", str(ctx.sym_dir / "LoaderStub.65s.txt")], cwd=ctx.irq_root)
 
+        # MLBoot prologue blob — embedded in FlashLib.h, transmitted by Arduino
+        # in place of the user-selected first part for /MULTILOAD/ launches.
+        # --long-branch needed: ResidentLoader.s uses BCS/BCC across >127 bytes.
+        mlboot_src = ctx.irq_root / "Loader" / "Bridges" / "MultiLoad" / "MLBoot.s"
+        mlboot_bin = ctx.build_dir / "MLBoot.bin"
+        print(f"[CORE] 64tass: {mlboot_src.relative_to(ctx.irq_root)}")
+        run_cmd([tass, "-c", "-b", "--long-branch", str(mlboot_src), "-o", str(mlboot_bin), "--labels", str(ctx.sym_dir / "MLBoot.txt")], cwd=ctx.irq_root)
+
         irq_src = ctx.irq_root / "Loader" / "IRQLoader.65s"
         irq_bin = ctx.build_dir / "IRQLoader.65s.bin"
         irq_labels = ctx.sym_dir / "IRQLoader.txt"
@@ -699,9 +715,11 @@ def build_core(ctx: Context, *, build_arduino: bool, arduino_debug: int, menu_pr
         # Arduino artifact generation
         defaultmenu_h = ctx.build_dir / "defaultmenu.h"
         loaderstub_h = ctx.build_dir / "LoaderStub.h"
+        mlboot_h = ctx.build_dir / "MLBoot.h"
 
         bin2ardh(warning_prg, defaultmenu_h, "data_len", "cartridgeData")
         bin2ardh(stub_bin, loaderstub_h, "stub_len", "stubData")
+        bin2ardh(mlboot_bin, mlboot_h, "mlboot_len", "mlbootData")
 
         avr_head = ctx.irq_root / "avrincludehead.txt"
         avr_foot = ctx.irq_root / "avrincludefoot.txt"
@@ -712,6 +730,7 @@ def build_core(ctx: Context, *, build_arduino: bool, arduino_debug: int, menu_pr
             avr_head.read_bytes()
             + defaultmenu_h.read_bytes()
             + loaderstub_h.read_bytes()
+            + mlboot_h.read_bytes()
             + avr_foot.read_bytes()
         )
 
@@ -755,7 +774,6 @@ def build_plugins(ctx: Context, *, ensure_core_prereq: bool = True) -> None:
             [
                 tass, "-c", "-b", "--long-branch",
                 "-D", "DEBUG=0",
-                "-D", "ML_DEBUG_BORDERS=0",
                 str(src),
                 "-o", str(out_prg),
                 "--labels", str(labels),
@@ -765,33 +783,6 @@ def build_plugins(ctx: Context, *, ensure_core_prereq: bool = True) -> None:
         )
 
     print("[PLUGINS] OK")
-
-
-def build_multiload(ctx: Context) -> None:
-    """Build the raw MultiLoad template consumed by create_multiload.py."""
-    ensure_dirs(ctx)
-    tass = resolve_tool(ctx, ["64tass", "64tass.exe"])
-    src = ctx.irq_root / "Loader" / "Bridges" / "MultiLoad" / "MultiLoad.s"
-    out_prg = ctx.plugins_out_dir / "multiload_template.bin"
-    labels  = ctx.sym_dir / "multiload_template.txt"
-    listing = ctx.lst_dir / "multiload_templateLST.txt"
-
-    print(f"[MULTILOAD] Building Loader/Bridges/MultiLoad/MultiLoad.s -> build/plugins/multiload_template.bin")
-    run_cmd(
-        [
-            tass, "-c", "-b", "--long-branch",
-            "-D", "DEBUG=0",
-            "-D", "ML_DEBUG_BORDERS=0",
-            str(src),
-            "-o", str(out_prg),
-            "--labels", str(labels),
-            "-L", str(listing),
-        ],
-        cwd=ctx.irq_root
-    )
-    print("[MULTILOAD] OK")
-    print(f"  Output: {out_prg}")
-    print("  This is a raw template binary. Use Tools/create_multiload.py to generate EASYLOAD.PRG.")
 
 
 # ============================================================================
@@ -1046,7 +1037,6 @@ Examples:
   # C64 builds
   python build.py release              # Full release bundles (release/upload/sd-content)
   python build.py sd-content           # Build/sync SD content bundle in build/sd-content
-  python build.py multiload            # Build BOOT.PRG (multi-load launcher) only
 
   # Arduino operations
   python build.py arduino-setup        # One-time setup
@@ -1067,7 +1057,7 @@ Examples:
         choices=[
             # C64 builds
             "release",
-            "core", "plugins", "multiload", "clean", "prebuild",
+            "core", "plugins", "clean", "prebuild",
             # Arduino operations
             "arduino-setup", "arduino-compile", "arduino-upload-isp",
             "arduino-monitor", "arduino-list-ports", "arduino-clean",
@@ -1235,10 +1225,6 @@ def main(argv: Sequence[str]) -> int:
 
     if args.target == "plugins":
         build_plugins(ctx)
-        return 0
-
-    if args.target == "multiload":
-        build_multiload(ctx)
         return 0
 
     if args.target == "release":
