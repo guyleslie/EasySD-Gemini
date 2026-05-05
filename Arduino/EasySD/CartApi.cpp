@@ -65,7 +65,6 @@ static bool OpenMenuFromSdRoot(File &outFile) {
 void CartApi::Init() {
   Arguments = sharedBuf.args;
   m_argsOk = true;
-  m_multiLoadModeActive = false;
   cartInterface.SetPage(0);
 
   dirFunc.ReInit();
@@ -379,32 +378,6 @@ void CartApi::HandleGetPath() {
   }
   interrupts();
   delayMicroseconds(20);
-}
-
-// Multi-Load V2: Navigate Arduino to an absolute path sent by the C64.
-// Protocol: C64 sends COMMAND_GOTO_PATH then filename bytes (length-prefixed, via SendFileName).
-// Arduino navigates from root to path and responds SUCCESSFUL or DIR_NOT_FOUND.
-void CartApi::HandleGotoPath() {
-  GetArgumentsDynamic(0);
-  uint8_t pathLen = Arguments[0];
-
-  if (pathLen == 0 || pathLen >= MAX_ARGUMENTS_LENGTH) {
-    HandleResponse(INVALID_ARGUMENT, 1);
-    return;
-  }
-
-  char* path = (char*)&Arguments[1];
-  path[pathLen] = '\0';
-
-  LOGI(DIR, "GotoPath: "); LOG_PRINTLN(path);
-  LOG_LOAD_PATH(path);
-
-  bool ok = dirFunc.NavigateToPath(path);
-  if (ok) {
-    HandleResponse(SUCCESSFUL, 1);
-  } else {
-    HandleResponse(DIR_NOT_FOUND, 1);
-  }
 }
 
 void CartApi::HandleReadDirectory() {
@@ -988,7 +961,6 @@ void CartApi::GetArgumentsDynamic(int16_t argumentsLength) {
 void CartApi::HandleApi() {  
   static unsigned long lastSessionActivityMs = 0;
   static bool sessionSawCommand = false;
-  static constexpr unsigned long ML_SESSION_IDLE_TIMEOUT_MS = 2500UL;
   uint8_t state = cartInterface.ReceiveHandler();
 
   if (state == IN_TRANSMISSION) {    
@@ -1014,7 +986,6 @@ void CartApi::HandleApi() {
           case COMMAND_LONG_SEEK_FILE : HandleLongSeekFile(); break;
           case COMMAND_GET_INFO_FOR_FILE : HandleGetInfoForFile(); break;
           case COMMAND_GET_PATH : HandleGetPath(); break;
-          case COMMAND_GOTO_PATH : HandleGotoPath(); break;
           case COMMAND_READ_DIR : HandleReadDirectory(); break;
           case COMMAND_CHANGE_DIR : HandleChangeDirectory(); break;
           case COMMAND_CHANGE_DIR_INDEX : HandleChangeDirectoryIndex(); break;
@@ -1053,19 +1024,6 @@ void CartApi::HandleApi() {
 
         cartInterface.SetPage(0);
       } else {
-        if (m_multiLoadModeActive && sessionSawCommand &&
-            (unsigned long)(millis() - lastSessionActivityMs) > ML_SESSION_IDLE_TIMEOUT_MS) {
-          LOGE(SYS, "ML session idle reset");
-          if (workingFile && workingFile.isOpen()) {
-            workingFile.close();
-          }
-          cartInterface.DisableCartridge();
-          cartInterface.ResetReceive();
-          lastSessionActivityMs = 0;
-          sessionSawCommand = false;
-          return;
-        }
-
         // Only reap sessions that never delivered a single command byte.
         // The EasySD menu intentionally keeps one long-lived session open
         // while the user navigates, so resetting an otherwise healthy idle
@@ -1109,87 +1067,6 @@ void CartApi::SendLoaderStub() {
   cartInterface.ResetIndex();
 }
 
-// MLBoot layout — MUST match EasySD/Loader/Bridges/MultiLoad/MLBoot.s
-#define MLBOOT_EXPECTED_VERSION       5
-#define MLBOOT_VERSION_OFFSET         3
-#define MLBOOT_FIRSTPART_LEN_OFFSET   4
-#define MLBOOT_FIRSTPART_NAME_OFFSET  5
-#define MLBOOT_FIRSTPART_NAME_MAX    20
-#define MLBOOT_LAUNCH_PATH_OFFSET    25
-#define MLBOOT_LAUNCH_PATH_MAX       64
-
-bool CartApi::SendMLBootBlob(const char* firstPartName, const char* launchPath) {
-  uint8_t blobVersion = pgm_read_byte(mlbootData + MLBOOT_VERSION_OFFSET);
-  if (blobVersion != MLBOOT_EXPECTED_VERSION) {
-    LOG_LOAD_MLBOOT_BAD_VERSION(blobVersion);
-    return false;
-  }
-
-  size_t nameLen = strlen(firstPartName);
-  if (nameLen == 0 || nameLen > MLBOOT_FIRSTPART_NAME_MAX) {
-    LOG_LOAD_NAME_TOO_LONG(firstPartName);
-    return false;
-  }
-
-  if (launchPath == NULL || launchPath[0] != '/') {
-    LOG_LOAD_BAD_PATH();
-    return false;
-  }
-
-  size_t pathLen = strlen(launchPath);
-  if (pathLen == 0 || pathLen >= MLBOOT_LAUNCH_PATH_MAX) {
-    LOG_LOAD_PATH_TOO_LONG(launchPath);
-    return false;
-  }
-
-  long transferLength = mlboot_len;
-  long padBytes = (transferLength % 256 == 0) ? 0 : 256 - transferLength % 256;
-  byte transferPages = (byte)(transferLength / 256 + (padBytes > 0 ? 1 : 0));
-
-  cartInterface.ResetIndex();
-  cartInterface.EnableCartridge();
-  cartInterface.ResetC64();
-  delay(200);
-
-  noInterrupts();
-  // MLBoot blob loads to $C000 (load-address bytes already stripped by 64tass -b).
-  SendHeader(0x00, 0xC0, transferPages, transferLength, TYPE_STANDARD_PRG, cartInterface.TransferMode);
-
-  #ifdef USERAMLAUNCHER
-  SendLoaderStub();
-  #endif
-
-  // Stream the blob, patching the launch fields on-the-fly.
-  for (int i = 0; i < mlboot_len; i++) {
-    uint8_t b;
-    if (i == MLBOOT_FIRSTPART_LEN_OFFSET) {
-      b = (uint8_t)nameLen;
-    } else if (i >= MLBOOT_FIRSTPART_NAME_OFFSET
-            && i <  MLBOOT_FIRSTPART_NAME_OFFSET + MLBOOT_FIRSTPART_NAME_MAX) {
-      int nameIdx = i - MLBOOT_FIRSTPART_NAME_OFFSET;
-      b = (nameIdx < (int)nameLen) ? (uint8_t)firstPartName[nameIdx] : 0;
-    } else if (i >= MLBOOT_LAUNCH_PATH_OFFSET
-            && i <  MLBOOT_LAUNCH_PATH_OFFSET + MLBOOT_LAUNCH_PATH_MAX) {
-      int pathIdx = i - MLBOOT_LAUNCH_PATH_OFFSET;
-      b = (pathIdx < (int)pathLen) ? (uint8_t)launchPath[pathIdx] : 0;
-    } else {
-      b = pgm_read_byte(mlbootData + i);
-    }
-    cartInterface.TransmitByteFast(b);
-  }
-
-  if (padBytes > 0) {
-    for (int i = 0; i < padBytes; i++) {
-      cartInterface.TransmitByteFast(0x00);
-    }
-  }
-  interrupts();
-
-  delayMicroseconds(30);
-  cartInterface.DisableCartridge();
-  return true;
-}
-
 bool StartsWith(char *str,const char *pre)
 {
     size_t lenpre = strlen(pre),
@@ -1218,7 +1095,6 @@ void CartApi::SendHeader(unsigned char startLow, unsigned char startHigh, unsign
 void CartApi::TransferMenu() {
   LOG_LOAD_MENU();
 
-  m_multiLoadModeActive = false;
   cartInterface.EndListening();
 
   if (workingFile && workingFile.isOpen()) {
@@ -1323,12 +1199,8 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   // Saves 64B of stack at the deepest point of the invoke+launch call chain.
   char* launchPath = reinterpret_cast<char*>(sharedBuf.ni + 130);
   const bool preserveLaunchPath = (dirFunc.pathDepth > 0);
-  m_multiLoadModeActive = false;
   cartInterface.EndListening();
 
-  // Preserve the launch directory for any subdir launch — MultiLoad's
-  // EASYLOAD.PRG needs it for level-loading, and ordinary subdir PRGs are
-  // harmless to preserve (SEL/TransferMenu calls ReInit → root anyway).
   if (preserveLaunchPath) {
     strncpy(launchPath, dirFunc.currentPath, 63);
     launchPath[63] = '\0';
@@ -1343,27 +1215,6 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   if (workingFile ) {
     contentLength = workingFile.size();
     LOG_LOAD_LAUNCH(selectedFileName, contentLength);
-
-    // MultiLoad-mode: any PRG launched from /MULTILOAD/<game>/ goes through
-    // the synthesised MLBoot prologue blob instead of the standard PRG path.
-    // The on-disk file is *not* opened/read here — the C64 will request it
-    // via the resident LOAD hook installed by MLBoot.MAIN (see P4).
-    bool mlMode = preserveLaunchPath
-               && launchPath[0] == '/'
-               && strncasecmp(launchPath + 1, "MULTILOAD/", 10) == 0;
-    if (mlMode) {
-      LOG_LOAD_MLBOOT(selectedFileName);
-      workingFile.close();
-      if (!SendMLBootBlob(selectedFileName, launchPath)) {
-        cartInterface.SetPage(0);
-        cartInterface.StartListening();
-        return;
-      }
-      cartInterface.SetPage(0);
-      cartInterface.StartListening();
-      m_multiLoadModeActive = true;
-      return;
-    }
 
     if (strcmp(selectedFileName, "keybooter.prg") == 0 || ( IsMatchLast(selectedFileName, ".irq") || IsMatchLast(selectedFileName, ".IRQ") ) ) {
       booter = 1;
@@ -1442,7 +1293,6 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     cartInterface.StartListening();
     //interrupts();
 
-    // Standard /PRG/ launch tail — not MLBoot path.
     LOGI(PRG, "Launched - C64 running game");
     LOG_LOAD_DONE();
 
@@ -1452,7 +1302,6 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
 }
 
 void CartApi::ResetNoCartridge() {
-  m_multiLoadModeActive = false;
   cartInterface.ReleaseToBasic(true);
 }
 

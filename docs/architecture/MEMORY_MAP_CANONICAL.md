@@ -96,38 +96,10 @@ Known issue: code extends past `$D000` into I/O space. See `KERNAL_BRIDGE.md`.
 
 ---
 
-## ResidentLoader Memory (MultiLoad)
-
-MultiLoad installs a resident hook that persists after the menu exits. These regions are outside the `$C000+` plugin range and are only active during multi-load game execution.
-
-| Address | Symbol | Content |
-|---------|--------|---------|
-| `$0330/$0331` | `V_LOAD` | Kernal LOAD vector, patched to `$033C` |
-| `$033C–$035B` | `RL_STUB` | Resident stub (~38 bytes): device check, save regs, call handler |
-| `$0368–$036A` | `RL_NMI_REDIRECT` | `JMP ($0318)` — written to `$FFFA/$FFFB` for NMI dispatch |
-| `$036B–$036C` | `RL_ORIG_VEC` | Backup of original `$0330/$0331` |
-| `$036D` | `RL_SAVED_01` | Saved processor port during hook |
-| `$036E/$036F` | `RL_SAVED_X/Y` | Saved X/Y registers (SA=0 support) |
-| `$E800` | `RL_HANDLER` | Handler entry (under Kernal ROM, $01=$35) |
-| `$E840` | `RL_DIR_PATH` | Game directory path buffer (64 B) |
-| `$E880` | `RL_FNAME_BUF` | Filename buffer (36 B) |
-| `$E8A4` | `RL_FILEINFO_BUF` | FAT entry buffer (32 B) |
-| `$E8C4` | `RL_HDR_BUF` | First-page read buffer (256 B) |
-
-`$033C` is triple-use: `FILE_PATH_BUF` during menu operation, `LoaderStub` during
-direct menu `.PRG` launch, and `RL_STUB` during MultiLoad game execution. These uses
-are mutually exclusive.
-
-Writes to `$E800` always reach RAM regardless of `$01` banking. The handler is only reachable with `$01=$35`.
-
-Constants defined in `EasySD/Loader/Common/System.inc`.
-
----
-
 ## Reference Files
 
 | File | Role |
 |------|------|
 | `EasySD/Loader/CartZpMap.inc` | Zero Page allocation (single source of truth) |
 | `EasySD/Loader/Common/CartMemoryMap.inc` | Optional high-memory symbols |
-| `EasySD/Loader/Common/System.inc` | ResidentLoader address constants |
+| `EasySD/Loader/Common/System.inc` | Cartridge ROM / loader address constants |

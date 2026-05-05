@@ -110,10 +110,6 @@ Converts MP4/AVI video files to the C64 CVD format used by CvdPlayer.
 
 Converts WAV audio files to Digimax format used by WavPlayer.
 
-### `create_multiload.py` - MultiLoad Bundle Builder
-
-Builds the MultiLoad ZIP bundles from a source folder.
-
 ---
 
 ## File Structure
@@ -123,8 +119,7 @@ Tools/
 ├── build.py                      # Main build script
 ├── README.md                     # This file
 ├── cvd_convert.py                # CVD video converter
-├── wavtodigimax.py               # WAV to Digimax audio converter
-└── create_multiload.py           # MultiLoad bundle builder
+└── wavtodigimax.py               # WAV to Digimax audio converter
 ```
 
 ---

@@ -39,7 +39,7 @@ Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 | File browser: directory header (`ROOT` / current folder) | ✅ Verified |
 | PRG file loading | ✅ Verified |
 | Cold boot after long power-off (1-2 min) | ✅ Verified on current bench firmware/hardware state |
-| Plugin-class return path (`.CVD`, `EASYLOAD.PRG`, `HWTEST.HWT`) | ❌ Current bench report: returns to cleared screen / top-line `READY.` instead of stable EasySD menu |
+| Plugin-class return path (`.CVD`, `HWTEST.HWT`) | ❌ Current bench report: returns to cleared screen / top-line `READY.` instead of stable EasySD menu |
 | Other non-PRG plugins (`.WAV`, `.KOA`, `.PET`) | ⚠️ Not yet re-verified on current real HW firmware baseline |
 
 ---
@@ -49,7 +49,7 @@ Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 The cartridge has two parts working together:
 
 - An **Arduino Nano** reads the SD card and streams file data to the C64 at up to ~40 KB/s via the NMI line
-- A **512 Kbit (64 KB) cartridge ROML chip** holds the boot stub, NMI transfer handler, and resident loader used by the C64 side; the interactive menu is normally loaded from the SD card root as `EASYSD.PRG`
+- A **512 Kbit (64 KB) cartridge ROML chip** holds the boot stub and NMI transfer handler used by the C64 side; the interactive menu is normally loaded from the SD card root as `EASYSD.PRG`
 
 When you select a file, the menu loads the matching plugin from the SD card's `/PLUGINS/` folder, which handles playback or display. This keeps the ROM small and lets new file types be added without reprogramming the cartridge ROML chip.
 
@@ -87,7 +87,6 @@ SD card root/
 ├── EASYSD.PRG        ← main C64 menu loaded by SEL / TransferMenu()
 ├── PLUGINS/
 │   ├── PRGPLUGIN.PRG    ← standard PRG loader (KernalBridge)
-│   ├── BOOTPLUGIN.PRG   ← MultiLoad / boot bridge
 │   ├── HWTPLUGIN.PRG    ← hardware test launcher
 │   ├── KOAPLUGIN.PRG    ← Koala graphics viewer
 │   ├── PETGPLUGIN.PRG   ← PETSCII art viewer

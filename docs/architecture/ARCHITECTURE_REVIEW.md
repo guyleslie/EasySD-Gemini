@@ -129,8 +129,6 @@ Active plugins and their SD card filenames:
 | `.CVD` | `CVDPLUGIN.PRG` | `cvdplugin.prg` |
 | `.HWT` | `HWTPLUGIN.PRG` | `hwtplugin.prg` |
 
-`BOOTPLUGIN.PRG` (MultiLoad) is triggered separately and is not part of the extension-based dispatch above.
-
 The exact hardware reliability of each plugin must be established from source plus current test evidence; see `docs/PLUGIN_HARDWARE_BUGS.md`.
 
 ---

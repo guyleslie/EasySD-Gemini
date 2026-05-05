@@ -1,6 +1,6 @@
 # EasySD - Unified Changelog
 
-> **Last updated:** 2026-05-02
+> **Last updated:** 2026-05-05
 > **Current version:** v0.5 (public) / current worktree post-v0.5
 > **Project:** EasySD Gemini - C64 Cartridge-based SD card reader
 
@@ -16,6 +16,7 @@ This document contains all significant changes to the EasySD project in chronolo
 
 | Version | Date | Description | Status |
 |---------|------|-------------|--------|
+| **Unreleased** | 2026-05-05 | MultiLoad / MLBoot / `EASYLOAD.PRG` / resident Kernal LOAD hook removed from firmware, build, C64 source, tools and active docs | ✅ Code-only |
 | **Unreleased** | 2026-05-02 | IRQHack64-style cold boot: AVR no longer holds C64 `/RESET` LOW; resolves "BASIC text, no cursor" cold-boot symptom | ✅ Real HW verified (uEliteBoard64 (uni64.com)) |
 | **Unreleased** | 2026-04-26 | Cold-boot BASIC release margin hardened; direct PRG launcher now handles hybrid BASIC+ML PRGs such as Beach Head | ⚠️ Superseded 2026-05-02 |
 | **v0.5** | 2026-04-18 | Public stabilization release: BASIC-first cold boot, directory/nav/PRG launch/SEL handling improved on real hardware | ✅ Real HW verified |
@@ -59,6 +60,51 @@ This document contains all significant changes to the EasySD project in chronolo
 ---
 
 ## Chronological Changes
+
+### [Unreleased] - 2026-05-05
+**MultiLoad / MLBoot / resident Kernal LOAD hook removed**
+
+The active MultiLoad path never reached a stable real-hardware state and the
+synthesised MLBoot prologue blob occupied roughly 1.5 KB of scarce
+ATmega328P flash. The whole feature has been deleted from the codebase.
+
+- C64 sources removed: `EasySD/Loader/Bridges/MultiLoad/MLBoot.s`,
+  `EasySD/Loader/ResidentLoader.s`, archived `EasySD/Loader/_archive/MultiLoad.s`.
+- Arduino firmware: dropped `COMMAND_GOTO_PATH`, `HandleGotoPath()`,
+  `m_multiLoadModeActive`, `SendMLBootBlob()`, the `MLBOOT_*` blob constants,
+  the `/MULTILOAD/` launch-path detection, the ML idle-reset session branch and
+  the ML log category. Generated `FlashLib.h` no longer carries
+  `mlboot_len` / `mlbootData[]`.
+- Build system: `Tools/build.py` no longer compiles `MLBoot.s`, no longer
+  generates `MLBoot.bin` / `MLBoot.h`, and `prebuild_checks()` is back to a
+  single CartZpMap.inc include site (CartLibStream.s). The `--debug` build
+  flag chain dropped `LOG_ENABLE_ML`.
+- Tools: deleted `Tools/create_multiload.py` and the matching `Tools/README.md`
+  entries.
+- Protocol: removed `COMMAND_GOTO_PATH = 14` from
+  `EasySD/Loader/Common/EasySD.inc`. The 14 opcode is intentionally left
+  unassigned.
+- Docs: deleted `docs/plugins/MultiLoad.md`, `docs/MULTILOAD_FIX_STATUS.md`,
+  `docs/MULTILOAD_DEBUG_OBSERVATIONS.md`, `docs/MULTILOAD_REFACTOR_PLAN.md`.
+  Refreshed `README.md`, `GEMINI.md`, `CLAUDE.md`, `docs/PLUGIN_HARDWARE_BUGS.md`,
+  `docs/DEVELOPMENT_ROADMAP.md`, `docs/architecture/MEMORY_MAP_CANONICAL.md`,
+  `docs/architecture/ARCHITECTURE_REVIEW.md`,
+  `docs/architecture/MACRO_ARCHITECTURE.md`,
+  `docs/architecture/KERNAL_BRIDGE.md`, `docs/plugins/KernalBridge.md`,
+  `docs/arduino/DIR_NAVIGATION_API.md`, `docs/arduino/PCB_BRINGUP_NOTES.md`,
+  `EasySD/Loader/README.md`, `sdcard/README.md`.
+
+#### Public Behavior
+
+- No more MultiLoad support, no `EASYLOAD.PRG`, no `BOOTPLUGIN.PRG`, no
+  resident Kernal LOAD hook.
+- The SD-card bundle ships only the remaining plugins: PRG/KernalBridge, KOA,
+  PET/PETG, WAV, CVD, HWT.
+- Existing `/MULTILOAD/...` directories on user SD cards are treated as ordinary
+  folders; selecting a PRG inside one launches it as a plain single-file PRG
+  (or fails like any other unsupported PRG).
+
+---
 
 ### [Unreleased] - 2026-05-02
 **IRQHack64-style cold boot — cursor freeze resolved**

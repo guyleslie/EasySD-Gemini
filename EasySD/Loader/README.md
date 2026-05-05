@@ -16,7 +16,7 @@ This file is a quick orientation note, not the canonical architecture reference.
 - `SystemMacros.s` — general system and cartridge macros such as register save/restore and bank switching helpers.
 - `CartZpMap.inc` — the active zero-page allocation map.
 - `Common/` — shared include files such as `System.inc` and `EasySD.inc`.
-- `Bridges/` — bridge loaders such as KernalBridge and MultiLoad-related code.
+- `Bridges/` — bridge loaders (currently only KernalBridge for $C000+ PRGs).
 - `_archive/` — historical files not meant to describe the current active design.
 
 ---

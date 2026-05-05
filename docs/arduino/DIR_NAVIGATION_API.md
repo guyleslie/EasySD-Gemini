@@ -170,7 +170,8 @@ dirFunc.ForceReset();
 
 ### `bool NavigateToPath(const char* absPath)`
 
-Navigate from root to an absolute path, segment by segment. Used by `COMMAND_GOTO_PATH` (MultiLoad path restore).
+Navigate from root to an absolute path, segment by segment. Used internally by
+`LoadAndLaunchFile()` to restore the launch directory after a PRG transfer.
 
 **Parameters:** `absPath` — absolute path starting with `/` (e.g. `"/GAMES/LEVEL1/"`)
 

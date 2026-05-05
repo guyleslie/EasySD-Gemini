@@ -58,7 +58,6 @@ EasySD uses a two-tier macro system in 64tass assembly.
 | `Loader/CartLib.s` | SETBANK, WAITFOR | — |
 | `Loader/CartLibStream.s` | SAVEREGS, RESTOREREGS | — |
 | `Loader/Bridges/KernalBridge/KernalBridge.s` | — | OPENFILE, GETFILEINFO, EXTRACTFILESIZE, CLOSEFILE, SETADDR |
-| `Loader/Bridges/MultiLoad/MultiLoad.s` | — | GETFILEINFO |
 | `Plugins/WavPlayer/WavPlayer.s` | SETBANK, SAVEREGS, RESTOREREGS | — |
 | `Plugins/CvdPlayer/CvdPlayer.s` | — | GETFILEINFO, EXTRACTFILESIZE |
 | `Plugins/CvdPlayer/NMI.s` | READCART_MODULATED (×400) | — |

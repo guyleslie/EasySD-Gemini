@@ -248,14 +248,12 @@ $03BB-$03C0   TAIL_BUF        6 bytes   saved bytes for $FFFA-$FFFF
 
 ---
 
-## Overlap with MultiLoad RL_STUB
+## Cassette-buffer Reuse
 
-Phase 2 writes the BVC wait-stub to `$033B–$0342`. MultiLoad's `RL_STUB` starts at `$033C`
-(one byte later). These two uses of the `FILE_PATH_BUF` area **overlap** at `$033C–$0342`
-but are **mutually exclusive**: KernalBridge P2TK writes that area and immediately jumps to
-`$033B`, after which KernalBridge code is unreachable. MultiLoad's `RL_INSTALL` writes
-`RL_STUB` to `$033C` before the game starts. The two bridges serve entirely different
-workflows and are never active at the same time.
+Phase 2 writes the BVC wait-stub to `$033B–$0342` (inside the cassette buffer /
+`FILE_PATH_BUF` area). KernalBridge writes that area and immediately jumps to
+`$033B`; afterwards KernalBridge code is unreachable. The MultiLoad resident-loader
+hook that previously also lived in this region has been removed.
 
 ---
 

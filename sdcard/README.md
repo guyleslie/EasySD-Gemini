@@ -21,7 +21,6 @@ python Tools/cvd_convert.py input.mp4 output.cvd
 ├── EASYSD.PRG
 └── PLUGINS/
     ├── PRGPLUGIN.PRG
-    ├── BOOTPLUGIN.PRG
     ├── HWTPLUGIN.PRG
     ├── KOAPLUGIN.PRG
     ├── PETGPLUGIN.PRG

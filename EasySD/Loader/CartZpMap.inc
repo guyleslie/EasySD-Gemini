@@ -38,15 +38,5 @@ ZP_IRQ_API_SEEK_UPPER_LO    = $75
 ZP_IRQ_API_SEEK_UPPER_HI    = $76
 ZP_IRQ_TMP_SCRATCH             = $77
 
-; $033C-$03xx  ResidentLoader area (game execution phase)
-; During menu/plugin operation: $033C = FILE_PATH_BUF (filename for CartLib)
-; During multi-load game execution (V2 layout):
-;   $033C-$036F  RL_STUB code + padding
-;   $0370-$0372  RL_NMI_REDIRECT (JMP ($0318), written to $FFFA/$FFFB)
-;   $0373-$0374  RL_ORIG_VEC
-;   $0375        RL_SAVED_01
-;   $0376        RL_SAVED_X   (V2: SA=0 support)
-;   $0377        RL_SAVED_Y   (V2: SA=0 support)
-;   $0378+       RL receive timeout + first-part launch stubs
-; The two uses NEVER overlap — safe dual-purpose.
-; See System.inc for all RL_* constants.
+; $033C  FILE_PATH_BUF — filename buffer used by CartLib during menu/plugin operation.
+; Also reused by LoaderStub during direct PRG launch (mutually exclusive uses).

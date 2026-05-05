@@ -228,8 +228,8 @@ MAIN
 	; CRITICAL: Start protocol session - MUST call PROT_EndTalking on ALL exit paths
 	JSR PROT_StartTalking
 	; Use PROT_SetNameZ for null-terminated path (supports paths longer than 31 bytes).
-	; The old #OPENFILE with fixed #31 length truncated multiload paths like
-	; "/MULTILOAD/IOWA JACK/IOWA JACK.PRG" (34 bytes) causing open failures.
+	; The old #OPENFILE with fixed #31 length truncated long subdirectory paths
+	; (>31 bytes) and caused silent open failures.
 	LDX #<FILE_PATH_BUF
 	LDY #>FILE_PATH_BUF
 	JSR PROT_SetNameZ

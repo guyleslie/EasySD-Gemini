@@ -6,7 +6,7 @@ constraints that are not obvious from the code. Always check the code itself —
 
 - **Current Version**: Post-v3.1.3 / v0.5-era firmware baseline (BASIC-first cold boot, PCB v3, 2026-04-18)
 - **Current stable hardware baseline**: boot to BASIC ✅, SEL -> menu ✅, directory navigation ✅, PRG loading ✅
-- **Current plugin status note**: the remaining known hardware fault is the plugin-class return path. Current bench tests for `CVID`, `MultiLoad` (`EASYLOAD.PRG`), and `HWTest` clear the screen and fall through to top-line `READY.` instead of returning cleanly to the EasySD menu. Other non-PRG plugins should still be treated as not yet re-verified on the present hardware baseline.
+- **Current plugin status note**: the remaining known hardware fault is the plugin-class return path. Current bench tests for `CVID` and `HWTest` clear the screen and fall through to top-line `READY.` instead of returning cleanly to the EasySD menu. Other non-PRG plugins should still be treated as not yet re-verified on the present hardware baseline. The MultiLoad / `EASYLOAD.PRG` / resident-loader path has been removed entirely — multi-disk games are no longer supported.
 
 ---
 
@@ -117,7 +117,7 @@ Current firmware behavior from source:
 ```
 COMMAND_OPEN_FILE=2, COMMAND_CLOSE_FILE=3, COMMAND_READ_FILE=78
 COMMAND_GET_INFO_FOR_FILE=8, COMMAND_GET_PATH=9
-COMMAND_READ_DIR=10, COMMAND_CHANGE_DIR=11, COMMAND_GOTO_PATH=14
+COMMAND_READ_DIR=10, COMMAND_CHANGE_DIR=11
 COMMAND_STREAM=25, COMMAND_NI_STREAM=26, COMMAND_READ_NEXT_CHUNK=27
 COMMAND_END_TALKING=30, COMMAND_EXIT_TO_MENU=31, COMMAND_HWTEST=32
 ```
@@ -191,7 +191,7 @@ dirFunc.ForceReset();
 
 ### EEPROM
 - Last-directory persistence is not an active feature.
-- Startup begins from root; session-local path restore is handled only where explicitly needed at runtime (for example MultiLoad).
+- Startup begins from root; the firmware does not preserve any session-local path across launches.
 - The MCU EEPROM is currently reserved for future use and must not be documented as a live boot/navigation dependency.
 
 ---
@@ -209,13 +209,9 @@ See `memory/wavplayer_detail.md` for full CIA timing and rate calibration detail
 
 ---
 
-## MultiLoad V2 Summary
-See `memory/multiload_detail.md` for full bootplugin.prg template offsets and RL_ symbol addresses.
+## MultiLoad — REMOVED
 
-- **SD structure**: `/MULTILOAD/GAMENAME/EASYLOAD.PRG`
-- **EASYLOAD.PRG**: must have `$00 $C0` (2-byte $C000 load address header) prepended
-- **Config block offsets in EASYLOAD.PRG** (file bytes): 5=ML_CONFIG_VERSION, 6=ML_FIRST_PART_LEN, 7-22=ML_FIRST_PART_NAME
-- **create_multiload.py V3**: `--from-disk FILE [FILE ...]`, `--from-autoswap autoswap.lst`, game name from disk filename stem (not parent folder)
+The MultiLoad / MLBoot / `EASYLOAD.PRG` / resident-loader path has been deleted from the codebase. EasySD no longer supports multi-disk games or resident Kernal LOAD interception. Any selected PRG is treated as a normal single-file launch; `/MULTILOAD/...` paths on existing SD cards have no special handling.
 
 ---
 

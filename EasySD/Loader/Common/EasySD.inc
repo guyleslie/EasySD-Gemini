@@ -15,7 +15,6 @@ COMMAND_READ_DIR 	  = 10
 COMMAND_CHANGE_DIR 	  = 11
 COMMAND_DELETE_DIR 	  = 12
 COMMAND_CREATE_DIR 	  = 13
-COMMAND_GOTO_PATH         = 14   ; Navigate Arduino to absolute path (Multi-Load V2)
 COMMAND_SET_PORT  	  = 20
 COMMAND_SET_IO  	  = 21
 COMMAND_SET_SOURCE  	  = 22

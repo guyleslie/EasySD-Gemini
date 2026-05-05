@@ -43,7 +43,6 @@
 #define COMMAND_CHANGE_DIR          11
 #define COMMAND_DELETE_DIR          12
 #define COMMAND_CREATE_DIR          13
-#define COMMAND_GOTO_PATH           14  // Multi-Load V2: navigate to absolute path
 #define COMMAND_SET_PORT            20
 #define COMMAND_SET_IO              21  // defined in protocol; currently no handler
 #define COMMAND_INVOKE_WITH_NAME    23
@@ -86,7 +85,6 @@ class CartApi {
 
  protected:
   File    workingFile;
-  bool    m_multiLoadModeActive;
   // Arguments buffer lives in the file-scope sharedBuf union (CartApi.cpp).
   // Declared here as a pointer so all Handle* methods can access it unchanged.
   uint8_t *Arguments;
@@ -110,7 +108,6 @@ class CartApi {
   void HandleLongSeekFile();
   void HandleGetInfoForFile();
   void HandleGetPath();
-  void HandleGotoPath();
   void HandleReadDirectory();
   void HandleChangeDirectory();
   void HandleChangeDirectoryIndex();
@@ -132,7 +129,6 @@ class CartApi {
   void Init();
   void HandleApi();
   void SendLoaderStub();
-  bool SendMLBootBlob(const char* firstPartName, const char* launchPath);
   void TransferMenu();
   void ResetNoCartridge();
   void LoadAndLaunchFile(const char* path);

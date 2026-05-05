@@ -351,7 +351,6 @@ const char* DirFunction::GetCurrentPath() const {
 }
 
 // Navigate from root to an absolute path, segment by segment.
-// Used by COMMAND_GOTO_PATH (MultiLoad path restore).
 // Returns true on success, false if any segment fails (leaves at root).
 bool DirFunction::NavigateToPath(const char* absPath) {
   if (!absPath || absPath[0] != '/' || absPath[1] == '\0') {

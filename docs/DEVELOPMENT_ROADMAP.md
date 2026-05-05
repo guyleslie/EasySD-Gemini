@@ -39,19 +39,22 @@ during the 0.7 cleanup pass:
   the cartridge, calling `Init()`, and starting listening again.
 - Long filenames and full path handling work; recent plugin-side fixes no longer assume a
   fixed 31-byte media filename.
-- **Sima MultiLoad PRG bundles** (created via `Tools/create_multiload.py` without resident
-  chaining) run from `MULTILOAD/GAMENAME/` folders and are **verified working** on real HW.
+
+---
+
+## Removed Features
+
+- **MultiLoad / MLBoot / `EASYLOAD.PRG` / resident Kernal LOAD hook** — removed
+  in 2026-05. The chain never reached a stable real-hardware state and the
+  `mlbootData[]` PROGMEM blob ate scarce ATmega328P flash. Multi-disk games are
+  no longer supported on EasySD; titles that need them stay on SD2IEC / Pi1541.
+  `/MULTILOAD/...` directories on existing SD cards are treated as ordinary
+  folders.
 
 ---
 
 ## Known Issues (out of scope for 0.7 release)
 
-- **MultiLoad EASYLOAD.PRG chain** — hangs after MAIN's `JMP ($008B)` with a distinctive
-  fingerprint: outer border = black, inner area = blue. The colors come from the loaded
-  first part starting up, not from MultiLoad MAIN. So MAIN finishes cleanly and the game
-  begins executing, then dies on the first `LOAD "...",8,x` through the resident hook.
-  Suspected root cause: `RL_STUB` at `$033C` (cassette buffer) is wiped by games that
-  nullify `$0200-$03FF` during init.
 - **WavPlayer / KoalaDisplayer / PetsciiDisplayer / CvdPlayer / HWTest** — fail on real
   hardware with various symptoms. Not re-verified on the current firmware baseline.
 
@@ -136,22 +139,17 @@ Add a plugin skeleton or checklist at the top of `CartLibHi.s` (or in a separate
 ## Recommended Work Sequence (post-0.7)
 
 ```
-Phase 1 — EASYLOAD chain debug (highest value)
-  🔲 Add canary byte at $033F to test the "RL_STUB wiped" hypothesis
-  🔲 If confirmed, relocate RL_STUB out of $0200-$03FF (e.g. $C000+ via bridge)
-  🔲 Add C64-side timeout to RL_WaitProcessing to mirror Arduino's 200 ms reset
-
-Phase 2 — Media plugin re-verification
+Phase 1 — Media plugin re-verification
   🔲 WavPlayer: hardware-focused validation of playback modes
   🔲 KoalaDisplayer / PetsciiDisplayer: simple display path
   🔲 CvdPlayer: confirm EOF-driven NI-stream exit on hardware
   🔲 HWTest: data bus diagnostic on current firmware
 
-Phase 3 — Arduino CartApi.cpp refactor (only if maintenance burden grows)
+Phase 2 — Arduino CartApi.cpp refactor (only if maintenance burden grows)
   🔲 Extract HwTest.cpp/.h
   🔲 Extract PrgLoader.cpp/.h
 
-Phase 4 — C64 library comment cleanup
+Phase 3 — C64 library comment cleanup
   🔲 CartLibHi.s: English comments, section headers, protocol invariant block
   🔲 Plugin protocol checklist / template
 ```
@@ -173,14 +171,11 @@ Phase 4 — C64 library comment cleanup
 | `EasySD/Loader/SystemMacros.s` | Tier-1 macros: #SETBANK, #WAITFOR, #READCART, etc. |
 | `EasySD/Loader/CartZpMap.inc` | Zero page allocation — single source of truth |
 | `EasySD/Loader/Bridges/KernalBridge/KernalBridge.s` | Reference plugin — correct protocol usage |
-| `EasySD/Loader/Bridges/MultiLoad/MultiLoad.s` | MultiLoad MAIN (sima bundle works, EASYLOAD chain hangs post-JMP) |
-| `EasySD/Loader/ResidentLoader.s` | RL_STUB / RL_HANDLER for EASYLOAD chain (suspect for the chain hang) |
 | `EasySD/Plugins/KoalaDisplayer/KoalaDisplayer.s` | KOA plugin |
 | `EasySD/Plugins/PetsciiDisplayer/PetsciiDisplayer.s` | PET plugin |
 | `EasySD/Plugins/CvdPlayer/CvdPlayer.s` | CVD plugin with EOF-based NI-stream exit logic |
 | `EasySD/Plugins/WavPlayer/WavPlayer.s` | WAV plugin |
 | `Tools/build.py` | Unified build system |
-| `Tools/create_multiload.py` | MultiLoad bundle generator |
 
 ---
 
@@ -200,7 +195,6 @@ Phase 4 — C64 library comment cleanup
 | COMMAND_CHANGE_DIR | 11 | HandleChangeDirectory | |
 | COMMAND_DELETE_DIR | 12 | HandleDeleteDirectory | |
 | COMMAND_CREATE_DIR | 13 | HandleCreateDirectory | |
-| COMMAND_GOTO_PATH | 14 | HandleGotoPath | MultiLoad absolute path |
 | COMMAND_SET_PORT | 20 | HandleSetPort | set IO port value |
 | COMMAND_INVOKE_WITH_NAME | 23 | HandleInvokeWithName | loads + launches plugin/prg |
 | COMMAND_STREAM | 25 | HandleStream | IRQ double-buffered, IO2 sync |
