@@ -31,10 +31,7 @@ nul
 sdcard/*.CVD
 sdcard/*.cvd
 
-# Multiload game images (commercial ROMs — kept locally only).
-# Legacy local-only folder; the MultiLoad feature has been removed but the
-# folder name is preserved in .gitignore so any leftover binaries on the
-# user's working copy stay out of commits.
+# Local-only game image / ROM working folder (commercial content kept off-repo).
 /multiload/
 
 # Charset preview working files (commercial font extracts)

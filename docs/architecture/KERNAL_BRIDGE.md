@@ -252,8 +252,7 @@ $03BB-$03C0   TAIL_BUF        6 bytes   saved bytes for $FFFA-$FFFF
 
 Phase 2 writes the BVC wait-stub to `$033B–$0342` (inside the cassette buffer /
 `FILE_PATH_BUF` area). KernalBridge writes that area and immediately jumps to
-`$033B`; afterwards KernalBridge code is unreachable. The MultiLoad resident-loader
-hook that previously also lived in this region has been removed.
+`$033B`; afterwards KernalBridge code is unreachable.
 
 ---
 

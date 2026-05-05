@@ -6,7 +6,7 @@ constraints that are not obvious from the code. Always check the code itself —
 
 - **Current Version**: Post-v3.1.3 / v0.5-era firmware baseline (BASIC-first cold boot, PCB v3, 2026-04-18)
 - **Current stable hardware baseline**: boot to BASIC ✅, SEL -> menu ✅, directory navigation ✅, PRG loading ✅
-- **Current plugin status note**: the remaining known hardware fault is the plugin-class return path. Current bench tests for `CVID` and `HWTest` clear the screen and fall through to top-line `READY.` instead of returning cleanly to the EasySD menu. Other non-PRG plugins should still be treated as not yet re-verified on the present hardware baseline. The MultiLoad / `EASYLOAD.PRG` / resident-loader path has been removed entirely — multi-disk games are no longer supported.
+- **Current plugin status note**: the remaining known hardware fault is the plugin-class return path. Current bench tests for `CVID` and `HWTest` clear the screen and fall through to top-line `READY.` instead of returning cleanly to the EasySD menu. Other non-PRG plugins should still be treated as not yet re-verified on the present hardware baseline. EasySD does not support multi-disk games.
 
 ---
 
@@ -206,12 +206,6 @@ See `memory/wavplayer_detail.md` for full CIA timing and rate calibration detail
   - Mode3: OCR1A=1461 (10944 Hz). Mode4: OCR1A=730 (21888 Hz)
 - **TransmitByteFastMK3**: 35µs inter-byte delay → 22133 Hz fill rate (needs hardware verification)
 - **ZP overlap**: $91-$93 (WAV_TIMERLO/BUF_READY/SILENCE) overlaps STREAM_API_REMAIN0/1 — safe (MK3 and StreamLargeFile never concurrent)
-
----
-
-## MultiLoad — REMOVED
-
-The MultiLoad / MLBoot / `EASYLOAD.PRG` / resident-loader path has been deleted from the codebase. EasySD no longer supports multi-disk games or resident Kernal LOAD interception. Any selected PRG is treated as a normal single-file launch; `/MULTILOAD/...` paths on existing SD cards have no special handling.
 
 ---
 

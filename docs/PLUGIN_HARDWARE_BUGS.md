@@ -1,9 +1,8 @@
 # EasySD Plugin Hardware Bug Investigation
 
 **Status:** Open — boot/menu/nav/PRG are stable; most media plugins still need
-re-verification on real hardware. The MultiLoad / `EASYLOAD.PRG` / resident-loader
-path has been removed entirely; investigations of that chain are no longer relevant.
-**Date:** 2026-05-04 (post-MultiLoad-removal)
+re-verification on real hardware.
+**Date:** 2026-05-05
 **Scope:** Real-hardware plugin status on PCB v3. The firmware baseline itself is
 stable for boot to BASIC, SEL-triggered menu entry, directory navigation, and
 single-file PRG loading. This document tracks what remains broken beyond that
@@ -157,7 +156,3 @@ serial logs or a logic analyzer.
 
 2. **Fix KernalBridge overflow** (BUG-1): shrink `$C700–$D113` code below
    `$CFFF`. This requires identifying which functions can be removed or merged.
-
----
-
-*Document refreshed after the MultiLoad removal pass on 2026-05-04.*

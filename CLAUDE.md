@@ -60,7 +60,7 @@ deploy-debug.bat
 **Arduino upload notes:**
 - `arduino-upload-isp` uses USBtinyISP programmer (ISP only — no bootloader). USB serial upload is intentionally unsupported because any bootloader's startup window breaks the EasySD cold-boot sequence.
 - ISP SCK speed: `--isp-sck 2` (500 kHz, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
-- **Debug flash budget:** EASYSD_DEBUG_SERIAL gates all log output; the `h`/`m` interactive console and the standalone self-test/protocol-test suites have been removed. With MultiLoad/MLBoot stripped out, debug builds regain roughly 1.5 KB of flash headroom — re-measure with `arduino-compile --debug` after the next build.
+- **Debug flash budget:** `--debug` ≈ 24.7 KB / 30.7 KB (80%, ~6 KB free). EASYSD_DEBUG_SERIAL gates all log output; the `h`/`m` interactive console and the standalone self-test/protocol-test suites have been removed.
 
 ## Architecture
 
@@ -142,7 +142,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **Cartridge idle state must be truly BASIC-safe:** hide cartridge (`EXROM` HIGH), reset receive/session state, and tristate the data bus without leaving AVR pull-ups latched on D4-D7/A0-A3. Use the centralized `ReleaseToBasic()` / `EnterBasicSafeMode()` path instead of re-creating this sequence ad hoc.
 - **No active EEPROM persistence:** the current firmware does not use the Nano's internal EEPROM for boot, menu navigation, or last-directory restore. Treat any remaining EEPROM references as stale or legacy code unless reintroduced deliberately.
 - **SRAM overlay:** IO2 streaming, NI streaming, and command argument buffers share a single union (`sharedBuf` in CartApi.cpp). These are mutually exclusive at runtime, so `max(128, 400, 130) = 400 B` instead of `658 B`. Never add a new static buffer without checking the SRAM budget.
-- **Flash budget:** Re-measure after the next build — MultiLoad/MLBoot removal frees roughly 1.5 KB of release flash and the same in debug.
+- **Flash budget:** Release ≈ 22.9 KB / 30.7 KB (74%, ~7.8 KB free). Debug ≈ 24.7 KB / 30.7 KB (80%, ~6 KB free).
 
 ## Key File Locations
 

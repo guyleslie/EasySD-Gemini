@@ -98,7 +98,7 @@ Macros: `#OPENFILE`, `#SETADDR`, `#EXTRACTFILESIZE`, `#GETFILEINFO`, `#CLOSEFILE
 |-----------|--------|
 | Code extends `$C700–$D113` | Main + functions reach into the I/O space (`$D000+`). Code execution from `$D000+` can be unreliable when `$01=$37`. Future fix: shrink below `$CFFF`. |
 | PRG load address = `$C000` | Plugin overwrites itself on load — handled by P2TK |
-| No multi-part loading | Each PRG is a single file. EasySD does not currently support multi-disk games — those titles must run on SD2IEC / Pi1541. |
+| Single-file only | Each PRG is loaded as a single file. |
 
 ---
 

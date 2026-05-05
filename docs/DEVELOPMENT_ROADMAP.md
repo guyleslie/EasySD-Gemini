@@ -42,17 +42,6 @@ during the 0.7 cleanup pass:
 
 ---
 
-## Removed Features
-
-- **MultiLoad / MLBoot / `EASYLOAD.PRG` / resident Kernal LOAD hook** — removed
-  in 2026-05. The chain never reached a stable real-hardware state and the
-  `mlbootData[]` PROGMEM blob ate scarce ATmega328P flash. Multi-disk games are
-  no longer supported on EasySD; titles that need them stay on SD2IEC / Pi1541.
-  `/MULTILOAD/...` directories on existing SD cards are treated as ordinary
-  folders.
-
----
-
 ## Known Issues (out of scope for 0.7 release)
 
 - **WavPlayer / KoalaDisplayer / PetsciiDisplayer / CvdPlayer / HWTest** — fail on real

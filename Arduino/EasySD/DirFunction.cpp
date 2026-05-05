@@ -229,7 +229,7 @@ void DirFunction::CountEntries() {
 }
 
 void DirFunction::Prepare() {
-  // Resync from CWD, then count. Used by Init/TransferMenu/GotoPath/ForceReset.
+  // Resync from CWD, then count. Used by Init/TransferMenu/ForceReset.
   // After ChangeDirectory/ToRoot, CountEntries() is already called internally
   // so callers in HandleChangeDirectory do not need to call Prepare().
   if (!ResyncDirFromCwd()) {

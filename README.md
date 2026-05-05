@@ -196,7 +196,7 @@ EasySD has three separately updatable parts. Not every change requires updating 
 |-----------|---------------|----------------|
 | **Arduino firmware** | `arduino-upload-isp` | Any change to `Arduino/EasySD/` source files (command handling, directory logic, protocol, SD card code). This is the most frequently updated component. |
 | **SD card files** | Build `sd-content` and copy/deploy `EASYSD.PRG` + `PLUGINS/*.PRG` | Any change to C64 assembly source files (`EasySD/Menu/`, `EasySD/Loader/`, `EasySD/Plugins/`). The menu and all plugins are loaded from the SD card at runtime — the cartridge ROML chip does not need to change. |
-| **Cartridge ROML chip** | Reprogram with TL866 or similar EPROM programmer | Only when `EasySD/build/IRQLoaderRom.bin` changes — this happens if the NMI transfer handler, boot stub, or the resident loader code changes. Plugin and menu changes do **not** require reprogramming the ROML chip. |
+| **Cartridge ROML chip** | Reprogram with TL866 or similar EPROM programmer | Only when `EasySD/build/IRQLoaderRom.bin` changes — this happens if the NMI transfer handler or boot stub changes. Plugin and menu changes do **not** require reprogramming the ROML chip. |
 
 > **Tip:** Most development only touches Arduino firmware and/or C64 menu/plugin code. You can go a long time without needing to reprogram the ROML chip — only changes to `EasySD/Loader/CartLib.s`, `CartLibCommon.s`, or the EPROM build artifacts require it.
 
@@ -217,7 +217,7 @@ EasySD has two cooperating halves:
 
 **Arduino firmware** (`Arduino/EasySD/`) — manages SD card access, directory state, and file streaming. The ATmega328P MCU internal EEPROM is currently unused.
 
-**C64 software** (`EasySD/`) — 6502 assembly built with 64tass. The cartridge ROML chip contains the boot stub, communication library, transfer handler, and resident loader; the interactive menu is normally staged as `EASYSD.PRG` on the SD card.
+**C64 software** (`EasySD/`) — 6502 assembly built with 64tass. The cartridge ROML chip contains the boot stub, communication library and NMI transfer handler; the interactive menu is normally staged as `EASYSD.PRG` on the SD card.
 
 **Data transfer:**
 | Mechanism | Rate | Used by |
