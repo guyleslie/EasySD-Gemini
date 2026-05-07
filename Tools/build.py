@@ -752,7 +752,7 @@ def build_plugins(ctx: Context, *, ensure_core_prereq: bool = True) -> None:
         print(f"  - {rel_path}/{asm_file} -> build/plugins/{out_base}.prg")
         run_cmd(
             [
-                tass, "-c", "-b", "--long-branch",
+                tass, "-c", "--long-branch",
                 "-D", "DEBUG=0",
                 str(src),
                 "-o", str(out_prg),
