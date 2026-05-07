@@ -31,9 +31,6 @@ nul
 sdcard/*.CVD
 sdcard/*.cvd
 
-# Local-only game image / ROM working folder (commercial content kept off-repo).
-/multiload/
-
 # Charset preview working files (commercial font extracts)
 tmp_charset_preview/
 
