@@ -55,10 +55,10 @@ StreamLargeFile:
     STA ZP_STREAM_API_REMAIN3
 
     ; Step 2: Initialize stream on Arduino
-    ; The current Arduino firmware ignores these parameters, but we send them anyway for future compatibility.
+    ; Use 0x00 padding for generic binary streams.
     LDA #$00                ; initialDelay
     LDX #$00                ; countStreamedBytes
-    LDY #$00                ; delayBetweenBytes
+    LDY #$00                ; EOF pad byte
     JSR PROT_Stream
     BCS _stream_error       ; If carry is set, PROT_Stream failed
 

@@ -462,7 +462,7 @@ PROT_InvokeWithIndex
 ; 3. It streams bytes for each interrupt it receives. It refills its buffer when "forced buffered read interval" times data is streamed. 
 ; 4. Upon receiving "forced buffered read interval" chunks receiver should wait for the sender's buffer to refill.
 ;-----------------------------------------
-; Registers In : A (forced buffered read interval), X (Count of streamed bytes per chunk), Y (Microsecond delay between each byte)
+; Registers In : A (forced buffered read interval), X (Count of streamed bytes per chunk), Y (EOF pad byte)
 ; Registers Used : A, X, Y
 ; Registers Out : A (Status of operation)
 ;-----------------------------------------	

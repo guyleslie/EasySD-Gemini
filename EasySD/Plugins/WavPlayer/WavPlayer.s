@@ -105,11 +105,7 @@ OPENINGCONT
 	; Branch to MK3 NMI-buffered path if any MK3 mode selected
 	LDA PLAYTYPE
 	CMP #PLAYTYPE_MK3
-	BEQ StartMK3Playback
-	CMP #PLAYTYPE_MK3_22K
-	BEQ StartMK3Playback
-	CMP #PLAYTYPE_MK3_STEREO
-	BEQ StartMK3Playback
+	BCS StartMK3Playback
 
 	; Fall through to existing IO2 streaming paths (PLAYTYPE 0/1/2)
 	JMP STREAMFILE
@@ -120,7 +116,17 @@ ERROR_OPENING_FILE
 	JSR CleanReturnToMenu
 	RTS
 
+SeekPastWavHeader:
+	LDA #<WAV_HEADER_SIZE
+	STA ZP_IRQ_API_SEEK_LO
+	LDA #>WAV_HEADER_SIZE
+	STA ZP_IRQ_API_SEEK_HI
+	LDX #SEEK_DIRECTION_START
+	JSR PROT_SeekFile
+	RTS
+
 STREAMFILE
+	JSR SeekPastWavHeader
 	LDA #0
 	STA PLAYSTATE
 	; Start Arduino IO2 streaming only when playback is about to begin.
@@ -128,18 +134,13 @@ STREAMFILE
 	; the mode selector / MK3 detection screen is still active.
 	LDA #$00
 	LDX #$00
-	LDY #$00
+	LDY #$80			; unsigned 8-bit PCM silence padding after EOF
 	JSR PROT_Stream
 	; PLAYINDEX is initialized inside SETUPMUSICTRANSFER
 	JSR SETUPMUSICTRANSFER
 	JSR PROT_DisableDisplay
 WAITAKEY
-	JSR GETIN
-	BEQ WAITAKEY
-	JSR CleanReturnToMenu
-	RTS
-	;JSR minikey
-  	;BEQ WAITAKEY	
+	JMP WAITAKEY
 	;SEI 
 	;JSR $FDA3			; Init CIA
 	;JSR $FD15			; Restore Vectors
@@ -532,6 +533,7 @@ SETUPMUSICTRANSFER
 	BEQ SetupBoth
 	
 	
+	JMP CleanReturnToMenu
 	
 	
 	
@@ -545,7 +547,6 @@ SetupBoth:
 	
 	
 	JSR NMIDIGI_InitNew
-	JSR DETECT_MK3			; MK3 detection + streaming config
 
 
 	LDA #<PlayBothBuffered
@@ -605,7 +606,7 @@ SetupSidOnly:
 ; =============================================================================
 ; DETECT_MK3 — detect DigiMax MK3 and configure streaming mode
 ; =============================================================================
-; Called from SetupDigimax / SetupBoth, AFTER NMIDIGI_InitNew, BEFORE SetupInterrupt.
+; Called once before the mode selector, AFTER NMIDIGI_InitNew.
 ; Polls CIA_2_BASE + CIA_INT_MASK ($DD0D) for FLAG2 falling edges (bit 4).
 ;
 ; Loop-counter timeout: 13 cycles × 256 inner × 18 outer ≈ 60 000 cycles ≈ 60 ms.
@@ -708,7 +709,6 @@ SetupDigimax:
 
 
 	JSR NMIDIGI_InitNew
-	JSR DETECT_MK3			; MK3 detection + streaming config
 
 
 	
@@ -878,8 +878,7 @@ STREAMTEST1
 	#SETBANK PP_CONFIG_DEFAULT
 
 WAIT1
-	JSR minikey
-  	BEQ WAIT1
+	JMP WAIT1
 	
 	JSR PROT_DisableDisplay
 
@@ -898,8 +897,7 @@ STREAMTEST2
 	#SETBANK PP_CONFIG_DEFAULT
 
 WAIT2
-	JSR minikey
-  	BEQ WAIT2
+	JMP WAIT2
 	
 	JSR PROT_DisableDisplay
 
@@ -985,56 +983,6 @@ GetLow
 	TAX
 	LDA  HEXTOSCREEN, X
 	RTS
-	
-minikey:
-	lda #$0
-	sta $dc03	; port b ddr (input)
-	lda #$ff
-	sta $dc02	; port a ddr (output)
-			
-	lda #$00
-	sta $dc00	; port a
-	lda $dc01       ; port b
-	cmp #$ff
-	beq nokey
-	; got column
-	tay
-			
-	lda #$7f
-	sta nokey2+1
-	ldx #8
-nokey2:
-	lda #0
-	sta $dc00	; port a
-	
-	sec
-	ror nokey2+1
-	dex
-	bmi nokey
-			
-	lda $dc01       ; port b
-	cmp #$ff
-	beq nokey2
-			
-	; got row in X
-	txa
-	ora columntab,y
-	sec
-	rts
-			
-nokey:
-	clc
-	rts
-
-columntab:
-.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF
-.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF
-.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF
-.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $70
-.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF
-.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $60
-.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $50
-.byte $FF, $FF, $FF, $FF, $FF, $FF, $FF, $FF,$FF, $FF, $FF, $FF,$FF, $FF, $FF, $40,$FF, $FF, $FF, $FF, $FF, $FF, $FF, $30,$FF, $FF, $FF, $20,$FF, $10, $00, $FF
 	
 .align $100	
 SHIFT4BIT
@@ -1181,7 +1129,7 @@ SAVED_D023:	.byte 0
 ; ShowModeSelector — display playback mode selection menu
 ; Returns: A = selected PLAYTYPE (0=SID only, 1=DigiMax, 2=MK3)
 ; Prerequisite: DETECT_MK3 already called (MK3_ACTIVE set)
-; Uses GETIN (KERNAL) — called before CIA is killed, so this works.
+; Uses SCNKEY+GETIN because the plugin disables the normal KERNAL IRQ scan.
 ; ============================================================
 
 ; Menu state (data)
@@ -1250,6 +1198,7 @@ MSSEL_NO_MK3:
 
 MSSEL_LOOP:
 	JSR MS_Render       ; redraw all items, selected one inverted
+	JSR SCNKEY
 	JSR GETIN
 	BEQ MSSEL_LOOP      ; no key — keep polling
 
@@ -1450,12 +1399,7 @@ PSI_DONE:
 ; ============================================================
 StartMK3Playback:
 	; Seek past 44-byte WAV header
-	LDA #<WAV_HEADER_SIZE
-	STA ZP_IRQ_API_SEEK_LO
-	LDA #>WAV_HEADER_SIZE
-	STA ZP_IRQ_API_SEEK_HI
-	LDX #SEEK_DIRECTION_START
-	JSR PROT_SeekFile
+	JSR SeekPastWavHeader
 
 	; Init state
 	LDA #$00
@@ -1525,24 +1469,13 @@ SMK3_TIMER_SET:
 	CLI                 ; PLAYBACK STARTS
 
 MK3MainLoop:
-	; Check STOP key (CIA1 port A/B matrix scan: row 7 selects STOP column)
-	LDA #$7F
-	STA $DC00           ; select keyboard row 7
-	LDA $DC01           ; read columns
-	PHA
-	LDA #$FF
-	STA $DC00           ; restore: deselect all rows
-	PLA
-	AND #$80
-	BEQ MK3_STOP        ; bit7 = 0 → STOP pressed
-
 	; Check fill request
 	LDA ZP_WAV_FILL
 	BEQ MK3MainLoop
 
 	; EOF set + fill request = last buffer was just drained → done
 	LDA ZP_WAV_EOFLAG
-	BNE MK3_STOP
+	BNE MK3_DONE
 
 	; Fill the INACTIVE buffer
 	LDA ZP_WAV_ACTBUF
@@ -1566,7 +1499,7 @@ MK3_DO_FILL:
 	STA ZP_WAV_SILENCE      ; exit silence mode — buffer is now fresh
 	JMP MK3MainLoop
 
-MK3_STOP:
+MK3_DONE:
 	SEI
 	LDA #$7F
 	STA $DC0D           ; disable CIA1 Timer A IRQ
@@ -1775,7 +1708,7 @@ MK3_ConfigureMode:
 	BEQ MCM_22K
 	CMP #PLAYTYPE_MK3_STEREO_OS
 	BEQ MCM_StereoOS
-	; fall through to MCM_Stereo (mode 5)
+	JMP MCM_Stereo     ; mode 5
 
 MCM_22K:
 	; OCR1A=730 → 16000000/731=21888 Hz ≈ C64 CIA 21894 Hz (drift +6 B/s, FIFO stable).

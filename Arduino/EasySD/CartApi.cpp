@@ -726,14 +726,14 @@ void CartApi::HandleStream() {
   GetArgumentsStatic(3);
   uint8_t initialDelay = Arguments[0];
   uint8_t countStreamedBytes = Arguments[1];
-  uint8_t delayBetweenBytes = Arguments[2];
+  uint8_t padValue = Arguments[2];
 
 
   if (!workingFile.isOpen()) {
     HandleResponse(FILE_IS_NOT_OPENED, 0);
   } else {
-      ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer1, DOUBLE_BUFFER_SIZE, 0x00);
-      ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer2, DOUBLE_BUFFER_SIZE, 0x00);
+      ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer1, DOUBLE_BUFFER_SIZE, padValue);
+      ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer2, DOUBLE_BUFFER_SIZE, padValue);
       HandleResponse(SUCCESSFUL, 0);
       
       // Reset state for new stream
@@ -755,11 +755,11 @@ void CartApi::HandleStream() {
         while(usedBuffer == 0) {
           if (millis() - lastStreamRequestTime > STREAM_TIMEOUT_MS) goto out; // Timeout check
         }
-        ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer1, DOUBLE_BUFFER_SIZE, 0x00);
+        ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer1, DOUBLE_BUFFER_SIZE, padValue);
         while(usedBuffer == 1) {
           if (millis() - lastStreamRequestTime > STREAM_TIMEOUT_MS) goto out; // Timeout check
         }
-        ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer2, DOUBLE_BUFFER_SIZE, 0x00);
+        ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer2, DOUBLE_BUFFER_SIZE, padValue);
       }
 out:
       TIMSK2 = 0x02; // Enable timer 2 interrupts (for milliseconds and so on)
