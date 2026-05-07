@@ -6,7 +6,7 @@ constraints that are not obvious from the code. Always check the code itself —
 
 - **Current Version**: Post-v3.1.3 / v0.5-era firmware baseline (BASIC-first cold boot, PCB v3, 2026-04-18)
 - **Current stable hardware baseline**: boot to BASIC ✅, SEL -> menu ✅, directory navigation ✅, PRG loading ✅
-- **Current plugin status note**: the remaining known hardware fault is the plugin-class return path. Current bench tests for `CVID` and `HWTest` clear the screen and fall through to top-line `READY.` instead of returning cleanly to the EasySD menu. Other non-PRG plugins should still be treated as not yet re-verified on the present hardware baseline. EasySD does not support multi-disk games.
+- **Current plugin status note**: the remaining known hardware fault is the plugin-class return path. Current bench tests for `CVID` clear the screen and fall through to top-line `READY.` instead of returning cleanly to the EasySD menu. Other non-PRG plugins should still be treated as not yet re-verified on the present hardware baseline. EasySD does not support multi-disk games.
 
 ---
 
@@ -119,7 +119,7 @@ COMMAND_OPEN_FILE=2, COMMAND_CLOSE_FILE=3, COMMAND_READ_FILE=78
 COMMAND_GET_INFO_FOR_FILE=8, COMMAND_GET_PATH=9
 COMMAND_READ_DIR=10, COMMAND_CHANGE_DIR=11
 COMMAND_STREAM=25, COMMAND_NI_STREAM=26, COMMAND_READ_NEXT_CHUNK=27
-COMMAND_END_TALKING=30, COMMAND_EXIT_TO_MENU=31, COMMAND_HWTEST=32
+COMMAND_END_TALKING=30, COMMAND_EXIT_TO_MENU=31
 ```
 
 ### Memory Constraints (ATmega328P — CRITICAL)

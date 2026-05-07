@@ -127,7 +127,6 @@ Active plugins and their SD card filenames:
 | `.PET` | `PETPLUGIN.PRG` | `petgplugin.prg` (note: legacy build name mismatch — SD card file must be named `PETPLUGIN.PRG`) |
 | `.WAV` | `WAVPLUGIN.PRG` | `wavplugin.prg` |
 | `.CVD` | `CVDPLUGIN.PRG` | `cvdplugin.prg` |
-| `.HWT` | `HWTPLUGIN.PRG` | `hwtplugin.prg` |
 
 The exact hardware reliability of each plugin must be established from source plus current test evidence; see `docs/PLUGIN_HARDWARE_BUGS.md`.
 

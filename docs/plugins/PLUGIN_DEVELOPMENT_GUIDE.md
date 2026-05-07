@@ -103,7 +103,6 @@ Full map: `EasySD/Loader/CartZpMap.inc`.
 | MusPlayer | adopted |
 | PetsciiDisplayer | adopted |
 | CvdPlayer | limited use; NI stream path is the primary concern |
-| HWTest | not needed (direct NMI setup, no file I/O) |
 
 ---
 

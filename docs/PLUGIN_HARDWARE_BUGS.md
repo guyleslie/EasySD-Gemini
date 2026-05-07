@@ -15,7 +15,6 @@ baseline.
 | Plugin | Extension | VICE | Real HW |
 |--------|-----------|------|---------|
 | KernalBridge (PRG loader) | `.PRG` | ✅ | ✅ working |
-| HWTest (signal test) | `.HWT` | ✅ | ❌ not yet re-verified on current baseline |
 | WavPlayer | `.WAV` | ✅ | ❌ not yet re-verified on current baseline |
 | KoalaDisplayer | `.KOA` | ✅ | ❌ not yet re-verified on current baseline |
 | PetsciiDisplayer | `.PET` | ✅ | ❌ not yet re-verified on current baseline |
@@ -151,7 +150,7 @@ serial logs or a logic analyzer.
 ## 5. Next Steps (Priority Order)
 
 1. **Re-verify media plugins on current baseline** (WavPlayer, KoalaDisplayer,
-   PetsciiDisplayer, CvdPlayer, HWTest). Earlier "READY → freeze" notes
+   PetsciiDisplayer, CvdPlayer). Earlier "READY → freeze" notes
    pre-date the current firmware and may no longer reflect the actual symptom.
 
 2. **Fix KernalBridge overflow** (BUG-1): shrink `$C700–$D113` code below

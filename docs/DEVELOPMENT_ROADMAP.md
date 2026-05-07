@@ -44,7 +44,7 @@ during the 0.7 cleanup pass:
 
 ## Known Issues (out of scope for 0.7 release)
 
-- **WavPlayer / KoalaDisplayer / PetsciiDisplayer / CvdPlayer / HWTest** — fail on real
+- **WavPlayer / KoalaDisplayer / PetsciiDisplayer / CvdPlayer** — fail on real
   hardware with various symptoms. Not re-verified on the current firmware baseline.
 
 These are tracked in detail in `docs/PLUGIN_HARDWARE_BUGS.md`.
@@ -78,9 +78,8 @@ before/after.
 
 | Phase | Module | Complexity | What moves out |
 |-------|--------|------------|----------------|
-| 1 | `HwTest.cpp/.h` | Trivial | `HandleHwTest()` and supporting helpers (~80 lines). Wrap in `#ifdef COMMAND_HWTEST` for conditional compilation. |
-| 2 | `PrgLoader.cpp/.h` | Medium | `LoadAndLaunchFile`, `SendHeader`, `SendLoaderStub`, `TransferMenu`. Pass `workingFile` and `cartInterface` as references. |
-| 3 (optional) | `StringUtils.h` | Trivial | `IsMatchLast`, `StartsWith` inline helpers — only if needed. |
+| 1 | `PrgLoader.cpp/.h` | Medium | `LoadAndLaunchFile`, `SendHeader`, `SendLoaderStub`, `TransferMenu`. Pass `workingFile` and `cartInterface` as references. |
+| 2 (optional) | `StringUtils.h` | Trivial | `IsMatchLast`, `StartsWith` inline helpers — only if needed. |
 
 A previously planned `TapConverter.cpp` phase is **obsolete**: TAP-to-PRG support was fully
 removed in 2026-04 (commits `d42fcb8`, `8dfcf55`).
@@ -132,10 +131,8 @@ Phase 1 — Media plugin re-verification
   🔲 WavPlayer: hardware-focused validation of playback modes
   🔲 KoalaDisplayer / PetsciiDisplayer: simple display path
   🔲 CvdPlayer: confirm EOF-driven NI-stream exit on hardware
-  🔲 HWTest: data bus diagnostic on current firmware
 
 Phase 2 — Arduino CartApi.cpp refactor (only if maintenance burden grows)
-  🔲 Extract HwTest.cpp/.h
   🔲 Extract PrgLoader.cpp/.h
 
 Phase 3 — C64 library comment cleanup
@@ -191,6 +188,5 @@ Phase 3 — C64 library comment cleanup
 | COMMAND_READ_NEXT_CHUNK | 27 | HandleReadNextChunk | MK3 WAV path, 22133 Hz |
 | COMMAND_END_TALKING | 30 | HandleEndTalking | sent by PROT_EndTalking |
 | COMMAND_EXIT_TO_MENU | 31 | HandleEndTalking + TransferMenu | sent by PROT_ExitToMenu |
-| COMMAND_HWTEST | 32 | HandleHwTest | data bus diagnostic |
 | COMMAND_CHANGE_DIR_INDEX | 33 | HandleChangeDirectoryIndex | menu: change dir by visible entry index |
 | COMMAND_READ_FILE | 78 | HandleReadFile | 16-byte chunks |

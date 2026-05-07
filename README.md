@@ -39,7 +39,7 @@ Verified on real Commodore 64 hardware with the EasySD v3 PCB:
 | File browser: directory header (`ROOT` / current folder) | ✅ Verified |
 | PRG file loading | ✅ Verified |
 | Cold boot after long power-off (1-2 min) | ✅ Verified on current bench firmware/hardware state |
-| Plugin-class return path (`.CVD`, `HWTEST.HWT`) | ❌ Current bench report: returns to cleared screen / top-line `READY.` instead of stable EasySD menu |
+| Plugin-class return path (`.CVD`) | ❌ Current bench report: returns to cleared screen / top-line `READY.` instead of stable EasySD menu |
 | Other non-PRG plugins (`.WAV`, `.KOA`, `.PET`) | ⚠️ Not yet re-verified on current real HW firmware baseline |
 
 ---
@@ -87,7 +87,6 @@ SD card root/
 ├── EASYSD.PRG        ← main C64 menu loaded by SEL / TransferMenu()
 ├── PLUGINS/
 │   ├── PRGPLUGIN.PRG    ← standard PRG loader (KernalBridge)
-│   ├── HWTPLUGIN.PRG    ← hardware test launcher
 │   ├── KOAPLUGIN.PRG    ← Koala graphics viewer
 │   ├── PETGPLUGIN.PRG   ← PETSCII art viewer
 │   ├── WAVPLUGIN.PRG    ← WAV audio player

@@ -615,7 +615,6 @@ PLUGIN_MATRIX = [
     ("Plugins/PetsciiDisplayer",        "PetsciiDisplayer.s", "petgplugin"),
     ("Plugins/WavPlayer",               "WavPlayer.s",        "wavplugin"),
     ("Loader/Bridges/KernalBridge",     "KernalBridge.s",     "prgplugin"),
-    ("Plugins/HWTest",                  "HWTest.s",           "hwtplugin"),
 ]
 
 def clean(ctx: Context) -> None:

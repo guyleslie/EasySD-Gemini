@@ -52,7 +52,6 @@
 #define COMMAND_READ_NEXT_CHUNK     27  // NMI-buffered chunk transfer (MK3 WAV path)
 #define COMMAND_END_TALKING         30
 #define COMMAND_EXIT_TO_MENU        31
-#define COMMAND_HWTEST              32
 #define COMMAND_CHANGE_DIR_INDEX    33  // menu-only: change directory by visible entry index
 
 // ============================================================================
@@ -118,7 +117,6 @@ class CartApi {
   void HandleStream();
   void HandleNonInterruptedStream();
   void HandleReadNextChunk();
-  void HandleHwTest();
 
   static void DoubleBufferedStreaming();
 
