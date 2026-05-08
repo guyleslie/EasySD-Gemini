@@ -821,7 +821,13 @@ def arduino_generate_buildconfig(ctx: Context, debug_mode: bool, release_log: bo
 def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = None, release_log: bool = False) -> dict | None:
     """Compile Arduino sketch"""
     cli_exe = find_arduino_cli(ctx)
-    build_path, _ = prepare_arduino_cli_paths(ctx, "compile")
+    if debug_mode:
+        build_profile = "compile-debug"
+    elif release_log:
+        build_profile = "compile-release-log"
+    else:
+        build_profile = "compile-release"
+    build_path, _ = prepare_arduino_cli_paths(ctx, build_profile)
 
     # Generate BuildConfig.h first
     arduino_generate_buildconfig(ctx, debug_mode, release_log=release_log)

@@ -624,7 +624,7 @@ static bool EndsWithIgnoreCase(const char* value, const char* suffix) {
   return true;
 }
 
-static bool OpenReadPath(char* fileName, File& outFile) {
+static bool OpenReadPath(char* fileName, File& outFile, bool restoreAfterOpen) {
   char* savedPath = reinterpret_cast<char*>(sharedBuf.ni + 194);
   char* matchBuf = reinterpret_cast<char*>(sharedBuf.ni + 258);
   const char* openName = fileName;
@@ -669,13 +669,17 @@ static bool OpenReadPath(char* fileName, File& outFile) {
 
   outFile = sd.open(openName, FILE_READ);
 
-  if (restoreCwd && strcmp(savedPath, dirFunc.currentPath) != 0) {
+  if (restoreAfterOpen && restoreCwd && strcmp(savedPath, dirFunc.currentPath) != 0) {
     if (!dirFunc.NavigateToPath(savedPath)) {
       dirFunc.ToRoot();
     }
   }
 
   return (bool)outFile;
+}
+
+static bool OpenReadPath(char* fileName, File& outFile) {
+  return OpenReadPath(fileName, outFile, true);
 }
 
 static void SendHeaderToAddress(uint8_t launchLow, uint8_t launchHigh,
@@ -698,12 +702,25 @@ static void SendHeaderToAddress(uint8_t launchLow, uint8_t launchHigh,
   cartInterface.TransmitByteSlow(0);
 }
 
-static void TransmitFileBytes(File& file, uint32_t byteCount, uint8_t* buf, uint8_t bufSize) {
+static bool RestorePathIfProvided(const char* returnPath) {
+  if (returnPath == NULL || returnPath[0] == '\0') {
+    return true;
+  }
+  return dirFunc.NavigateToPath(returnPath);
+}
+
+// Leaves interrupts disabled so cartridge writes can be chained without a gap.
+static bool TransmitFileBytes(File& file, uint32_t byteCount, uint8_t* buf, uint8_t bufSize) {
+  bool readOk = true;
+
   while (byteCount > 0) {
     uint8_t want = byteCount > bufSize ? bufSize : (uint8_t)byteCount;
+    interrupts();
     int readCount = file.read(buf, want);
+    noInterrupts();
     if (readCount <= 0) {
       readCount = 0;
+      readOk = false;
     }
 
     for (int i = 0; i < readCount; i++) {
@@ -713,6 +730,14 @@ static void TransmitFileBytes(File& file, uint32_t byteCount, uint8_t* buf, uint
       cartInterface.TransmitByteFast(0x00);
     }
     byteCount -= want;
+  }
+
+  return readOk;
+}
+
+static void TransmitMemoryBytes(const uint8_t* data, uint16_t byteCount) {
+  for (uint16_t i = 0; i < byteCount; i++) {
+    cartInterface.TransmitByteFast(data[i]);
   }
 }
 
@@ -731,33 +756,23 @@ void CartApi::HandleKoalaInvoke(char* mediaPath, const char* returnPath) {
   const uint16_t KOA_PAYLOAD_SIZE = 10001;
   const uint16_t KOA_PLUGIN_ADDR = 0xC000;
   const uint32_t KOA_GAP_SIZE = (uint32_t)KOA_PLUGIN_ADDR - KOA_LOAD_ADDR - KOA_PAYLOAD_SIZE;
+  const uint16_t KOA_PLUGIN_BUFFER_OFFSET = 194;
+  const uint16_t KOA_PLUGIN_PAYLOAD_MAX = NON_INTERRUPTED_BUFFER_SIZE - KOA_PLUGIN_BUFFER_OFFSET;
   const size_t BUF_SIZE = 16;
   uint8_t buf[BUF_SIZE];
-  char pluginPath[] = "/PLUGINS/KOAPLUGIN.PRG";
+  uint8_t* pluginPayload = sharedBuf.ni + KOA_PLUGIN_BUFFER_OFFSET;
   File pluginFile;
 
-  if (!OpenReadPath(pluginPath, pluginFile)) {
-    HandleResponse(FILE_NOT_FOUND, 0);
-    return;
+  if (workingFile && workingFile.isOpen()) {
+    workingFile.close();
   }
 
-  uint32_t pluginSize = pluginFile.size();
-  if (pluginSize <= 2) {
-    pluginFile.close();
-    HandleResponse(INVALID_CONTENT, 0);
-    return;
-  }
-
-  uint8_t pluginLow = pluginFile.read();
-  uint8_t pluginHigh = pluginFile.read();
-  if (pluginLow != 0x00 || pluginHigh != 0xC0) {
-    pluginFile.close();
-    HandleResponse(INVALID_CONTENT, 0);
-    return;
-  }
-
-  if (!OpenReadPath(mediaPath, workingFile)) {
-    pluginFile.close();
+  // Open the selected KOA first and leave CWD in its parent directory. SdFat is
+  // unreliable when we chdir with an already-open file, which is exactly what
+  // happened when plugin open/restore ran before the media open.
+  if (!OpenReadPath(mediaPath, workingFile, false)) {
+    LOGE(SYS, "KOA media missing");
+    RestorePathIfProvided(returnPath);
     HandleResponse(FILE_NOT_FOUND, 0);
     return;
   }
@@ -767,24 +782,67 @@ void CartApi::HandleKoalaInvoke(char* mediaPath, const char* returnPath) {
   if (mediaSize == 10003UL) {
     mediaSkip = 2;
   } else if (mediaSize != KOA_PAYLOAD_SIZE) {
-    pluginFile.close();
+    LOGE(SYS, "KOA media bad");
     workingFile.close();
+    RestorePathIfProvided(returnPath);
     HandleResponse(INVALID_CONTENT, 0);
     return;
   }
 
   if (mediaSkip != 0 && !workingFile.seek(mediaSkip)) {
-    pluginFile.close();
+    LOGE(SYS, "KOA media seek");
     workingFile.close();
+    RestorePathIfProvided(returnPath);
     HandleResponse(CANT_SEEK, 0);
     return;
   }
 
-  uint32_t pluginPayloadSize = pluginSize - 2;
+  pluginFile = sd.open("/PLUGINS/KOAPLUGIN.PRG", FILE_READ);
+  if (!pluginFile) {
+    LOGE(SYS, "KOA plugin missing");
+    workingFile.close();
+    RestorePathIfProvided(returnPath);
+    HandleResponse(FILE_NOT_FOUND, 0);
+    return;
+  }
+
+  uint32_t pluginSize = pluginFile.size();
+  if (pluginSize <= 2 || pluginSize - 2 > KOA_PLUGIN_PAYLOAD_MAX) {
+    LOGE(SYS, "KOA plugin size");
+    pluginFile.close();
+    workingFile.close();
+    RestorePathIfProvided(returnPath);
+    HandleResponse(INVALID_CONTENT, 0);
+    return;
+  }
+
+  uint8_t pluginLow = pluginFile.read();
+  uint8_t pluginHigh = pluginFile.read();
+  if (pluginLow != 0x00 || pluginHigh != 0xC0) {
+    LOGE(SYS, "KOA plugin addr");
+    pluginFile.close();
+    workingFile.close();
+    RestorePathIfProvided(returnPath);
+    HandleResponse(INVALID_CONTENT, 0);
+    return;
+  }
+
+  uint16_t pluginPayloadSize = (uint16_t)(pluginSize - 2);
+  int pluginRead = pluginFile.read(pluginPayload, pluginPayloadSize);
+  pluginFile.close();
+  if (pluginRead != (int)pluginPayloadSize) {
+    LOGE(SYS, "KOA plugin read");
+    workingFile.close();
+    RestorePathIfProvided(returnPath);
+    HandleResponse(INVALID_CONTENT, 0);
+    return;
+  }
+
   long transferLength = (long)((uint32_t)KOA_PLUGIN_ADDR - KOA_LOAD_ADDR + pluginPayloadSize);
   long padBytes = (transferLength % 256 == 0) ? 0 : 256 - (transferLength % 256);
   byte transferPages = (byte)(transferLength / 256 + (padBytes > 0 ? 1 : 0));
 
+  LOGI(SYS, "KOA transfer");
   HandleResponse(SUCCESSFUL, 0);
   cartInterface.EndListening();
   cartInterface.ResetIndex();
@@ -800,9 +858,9 @@ void CartApi::HandleKoalaInvoke(char* mediaPath, const char* returnPath) {
   SendLoaderStub();
   #endif
 
-  TransmitFileBytes(workingFile, KOA_PAYLOAD_SIZE, buf, BUF_SIZE);
+  bool mediaReadOk = TransmitFileBytes(workingFile, KOA_PAYLOAD_SIZE, buf, BUF_SIZE);
   TransmitZeroBytes(KOA_GAP_SIZE);
-  TransmitFileBytes(pluginFile, pluginPayloadSize, buf, BUF_SIZE);
+  TransmitMemoryBytes(pluginPayload, pluginPayloadSize);
   if (padBytes > 0) {
     TransmitZeroBytes((uint32_t)padBytes);
   }
@@ -810,14 +868,12 @@ void CartApi::HandleKoalaInvoke(char* mediaPath, const char* returnPath) {
 
   delayMicroseconds(30);
   workingFile.close();
-  pluginFile.close();
   cartInterface.DisableCartridge();
 
-  Init();
-  if (returnPath != NULL && returnPath[0] != '\0') {
-    dirFunc.NavigateToPath(returnPath);
+  if (!mediaReadOk) {
+    LOGE(SYS, "KOA read short");
   }
-  cartInterface.StartListening();
+  LOGI(SYS, "KOA launched");
 }
 
 void CartApi::HandleInvokeWithName() {
