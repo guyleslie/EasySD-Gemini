@@ -248,6 +248,52 @@ SETADDR .macro
 	STA \2 + 1
 	.endm
 
+;-----------------------------------------------
+; LOADMEDIAPATH - Recover media file path from FILE_PATH_SHADOW into a buffer
+;-----------------------------------------------
+; The C64 menu writes the selected media file's absolute path to BOTH
+; FILE_PATH_BUF ($033C) and FILE_PATH_SHADOW ($FF00) before invoking a plugin.
+; The cart-loader launch sequence wipes $0002-$03FF and overwrites
+; $033C-$043B with the LoaderStub, so by the time the plugin runs the path
+; at FILE_PATH_BUF is gone. The shadow at $FF00 lives in RAM under the
+; KERNAL ROM and survives the launch — IRQLoader/LoaderStub do not touch it,
+; and 6502 writes to $E000-$FFFF always reach RAM regardless of $01.
+;
+; This macro briefly switches $01 to $35 (HIRAM=0) so reads from $FFxx return
+; RAM, copies up to FILE_PATH_SHADOW_MAX bytes (or until a null terminator)
+; into the supplied destination buffer, then restores $01.
+;
+; ARCHITECTURAL CONTRACT:
+;   - Caller must hold IRQ disabled before invoking. PROT_StartTalking does
+;     SEI + PROT_DisableInterrupts, so calling LOADMEDIAPATH after
+;     PROT_StartTalking is safe.
+;   - Destination buffer must be at least FILE_PATH_SHADOW_MAX bytes (64).
+;   - Brief NMI exposure during banking switch: callers should ensure CIA2
+;     timer NMIs are disabled (KILLCIA / PROT_DisableInterrupts already do).
+;
+; Parameters:
+;   \1 = Destination buffer address (16-bit, plugin-local RAM)
+;
+; Registers affected: A, Y
+;-----------------------------------------------
+LOADMEDIAPATH .macro
+	LDA $01
+	PHA
+	LDA #$35
+	STA $01
+	LDY #0
+_lmp_copy
+	LDA FILE_PATH_SHADOW, Y
+	STA \1, Y
+	BEQ _lmp_done
+	INY
+	CPY #FILE_PATH_SHADOW_MAX
+	BNE _lmp_copy
+_lmp_done
+	PLA
+	STA $01
+	.endm
+
 ;===============================================
 ; End of APIMacros.s
 ;===============================================

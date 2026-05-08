@@ -28,12 +28,13 @@ ALTENTRY
 	; Start protocol session — MUST be called before any file operations.
 	; PROT_EndTalking must be called on ALL exit paths.
 	JSR PROT_StartTalking
+	#LOADMEDIAPATH MEDIAPATH_BUF	; recover media path from $FF00 shadow
 
 ;Lets try to open a file
 	PRINTSTATUSANDWAIT OPENINGFILE, 100
 	JSR PROT_DisableDisplay
-	LDX #<FILE_PATH_BUF
-	LDY #>FILE_PATH_BUF
+	LDX #<MEDIAPATH_BUF
+	LDY #>MEDIAPATH_BUF
 	JSR PROT_SetNameZ
 	BCS ERROR_OPENING_FILE
 	LDX #01
@@ -396,5 +397,9 @@ BADSIZE
 
 .include "../../Loader/CartLibStream.s"
 .include "../../Loader/DebugStrings.s"
+
+; Local copy of the media file path recovered from FILE_PATH_SHADOW ($FF00).
+MEDIAPATH_BUF
+	.FILL FILE_PATH_SHADOW_MAX, 0
 
 READBUFFER

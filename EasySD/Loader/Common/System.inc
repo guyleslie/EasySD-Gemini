@@ -79,4 +79,14 @@ V_LOAD   = $0330
 
 ; Other common memory locations
 FILE_PATH_BUF = $033C
+
+; Shadow location for the selected media file path. The menu duplicates the
+; path written to FILE_PATH_BUF here before invoking a media plugin, because
+; the launch sequence (cart RANTAM + LoaderStub) wipes $033C. RAM under the
+; KERNAL ROM at $FF00+ survives the launch because nothing in IRQLoader/
+; LoaderStub writes there, and 6502 writes to $E000-$FFFF always reach RAM
+; regardless of $01 banking. Plugins read this with $01=$35 (HIRAM=0).
+FILE_PATH_SHADOW = $FF00
+FILE_PATH_SHADOW_MAX = 64
+
 SIDLOAD		= $E000

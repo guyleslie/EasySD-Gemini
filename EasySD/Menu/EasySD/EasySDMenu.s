@@ -1438,6 +1438,22 @@ _pfp_copy
 _pfp_null_term
 	LDA #0
 	STA ($09), Y			; null-terminate
+
+	; 6. Mirror PATHBUFFER → FILE_PATH_SHADOW ($FF00). The launch sequence wipes
+	;    $033C-$043B, but $FF00+ survives because writes go to RAM under KERNAL
+	;    ROM regardless of $01. Plugins recover the path from there with banking
+	;    switched to $01=$35.
+	LDY #0
+_pfp_shadow
+	LDA PATHBUFFER, Y
+	STA FILE_PATH_SHADOW, Y
+	BEQ _pfp_shadow_done
+	INY
+	CPY #FILE_PATH_SHADOW_MAX - 1
+	BNE _pfp_shadow
+	LDA #0
+	STA FILE_PATH_SHADOW, Y		; force null-terminate at last slot
+_pfp_shadow_done
 	CLC
 	RTS
 

@@ -62,20 +62,21 @@ STREAMINGBUFFERHALF = 64
 PETGLPLUGINREAD				;Remove when callback in the transfer code fixed.
 	JMP MAIN
 	
-MAIN		
+MAIN
 	JSR SAVESTATE		; Save VIC/$01 state for clean menu return
-	JSR INIT		; Clears screen, disables interrupts.	
+	JSR INIT		; Clears screen, disables interrupts.
 	JSR PROT_StartTalking	; Initialize cartridge communication
-	
-ALTENTRY	
+	#LOADMEDIAPATH MEDIAPATH_BUF	; recover media path from $FF00 shadow
+
+ALTENTRY
 	CLD
 
 ;Lets try to open a file
 	;PRINTSTATUSANDWAIT OPENINGFILE, 100
 	DELAYFRAMES 5
-	JSR PROT_DisableDisplay		
-	LDX #<FILE_PATH_BUF
-	LDY #>FILE_PATH_BUF
+	JSR PROT_DisableDisplay
+	LDX #<MEDIAPATH_BUF
+	LDY #>MEDIAPATH_BUF
 	JSR PROT_SetNameZ
 	BCS ERROR_OPENING_FILE
 	LDX #01
@@ -1788,3 +1789,8 @@ MCM_Mode3:
 
 
 .include "../../Loader/CartLibStream.s"
+
+; Local copy of the media file path recovered from FILE_PATH_SHADOW ($FF00).
+; The cart launch wipes FILE_PATH_BUF ($033C); plugins read the shadow instead.
+MEDIAPATH_BUF
+	.fill FILE_PATH_SHADOW_MAX, 0

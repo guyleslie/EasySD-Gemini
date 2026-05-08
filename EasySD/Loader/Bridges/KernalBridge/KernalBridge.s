@@ -227,11 +227,12 @@ MAIN
 	JSR PROT_DisableDisplay
 	; CRITICAL: Start protocol session - MUST call PROT_EndTalking on ALL exit paths
 	JSR PROT_StartTalking
+	#LOADMEDIAPATH MEDIAPATH_BUF	; recover media path from $FF00 shadow
 	; Use PROT_SetNameZ for null-terminated path (supports paths longer than 31 bytes).
 	; The old #OPENFILE with fixed #31 length truncated long subdirectory paths
 	; (>31 bytes) and caused silent open failures.
-	LDX #<FILE_PATH_BUF
-	LDY #>FILE_PATH_BUF
+	LDX #<MEDIAPATH_BUF
+	LDY #>MEDIAPATH_BUF
 	JSR PROT_SetNameZ
 	BCS MAIN_ERROR_EXIT	; unterminated path → error
 	LDX #01			; Flags=read
@@ -889,6 +890,10 @@ NEW_CHRIN
 
 .include "../../CartLibStream.s"
 .include "../../DebugStrings.s"
+
+; Local copy of the media file path recovered from FILE_PATH_SHADOW ($FF00).
+MEDIAPATH_BUF
+	.FILL FILE_PATH_SHADOW_MAX, 0
 
 ; DUMPHEX, DisplayReceived, GetHigh, GetLow, minikey, columntab removed
 ; — all dead code (none of these are called from any active code path)

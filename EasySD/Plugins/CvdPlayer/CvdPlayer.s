@@ -100,28 +100,29 @@ CVD_SIZE = $8B
 	
 	SAVESTATE
 	
-	JSR PROT_DisableDisplay		
-	JSR INIT				;Clears screen, disables interrupts.	
-	JSR PROT_StartTalking	
-	.CHANGEBANK 2	
-	
+	JSR PROT_DisableDisplay
+	JSR INIT				;Clears screen, disables interrupts.
+	JSR PROT_StartTalking
+	#LOADMEDIAPATH MEDIAPATH_BUF	; recover media path from $FF00 shadow
+	.CHANGEBANK 2
+
 	JSR INIT_GFX_MEM
 	JSR SET_LO_COLOR
 	JSR SET_HI_COLOR
 	JSR SETMULTICOLOR
-	
+
 	LDA #$00
 	STA $D01A
-	STA $D015	
+	STA $D015
 
 	LDA #$35
 	STA $01
 	DELAYFRAMES 1
-	
+
 	LDA #$37
 	STA $01
-	LDX #<FILE_PATH_BUF
-	LDY #>FILE_PATH_BUF
+	LDX #<MEDIAPATH_BUF
+	LDY #>MEDIAPATH_BUF
 	JSR PROT_SetNameZ
 	BCS ERROR_OPENING_FILE
 	LDX #01		; Flags=read
@@ -392,7 +393,11 @@ VIDEO_B0 = PICTURE_LO
 
 VIDEO_B1 = PICTURE_HI 
    
-ENDOFEXECUTABLE			
+ENDOFEXECUTABLE
+
+; Local copy of the media file path recovered from FILE_PATH_SHADOW ($FF00).
+MEDIAPATH_BUF
+	.FILL FILE_PATH_SHADOW_MAX, 0
 
 COLORBUFFER	= $4000
 
