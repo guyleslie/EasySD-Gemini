@@ -10,11 +10,16 @@
 .include "../../Loader/DebugMacros.s"
 .include "../../Loader/APIMacros.s"
 
+; Local diagnostic flag: when 1, VIEWKOALA freezes with $D020 = byte at $2000
+; before any display setup. Black border = bitmap data was NOT loaded into
+; $2000; any other color = bitmap is in RAM (then set this to 0 and rebuild).
+; Exit with SEL button. Independent of the global DEBUG flag.
+KOA_VIEW_DEBUG = 0
+
 	*=$C000
 	JMP MAIN
 	
 MAIN	
-	JSR SAVESTATE		; Save VIC/$01 state for clean return
 	JSR INIT		;Clears screen, disables interrupts.	
 ;	JSR DISPLAYPICTURE	
 ;-	
@@ -26,6 +31,13 @@ MAIN
 	
 ALTENTRY
 
+	; PROT_Send uses cycle-counted bit timing. With VIC display ON, badlines
+	; (every 8th raster row) steal 40-43 CPU cycles and corrupt the modulation —
+	; the Arduino's PROT_StartTalking handshake then misses the I/R/Q identifier
+	; and stays in IDLE, so no command is ever decoded. KernalBridge (which works)
+	; disables the display BEFORE PROT_StartTalking; we must do the same here.
+	JSR PROT_DisableDisplay
+
 	; Start protocol session — MUST be called before any file operations.
 	; PROT_EndTalking must be called on ALL exit paths.
 	JSR PROT_StartTalking
@@ -33,7 +45,6 @@ ALTENTRY
 
 ;Lets try to open a file
 	PRINTSTATUSANDWAIT OPENINGFILE, 100
-	JSR PROT_DisableDisplay
 	LDX #<MEDIAPATH_BUF
 	LDY #>MEDIAPATH_BUF
 	JSR PROT_SetNameZ
@@ -53,6 +64,7 @@ OPENINGCONT
 	#SETADDR KOALA_INFO_BUFFER, ZP_IRQ_API_DATA_LO
 
 	JSR PROT_DisableDisplay
+	LDY #$00
 	JSR PROT_GetInfoForFile
 	BCC +                    ; If no error (Carry Clear), continue
 	JMP ERRORREADING         ; If error (Carry Set), long jump
@@ -102,6 +114,7 @@ SIZE_OK
 	STA ZP_IRQ_API_DATA_HI
 
 	JSR PROT_DisableDisplay
+	LDY #$00
 	JSR LoadFileBySize
 	BCC +                    ; If no error (Carry Clear), continue
 	JMP ERRORREADING         ; If error (Carry Set), long jump
@@ -113,21 +126,16 @@ SIZE_OK
 	
 CONTINUE	
 	PRINTSTATUSANDWAIT FILECLOSED, 200	
+	JSR PROT_EndTalking		; End protocol session before showing the picture
 	JSR VIEWKOALA
-	JMP INPUT_GET
+	JMP *
 ERRORCLOSING
 	JSR PROT_EnableDisplay
 	PRINTSTATUSANDWAIT ERRORCLOSINGFILE, 100		
 	JMP EXITFAIL
-INPUT_GET
-	JSR SCNKEY		; Call kernal's key scan routine
- 	JSR GETIN		; Get the pressed key by the kernal routine
-  	BEQ INPUT_GET		; If zero then no key is pressed so repeat
 	
 EXITFAIL
-	JSR RESTORESTATE		; Restore VIC/$01 state for clean menu return
-	JSR PROT_EndTalking		; End protocol session before returning to menu
-	JSR PROT_ExitToMenu
+	JSR PROT_EndTalking		; Stop cartridge communication; return via SEL/reset path
 	JMP *
 	
 	
@@ -220,21 +228,6 @@ DISABLEDISPLAY
 ENABLEDISPLAY
 	LDA #$3B				
 	STA $D011	
-	RTS	
-
-WAITFRAMES
-FD
-	LDY #$90
--	
-	CPY $D012
-	BNE -
-	LDY #50
--	
-	DEY
-	BNE - 
-	
-	DEX
-	BNE FD
 	RTS
 
 PICTURE = $2000
@@ -242,62 +235,72 @@ PICTURE = $2000
  VIDEO = PICTURE+$1f40
  COLOR = PICTURE+$2328
  BACKGROUND = PICTURE+$2710	
+ SCREENRAM = $0400
 	
 	
 VIEWKOALA
 	JSR FORCEIO			; Ensure I/O visible for VIC registers
-	; Force VIC bank 0 ($0000-$3FFF) for bitmap $2000 + screen $0400
+
+.if KOA_VIEW_DEBUG = 1
+	; Diagnostic: freeze on $D020 = first bitmap byte at $2000.
+	; Black border = bitmap NOT loaded; any color = data is in RAM.
+	; Press SEL to exit. Set KOA_VIEW_DEBUG=0 + rebuild after testing.
+KOA_DBG_HANG:
+	LDA $2000
+	STA $D020
+	JMP KOA_DBG_HANG
+.endif
+
+	lda #$0b			; Keep display off while video/color data is moved
+	sta $d011
+	lda #$00
+	sta $d020			; Border Color
+
+	; Transfer screen matrix (1000 bytes) and color RAM (1000 bytes).
+	; Source blocks are exactly 1000 bytes ($3E8); the last 256-byte stride
+	; uses +$2E8 so it covers offsets 744..999 (matches the original
+	; IRQHack64 KoalaDisplayer pattern; +$300 would overrun into adjacent data).
+	ldx #$00
+LOOPTRANSFER
+	lda VIDEO,x
+	sta SCREENRAM,x
+	lda VIDEO+$100,x
+	sta SCREENRAM+$100,x
+	lda VIDEO+$200,x
+	sta SCREENRAM+$200,x
+	lda VIDEO+$2e8,x
+	sta SCREENRAM+$2e8,x
+	lda COLOR,x
+	sta $d800,x
+	lda COLOR+$100,x
+	sta $d900,x
+	lda COLOR+$200,x
+	sta $da00,x
+	lda COLOR+$2e8,x
+	sta $dae8,x
+	inx
+	bne LOOPTRANSFER
+
+	lda BACKGROUND
+	sta $d021			; Screen Color
+
+	; VIC bank 0 ($0000-$3FFF): bitmap $2000, screen matrix $0400.
+	; This avoids loading Koala payload into $8000-$9FFF while EasySD ROML is active.
+	; DDR_A defaults to $3F after KERNAL boot (PA0/PA1 already output) — no need to touch it.
 	LDA $DD00
 	AND #$FC
 	ORA #$03
 	STA $DD00
- lda #$00
- sta $d020 ; Border Color
- lda BACKGROUND
- sta $d021 ; Screen Color
 
- ; Transfer Video and Color 
- ldx #$00
-LOOPTRANSFER
- ; Transfers video data
- lda VIDEO,x
- sta $0400,x
- lda VIDEO+$100,x
- sta $0500,x
- lda VIDEO+$200,x
- sta $0600,x
- lda VIDEO+$2e8,x
- sta $06e8,x
- ; Transfers color data
- lda COLOR,x
- sta $d800,x
- lda COLOR+$100,x
- sta $d900,x
- lda COLOR+$200,x
- sta $da00,x
- lda COLOR+$2e8,x
- sta $dae8,x
- inx
- bne LOOPTRANSFER
- ;
- ; Bitmap Mode On
- ;
- lda #$3b
- sta $d011
- ;
- ; MultiColor On
- ;
- lda #$d8
- sta $d016
- ;
- ; When bitmap adress is $2000
- ; Screen at $0400 
- ; Value of $d018 is $18
- ;
- lda #$18
- sta $d018
- 
-	
+	; $D018 = $18: video matrix at $0400, bitmap at $2000 (within VIC bank 0).
+	lda #$18
+	sta $d018
+	; Multicolor mode on.
+	lda #$d8
+	sta $d016
+	; Bitmap mode on, display enable.
+	lda #$3b
+	sta $d011
 
 	RTS
 
@@ -309,66 +312,9 @@ LOOPTRANSFER
 BADSIZE
 	.text "BAD KOALA SIZE",0
 
-;------------------------------------------------------------
-; State save/restore (so plugin returns cleanly to menu)
-;------------------------------------------------------------
-SAVED_01:       .byte 0
-SAVED_DD00:     .byte 0
-SAVED_D011:     .byte 0
-SAVED_D016:     .byte 0
-SAVED_D018:     .byte 0
-SAVED_D020:     .byte 0
-SAVED_D021:     .byte 0
-SAVED_D022:     .byte 0
-SAVED_D023:     .byte 0
-
 FORCEIO
-	LDA $01
-	ORA #$04			; Ensure I/O visible ($D000-$DFFF)
+	LDA #PP_CONFIG_DEFAULT		; Ensure I/O and KERNAL are visible
 	STA $01
-	RTS
-
-SAVESTATE
-	LDA $01			; Processor port
-	STA SAVED_01
-	LDA $DD00
-	STA SAVED_DD00
-	LDA $D011
-	STA SAVED_D011
-	LDA $D016
-	STA SAVED_D016
-	LDA $D018
-	STA SAVED_D018
-	LDA $D020
-	STA SAVED_D020
-	LDA $D021
-	STA SAVED_D021
-	LDA $D022
-	STA SAVED_D022
-	LDA $D023
-	STA SAVED_D023
-	RTS
-
-RESTORESTATE
-	JSR FORCEIO
-	LDA SAVED_01
-	STA $01
-	LDA SAVED_DD00
-	STA $DD00
-	LDA SAVED_D018
-	STA $D018
-	LDA SAVED_D016
-	STA $D016
-	LDA SAVED_D011
-	STA $D011
-	LDA SAVED_D020
-	STA $D020
-	LDA SAVED_D021
-	STA $D021
-	LDA SAVED_D022
-	STA $D022
-	LDA SAVED_D023
-	STA $D023
 	RTS
 
 .include "../../Loader/CartLibStream.s"

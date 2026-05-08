@@ -23,13 +23,16 @@ The plugin accepts both the standard 10003-byte (`.KOA` with header) and raw
 
 ## Memory Layout (C64 side)
 
-The picture data is loaded to `$2000` and then transferred into VIC-II display RAM:
+The picture payload is loaded to `$2000` and then transferred into VIC-II display RAM.
+This intentionally does not use the native Koala `$6000-$8710` load location: EasySD's
+NMI loader uses ROML at `$8000-$9FFF` during transfer, so keeping the payload below
+`$8000` avoids cartridge-window overlap.
 
 | Address | Symbol | Content |
 |---------|--------|---------|
 | `$2000–$3F3F` | `PICTURE` / `BITMAP` | 8000 bytes bitmap data |
-| `$3F40–$432F` | `VIDEO` | 1000 bytes screen RAM (copied to `$0400`) |
-| `$4328–$4710` | `COLOR` | 1000 bytes color RAM (copied to `$D800`) |
+| `$3F40–$4327` | `VIDEO` | 1000 bytes screen RAM (copied to `$0400`) |
+| `$4328–$470F` | `COLOR` | 1000 bytes color RAM (copied to `$D800`) |
 | `$4710` | `BACKGROUND` | 1 byte background color (written to `$D021`) |
 
 VIC-II configuration:
@@ -48,7 +51,7 @@ VIC-II configuration:
 | `PROT_GetInfoForFile` | Read FAT entry to get exact file size |
 | `LoadFileBySize` | Load bitmap payload to `$2000` |
 | `PROT_CloseFile` | Close the file |
-| `PROT_ExitToMenu` | Return to EasySD menu |
+| `PROT_EndTalking` | End the cartridge protocol session before display |
 
 Macros: `#OPENFILE`, `#SETADDR`, `#EXTRACTFILESIZE` (Tier 2).
 
@@ -56,9 +59,8 @@ Macros: `#OPENFILE`, `#SETADDR`, `#EXTRACTFILESIZE` (Tier 2).
 
 ## Controls
 
-| Key | Action |
-|-----|--------|
-| Any key | Exit back to EasySD menu |
+The plugin does not scan the keyboard or attempt to return to the EasySD menu.
+Use the EasySD SEL/menu button to leave the viewer.
 
 ---
 
