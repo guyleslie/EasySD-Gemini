@@ -767,11 +767,11 @@ void CartApi::HandleKoalaInvoke(char* mediaPath, const char* returnPath) {
     workingFile.close();
   }
 
-  // Open the selected KOA first and leave CWD in its parent directory. SdFat is
-  // unreliable when we chdir with an already-open file, which is exactly what
-  // happened when plugin open/restore ran before the media open.
-  if (!OpenReadPath(mediaPath, workingFile, false)) {
-    LOGE(SYS, "KOA media missing");
+  // HandleInvokeWithName has already moved CWD to the media file's parent and
+  // resolved the same basename/prefix form that regular PRG launch uses.
+  workingFile = sd.open(mediaPath, FILE_READ);
+  if (!workingFile) {
+    LOGE(SYS, "KOA media open");
     RestorePathIfProvided(returnPath);
     HandleResponse(FILE_NOT_FOUND, 0);
     return;
@@ -897,10 +897,7 @@ void CartApi::HandleInvokeWithName() {
   strncpy(savedPath, dirFunc.currentPath, 63);
   savedPath[63] = '\0';
 
-  if (EndsWithIgnoreCase(fileName, ".koa")) {
-    HandleKoalaInvoke(fileName, savedPath);
-    return;
-  }
+  bool isKoa = EndsWithIgnoreCase(fileName, ".koa");
 
   // For absolute paths (e.g. "/PLUGINS/PRGPLUGIN.PRG"), the target file is NOT
   // in the current CWD — navigate to the parent directory so SdFat 2.x can open
@@ -951,6 +948,11 @@ void CartApi::HandleInvokeWithName() {
       return;
     }
     openName = matchBuf;
+  }
+
+  if (isKoa) {
+    HandleKoalaInvoke((char*)openName, savedPath);
+    return;
   }
 
   // Do NOT restore CWD here: LoadAndLaunchFile's sd.open(openName) needs the
