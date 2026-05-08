@@ -315,6 +315,7 @@ PROT_GetInfoForFile
 	BPL +					; Check if command is not successful, if not just return
 	LDA #$01
 	STA ZP_IRQ_API_DATA_LENGTH
+	LDY #$00
 	JMP PROT_ReceiveFragmentNoCallback	
 +	
 	RTS
@@ -607,6 +608,7 @@ LoadFileBySize:
 
 	; Step 4: Read file data
 	BEQ LoadFileBySize_Done		        ; If 0 pages, we're done
+	LDY #$00
 	JSR PROT_ReadFileNoCallback
 	BCS LoadFileBySize_Error
 
