@@ -1273,6 +1273,16 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
       dirFunc.NavigateToPath(launchPath);
     }
 
+    // Wait for PHI2 to stabilize after the ResetC64 + LoaderStub launch sequence
+    // before re-arming IO2 listening. Without this delay the AVR may attach the
+    // IO2 interrupt while the C64 bus is still in transition, latching spurious
+    // edges into the receive state machine. The plugin's subsequent
+    // PROT_StartTalking ('I'/'R'/'Q') then never matches the (already-partial)
+    // identifier state, the handshake never completes, and the C64 hangs in
+    // PROT_WaitProcessing forever. TransferMenu uses the same guard for the
+    // same reason.
+    cartInterface.WaitForStablePhi2(32, 250);
+    delay(20);
     cartInterface.StartListening();
     //interrupts();
 
