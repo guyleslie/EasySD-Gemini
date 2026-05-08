@@ -1121,9 +1121,10 @@ def main(argv: Sequence[str]) -> int:
         else:
             drive_root = Path(drive)
         plugins_dir = drive_root / "PLUGINS"
-        if not plugins_dir.exists():
-            print(f"ERROR: {plugins_dir} not found — is the SD card mounted as {drive}?")
+        if not drive_root.exists():
+            print(f"ERROR: {drive_root} not found — is the SD card mounted as {drive}?")
             return 1
+        plugins_dir.mkdir(parents=True, exist_ok=True)
         copied = 0
 
         expected_menu = "easysd.prg"
