@@ -1278,23 +1278,26 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     delayMicroseconds(30);
     workingFile.close();               // close before chdir — prevents SdFat state corruption
     cartInterface.DisableCartridge();  // EXROM HIGH + data bus tristate — clean state after transfer
+
+    // Attach IO2 listening BEFORE the post-launch SD housekeeping (Init + optional
+    // NavigateToPath). Once the LoaderStub jumps to plugin code (within ~1-2 ms
+    // of DisableCartridge), the plugin's INIT + PROT_StartTalking can start
+    // sending I/R/Q identifier bytes within ~5-15 ms. The SD operations below
+    // take 10-50 ms — if we attach later, the plugin's identifier bytes arrive
+    // into a detached IO2 input and are lost, the handshake never completes,
+    // and the C64 hangs forever in PROT_WaitProcessing.
+    //
+    // The bit-level ISR (ReceiveInterrupt) only enqueues bytes; the byte-level
+    // identifier state machine (in ReceiveHandler) is driven from the main loop
+    // and naturally resumes once LoadAndLaunchFile returns and HandleApi runs.
+    // Spurious edges with out-of-range timing are rejected by the ISR's
+    // 350-1000 µs window, so attaching during the bus-settling moment is safe.
+    cartInterface.StartListening();
+
     Init();
     if (preserveLaunchPath) {
       dirFunc.NavigateToPath(launchPath);
     }
-
-    // Wait for PHI2 to stabilize after the ResetC64 + LoaderStub launch sequence
-    // before re-arming IO2 listening. Without this delay the AVR may attach the
-    // IO2 interrupt while the C64 bus is still in transition, latching spurious
-    // edges into the receive state machine. The plugin's subsequent
-    // PROT_StartTalking ('I'/'R'/'Q') then never matches the (already-partial)
-    // identifier state, the handshake never completes, and the C64 hangs in
-    // PROT_WaitProcessing forever. TransferMenu uses the same guard for the
-    // same reason.
-    cartInterface.WaitForStablePhi2(32, 250);
-    delay(20);
-    cartInterface.StartListening();
-    //interrupts();
 
     LOGI(PRG, "Launched - C64 running game");
     LOG_LOAD_DONE();
