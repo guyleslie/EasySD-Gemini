@@ -168,6 +168,47 @@ _isprg_no
 	SEC
 	RTS
 
+; Case-insensitive direct launch whitelist for non-PRG executable formats.
+; Most 3-letter extensions are media plugin inputs. If their plugin is missing,
+; the menu must not fall back to launching the media bytes as a PRG.
+ISDIRECTLAUNCH
+	LDA EXT_LEN
+	CMP #3
+	BNE _direct_no
+
+	LDA EXTBUF
+	ORA #$20
+	CMP #$63		; 'c'
+	BNE _check_irq
+	LDA EXTBUF+1
+	ORA #$20
+	CMP #$72		; 'r'
+	BNE _direct_no
+	LDA EXTBUF+2
+	ORA #$20
+	CMP #$74		; 't'
+	BNE _direct_no
+	CLC
+	RTS
+
+_check_irq
+	CMP #$69		; 'i'
+	BNE _direct_no
+	LDA EXTBUF+1
+	ORA #$20
+	CMP #$72		; 'r'
+	BNE _direct_no
+	LDA EXTBUF+2
+	ORA #$20
+	CMP #$71		; 'q'
+	BNE _direct_no
+	CLC
+	RTS
+
+_direct_no
+	SEC
+	RTS
+
 
 PLUGINNAME
 	.FILL 64, 0
