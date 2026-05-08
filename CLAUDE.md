@@ -60,7 +60,7 @@ deploy-debug.bat
 **Arduino upload notes:**
 - `arduino-upload-isp` uses USBtinyISP programmer (ISP only — no bootloader). USB serial upload is intentionally unsupported because any bootloader's startup window breaks the EasySD cold-boot sequence.
 - ISP SCK speed: `--isp-sck 2` (500 kHz, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
-- **Debug flash budget:** `--debug` ≈ 24.7 KB / 30.7 KB (80%, ~6 KB free). EASYSD_DEBUG_SERIAL gates all log output; the `h`/`m` interactive console and the standalone self-test/protocol-test suites have been removed.
+- **Debug flash budget:** `--debug` ≈ 27.0 KB / 30.7 KB (88%, ~3.7 KB free). EASYSD_DEBUG_SERIAL gates all log output; the `h`/`m` interactive console and the standalone self-test/protocol-test suites have been removed. `Tools/build.py` enables LOAD/SYS/SD/DIR/FILE/RAW log categories for debug builds (PRG/PROTO stay off).
 
 ## Architecture
 

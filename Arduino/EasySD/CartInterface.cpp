@@ -207,6 +207,7 @@ uint8_t CartInterface::ReceiveHandler() {
           }
           receiveState = IN_TRANSMISSION;
           EnableCartridge();
+          LOGI(SYS, "HS OK");  // C64 PROT_StartTalking handshake completed
         break;
 
         case IN_TRANSMISSION :

@@ -962,6 +962,16 @@ void CartApi::HandleApi() {
         m_argsOk = true;  // assume OK; GetArguments* will clear on timeout
         cartInterface.SetPage(0);
 
+        // Log every successfully decoded command byte. The dedicated handlers
+        // also log per-command activity, but this single line is the canonical
+        // record of what arrived from the C64 — useful for spotting timing
+        // corruption (random unknown commands) and for cross-checking the
+        // [LOAD]/[FILE] traces that follow.
+        // (LOGI emits "[INFO][SYS] rx" with newline; the cmd value follows on
+        // the next line, matching the existing "Unknown cmd / cmd=N" pattern.)
+        LOGI(SYS, "rx");
+        LOG_PRINT_F(" cmd="); LOG_PRINTLN(command);
+
         switch(command) {
           case COMMAND_READ_FILE : HandleReadFile(); break;
           case COMMAND_OPEN_FILE : HandleOpenFile(); break;

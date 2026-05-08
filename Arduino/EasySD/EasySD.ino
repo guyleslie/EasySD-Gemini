@@ -137,6 +137,7 @@ void setup() {
   cartInterface.Init();
 
   LOG_BEGIN(57600);
+  LOGI(SYS, "EasySD DEBUG boot");
 
   pinMode(chipSelect, OUTPUT);
   digitalWrite(chipSelect, HIGH);

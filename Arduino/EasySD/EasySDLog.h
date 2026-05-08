@@ -146,16 +146,16 @@
   // Concise load activity log
   //============================================================================
   #if LOG_ENABLE_LOAD
-    #define LOG_LOAD_MENU() do { Serial.println(F("[LOAD] menu")); } while(0)
+    #define LOG_LOAD_MENU() do { Serial.println(F("[LOAD] EasySD menu")); } while(0)
     #define LOG_LOAD_LAUNCH(name, size) do { \
       Serial.print(F("[LOAD] launch ")); Serial.print(name); \
-      Serial.print(F(" sz=")); Serial.println(size); \
+      Serial.print(F(" sizez=")); Serial.println(size); \
     } while(0)
     #define LOG_LOAD_PATH(path) do { Serial.print(F("[LOAD] path ")); Serial.println(path); } while(0)
     #define LOG_LOAD_OPEN(name) do { Serial.print(F("[LOAD] open ")); Serial.println(name); } while(0)
     #define LOG_LOAD_OPEN_OK() do { Serial.println(F("[LOAD] open ok")); } while(0)
     #define LOG_LOAD_OPEN_FAIL() do { Serial.println(F("[ERR ][LOAD] open fail")); } while(0)
-    #define LOG_LOAD_INFO_SIZE(size) do { Serial.print(F("[LOAD] size ")); Serial.println(size); } while(0)
+    #define LOG_LOAD_INFO_SIZE(size) do { Serial.print(F("[LOAD] size")); Serial.println(size); } while(0)
     #define LOG_LOAD_CLOSE() do { Serial.println(F("[LOAD] close")); } while(0)
     #define LOG_LOAD_DONE() do { Serial.println(F("[LOAD] done")); } while(0)
     #define LOG_LOAD_READ_BEGIN(pages) do { Serial.print(F("[LOAD] read p=")); Serial.println(pages); } while(0)

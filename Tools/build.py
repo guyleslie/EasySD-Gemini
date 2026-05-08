@@ -846,9 +846,28 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
         # Default 128B total is the main cause of SRAM exhaustion in debug builds
         # (static allocation happens at Serial.begin(), invisible to the compiler).
         # RX is not used by the firmware; keep it at a minimal ring size.
+        #
+        # Log categories enabled in debug build (deploy-debug.bat workflow):
+        #   LOAD=1  high-level activity ([LOAD] open / size / read / launch / done)
+        #   SYS=1   protocol/state errors (Unknown cmd, Stale ident reset, Cmd timeout, HS OK)
+        #   SD=1    SD card errors (SD FAIL, SD recover FAIL)
+        #   DIR=1   directory navigation issues
+        #   FILE=1  per-file open/close ([INFO][FILE] File opened / closed / open failed)
+        #   RAW=1   numeric variable prints (cmd byte values, sizes, etc.)
+        #   PRG=0   PRG-loader internal traces (verbose; not needed for KOA debugging)
+        #   PROTO=0 reserved category, no log calls in code
+        # See Arduino/EasySD/EasySDLog.h for the full list of LOG_ENABLE_* flags.
+        log_flags = (
+            "-DLOG_ENABLE_LOAD=1 -DLOG_ENABLE_SYS=1 -DLOG_ENABLE_SD=1 "
+            "-DLOG_ENABLE_DIR=1 -DLOG_ENABLE_FILE=1 -DLOG_ENABLE_RAW=1 "
+            "-DLOG_ENABLE_PRG=0 -DLOG_ENABLE_PROTO=0"
+        )
+        common_flags = (
+            f"-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=2 {log_flags}"
+        )
         compile_args += [
-            "--build-property", "compiler.cpp.extra_flags=-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=2 -DLOG_ENABLE_LOAD=1 -DLOG_ENABLE_SYS=0 -DLOG_ENABLE_SD=0 -DLOG_ENABLE_DIR=0 -DLOG_ENABLE_FILE=0 -DLOG_ENABLE_PRG=0",
-            "--build-property", "compiler.c.extra_flags=-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=2 -DLOG_ENABLE_LOAD=1 -DLOG_ENABLE_SYS=0 -DLOG_ENABLE_SD=0 -DLOG_ENABLE_DIR=0 -DLOG_ENABLE_FILE=0 -DLOG_ENABLE_PRG=0",
+            "--build-property", f"compiler.cpp.extra_flags={common_flags}",
+            "--build-property", f"compiler.c.extra_flags={common_flags}",
         ]
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
