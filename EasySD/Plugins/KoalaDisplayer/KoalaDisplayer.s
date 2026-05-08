@@ -14,7 +14,7 @@
 ; before any display setup. Black border = bitmap data was NOT loaded into
 ; $2000; any other color = bitmap is in RAM (then set this to 0 and rebuild).
 ; Exit with SEL button. Independent of the global DEBUG flag.
-KOA_VIEW_DEBUG = 0
+KOA_VIEW_DEBUG = 1
 
 	*=$C000
 	JMP MAIN

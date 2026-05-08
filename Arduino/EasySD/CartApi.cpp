@@ -1286,13 +1286,41 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     // take 10-50 ms — if we attach later, the plugin's identifier bytes arrive
     // into a detached IO2 input and are lost, the handshake never completes,
     // and the C64 hangs forever in PROT_WaitProcessing.
-    //
-    // The bit-level ISR (ReceiveInterrupt) only enqueues bytes; the byte-level
-    // identifier state machine (in ReceiveHandler) is driven from the main loop
-    // and naturally resumes once LoadAndLaunchFile returns and HandleApi runs.
-    // Spurious edges with out-of-range timing are rejected by the ISR's
-    // 350-1000 µs window, so attaching during the bus-settling moment is safe.
     cartInterface.StartListening();
+
+    // CRITICAL: pump ReceiveHandler() until the plugin's PROT_StartTalking
+    // handshake completes (receiveState reaches IN_TRANSMISSION) — or a
+    // generous timeout elapses.
+    //
+    // Background: the bit-level ISR only assembles bytes once receiveState ==
+    // IN_TRANSMISSION. During the identifier phase (IDLE → IDENTIFIER_*_OK →
+    // IN_TRANSMISSION) byte assembly is done by ReceiveHandler() in the main
+    // loop. If we drop straight into Init()+NavigateToPath() (20-60 ms of
+    // blocking SD work) before the handshake finishes, the main loop is
+    // suspended, ReceiveHandler() is never called, the ISR-set bitState gets
+    // overwritten by the next edge before any code can promote it to a byte,
+    // and the I/R/Q bytes are silently lost. Result: no HS OK, the plugin
+    // hangs in PROT_OpenFile waiting for an AVR response that never arrives.
+    //
+    // Once IN_TRANSMISSION, byte assembly happens entirely inside the ISR
+    // (queued for HandleApi to consume), so subsequent SD ops are safe.
+    {
+      const unsigned long handshakeWaitStartMs = millis();
+      uint8_t lastLoggedState = 99;
+      while ((unsigned long)(millis() - handshakeWaitStartMs) < 250UL) {
+        uint8_t state = cartInterface.ReceiveHandler();
+        if (state != lastLoggedState) {
+          // Log every receiveState transition during the handshake wait so
+          // we can see how far the plugin's PROT_StartTalking progressed:
+          // 0=IDLE, 1=IDENTIFIER_1_OK, 2=IDENTIFIER_2_OK, 3=IDENTIFIER_3_OK,
+          // 5=IN_TRANSMISSION (HS OK).
+          LOG_PRINT_F("hsst="); LOG_PRINTLN(state);
+          lastLoggedState = state;
+        }
+        if (state == IN_TRANSMISSION) break;
+      }
+      LOG_PRINT_F("hswait_end_ms="); LOG_PRINTLN(millis() - handshakeWaitStartMs);
+    }
 
     Init();
     if (preserveLaunchPath) {
