@@ -608,9 +608,217 @@ unsigned char IsMatchLast(char * container, char * val) {
 
 }
 
+static bool EndsWithIgnoreCase(const char* value, const char* suffix) {
+  size_t valueLen = strlen(value);
+  size_t suffixLen = strlen(suffix);
+  if (valueLen < suffixLen) return false;
+
+  value += valueLen - suffixLen;
+  for (size_t i = 0; i < suffixLen; i++) {
+    char a = value[i];
+    char b = suffix[i];
+    if (a >= 'A' && a <= 'Z') a = a - 'A' + 'a';
+    if (b >= 'A' && b <= 'Z') b = b - 'A' + 'a';
+    if (a != b) return false;
+  }
+  return true;
+}
+
+static bool OpenReadPath(char* fileName, File& outFile) {
+  char* savedPath = reinterpret_cast<char*>(sharedBuf.ni + 194);
+  char* matchBuf = reinterpret_cast<char*>(sharedBuf.ni + 258);
+  const char* openName = fileName;
+  bool restoreCwd = false;
+
+  strncpy(savedPath, dirFunc.currentPath, 63);
+  savedPath[63] = '\0';
+
+  if (fileName[0] == '/') {
+    char* lastSlash = strrchr(fileName, '/');
+    if (lastSlash == NULL || lastSlash[1] == '\0') {
+      return false;
+    }
+
+    openName = lastSlash + 1;
+    restoreCwd = true;
+
+    if (lastSlash == fileName) {
+      if (strcmp(savedPath, "/") != 0 && !dirFunc.NavigateToPath("/")) {
+        return false;
+      }
+    } else {
+      *lastSlash = '\0';
+      bool navOk = dirFunc.NavigateToPath(fileName);
+      *lastSlash = '/';
+      if (!navOk) {
+        return false;
+      }
+    }
+  }
+
+  if (!sd.exists(openName)) {
+    uint8_t len = strlen(openName);
+    if (!dirFunc.FindByPrefix(openName, len, matchBuf, 64)) {
+      if (restoreCwd && strcmp(savedPath, dirFunc.currentPath) != 0) {
+        dirFunc.NavigateToPath(savedPath);
+      }
+      return false;
+    }
+    openName = matchBuf;
+  }
+
+  outFile = sd.open(openName, FILE_READ);
+
+  if (restoreCwd && strcmp(savedPath, dirFunc.currentPath) != 0) {
+    if (!dirFunc.NavigateToPath(savedPath)) {
+      dirFunc.ToRoot();
+    }
+  }
+
+  return (bool)outFile;
+}
+
+static void SendHeaderToAddress(uint8_t launchLow, uint8_t launchHigh,
+                                uint8_t actualLow, uint8_t actualHigh,
+                                uint8_t transferPages, long dataLength,
+                                uint8_t type, uint8_t transferMode) {
+  long endAddress = (actualLow + actualHigh * 256L) + dataLength + 1;
+  uint8_t endHigh = endAddress / 256;
+  uint8_t endLow = endAddress % 256;
+
+  cartInterface.TransmitByteSlow(launchLow);
+  cartInterface.TransmitByteSlow(launchHigh);
+  cartInterface.TransmitByteSlow(transferPages);
+  cartInterface.TransmitByteSlow(actualLow);
+  cartInterface.TransmitByteSlow(actualHigh);
+  cartInterface.TransmitByteSlow(endLow);
+  cartInterface.TransmitByteSlow(endHigh);
+  cartInterface.TransmitByteSlow(type);
+  cartInterface.TransmitByteSlow(transferMode);
+  cartInterface.TransmitByteSlow(0);
+}
+
+static void TransmitFileBytes(File& file, uint32_t byteCount, uint8_t* buf, uint8_t bufSize) {
+  while (byteCount > 0) {
+    uint8_t want = byteCount > bufSize ? bufSize : (uint8_t)byteCount;
+    int readCount = file.read(buf, want);
+    if (readCount <= 0) {
+      readCount = 0;
+    }
+
+    for (int i = 0; i < readCount; i++) {
+      cartInterface.TransmitByteFast(buf[i]);
+    }
+    for (uint8_t i = readCount; i < want; i++) {
+      cartInterface.TransmitByteFast(0x00);
+    }
+    byteCount -= want;
+  }
+}
+
+static void TransmitZeroBytes(uint32_t byteCount) {
+  while (byteCount-- > 0) {
+    cartInterface.TransmitByteFast(0x00);
+  }
+}
+
 // ============================================================================
 // CartApi PUBLIC METHODS
 // ============================================================================
+
+void CartApi::HandleKoalaInvoke(char* mediaPath, const char* returnPath) {
+  const uint16_t KOA_LOAD_ADDR = 0x2000;
+  const uint16_t KOA_PAYLOAD_SIZE = 10001;
+  const uint16_t KOA_PLUGIN_ADDR = 0xC000;
+  const uint32_t KOA_GAP_SIZE = (uint32_t)KOA_PLUGIN_ADDR - KOA_LOAD_ADDR - KOA_PAYLOAD_SIZE;
+  const size_t BUF_SIZE = 16;
+  uint8_t buf[BUF_SIZE];
+  char pluginPath[] = "/PLUGINS/KOAPLUGIN.PRG";
+  File pluginFile;
+
+  if (!OpenReadPath(pluginPath, pluginFile)) {
+    HandleResponse(FILE_NOT_FOUND, 0);
+    return;
+  }
+
+  uint32_t pluginSize = pluginFile.size();
+  if (pluginSize <= 2) {
+    pluginFile.close();
+    HandleResponse(INVALID_CONTENT, 0);
+    return;
+  }
+
+  uint8_t pluginLow = pluginFile.read();
+  uint8_t pluginHigh = pluginFile.read();
+  if (pluginLow != 0x00 || pluginHigh != 0xC0) {
+    pluginFile.close();
+    HandleResponse(INVALID_CONTENT, 0);
+    return;
+  }
+
+  if (!OpenReadPath(mediaPath, workingFile)) {
+    pluginFile.close();
+    HandleResponse(FILE_NOT_FOUND, 0);
+    return;
+  }
+
+  uint32_t mediaSize = workingFile.size();
+  uint16_t mediaSkip = 0;
+  if (mediaSize == 10003UL) {
+    mediaSkip = 2;
+  } else if (mediaSize != KOA_PAYLOAD_SIZE) {
+    pluginFile.close();
+    workingFile.close();
+    HandleResponse(INVALID_CONTENT, 0);
+    return;
+  }
+
+  if (mediaSkip != 0 && !workingFile.seek(mediaSkip)) {
+    pluginFile.close();
+    workingFile.close();
+    HandleResponse(CANT_SEEK, 0);
+    return;
+  }
+
+  uint32_t pluginPayloadSize = pluginSize - 2;
+  long transferLength = (long)((uint32_t)KOA_PLUGIN_ADDR - KOA_LOAD_ADDR + pluginPayloadSize);
+  long padBytes = (transferLength % 256 == 0) ? 0 : 256 - (transferLength % 256);
+  byte transferPages = (byte)(transferLength / 256 + (padBytes > 0 ? 1 : 0));
+
+  HandleResponse(SUCCESSFUL, 0);
+  cartInterface.EndListening();
+  cartInterface.ResetIndex();
+  cartInterface.EnableCartridge();
+  cartInterface.ResetC64();
+  delay(200);
+
+  noInterrupts();
+  SendHeaderToAddress(0x00, 0xC0, 0x00, 0x20, transferPages, transferLength,
+                      TYPE_STANDARD_PRG, cartInterface.TransferMode);
+
+  #ifdef USERAMLAUNCHER
+  SendLoaderStub();
+  #endif
+
+  TransmitFileBytes(workingFile, KOA_PAYLOAD_SIZE, buf, BUF_SIZE);
+  TransmitZeroBytes(KOA_GAP_SIZE);
+  TransmitFileBytes(pluginFile, pluginPayloadSize, buf, BUF_SIZE);
+  if (padBytes > 0) {
+    TransmitZeroBytes((uint32_t)padBytes);
+  }
+  interrupts();
+
+  delayMicroseconds(30);
+  workingFile.close();
+  pluginFile.close();
+  cartInterface.DisableCartridge();
+
+  Init();
+  if (returnPath != NULL && returnPath[0] != '\0') {
+    dirFunc.NavigateToPath(returnPath);
+  }
+  cartInterface.StartListening();
+}
 
 void CartApi::HandleInvokeWithName() {
   GetArgumentsDynamic(1);
@@ -632,6 +840,11 @@ void CartApi::HandleInvokeWithName() {
   // LoadAndLaunchFile (which resets dirFunc state to root).
   strncpy(savedPath, dirFunc.currentPath, 63);
   savedPath[63] = '\0';
+
+  if (EndsWithIgnoreCase(fileName, ".koa")) {
+    HandleKoalaInvoke(fileName, savedPath);
+    return;
+  }
 
   // For absolute paths (e.g. "/PLUGINS/PRGPLUGIN.PRG"), the target file is NOT
   // in the current CWD — navigate to the parent directory so SdFat 2.x can open

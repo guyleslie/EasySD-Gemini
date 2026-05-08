@@ -391,17 +391,23 @@ NODIRECTORY
 	INC $D020
 	JMP - 
 PLUGIN	
-	JSR BUILDPLUGINNAME_BIN
-	LDX #<PLUGINNAME
-	LDY #>PLUGINNAME
-	JSR PROT_SetNameZ			
-	
-	LDX #01		; Flags=read
-	JSR PROT_OpenFile
-	BCC BINPLUGINEXISTS
-	
-	DELAYFRAMES 1
-	
+	JSR ISKOA
+	BCS PLUGIN_PRG_PATH
+
+	JSR GETCURRENTROW
+	JSR PrepareFileNameParameter
+	LDX #<PATHBUFFER
+	LDY #>PATHBUFFER
+	JSR PROT_SetNameZ
+	LDX #$01
+	JSR PROT_InvokeWithName
+	BCC KOAPLUGINLAUNCHED
+	JSR PROT_EnableDisplay
+	JMP INPUT_GET
+KOAPLUGINLAUNCHED
+	JMP *
+
+PLUGIN_PRG_PATH
 	JSR BUILDPLUGINNAME_PRG
 	LDX #<PLUGINNAME
 	LDY #>PLUGINNAME
@@ -420,118 +426,6 @@ PLUGINMISSING
 	JSR STATUS_LINE
 	JSR PROT_EnableDisplay
 	JMP INPUT_GET
-
-
-
-BINPLUGINEXISTS
-	DELAYFRAMES	20
-
-		; ------------------------------------------------------------
-		; BIN Plugin loader (plugin file is PRG-format)
-		;
-		; FIXES:
-		;  1) Remove hardcoded page count (LDA #15)
-		;  2) Do NOT lose bytes 2..255 of PRG payload
-		;  3) Load exact payload size using PROT_GetInfoForFile + LoadFileBySize
-		;
-		; Algorithm:
-		;   - Read first 256 bytes to PLUGIN_HEADER to get load address
-		;   - Query file size, copy size into PROT_FILE_SIZE_* ($80-$83)
-		;   - Seek to offset 2 (skip PRG header) and load full payload to load address
-		; ------------------------------------------------------------
-
-		; Step 1: Read first page (contains PRG load address)
-	LDA #<PLUGIN_HEADER
-	STA ZP_IRQ_API_DATA_LO
-	LDA #>PLUGIN_HEADER
-	STA ZP_IRQ_API_DATA_HI
-	LDA #1			; Read 1 page (256 bytes) for header
-	STA ZP_IRQ_API_DATA_LENGTH
-
-	JSR PROT_DisableDisplay
-
-	; Enable cartridge ROM access before reading
-	CART_ROM_ENABLE
-
-		LDY #$00
-	JSR PROT_ReadFileNoCallback
-
-	; Restore normal configuration
-	CART_ROM_RESTORE
-
-		; Step 2: Parse PRG load address (first 2 bytes)
-	LDA PLUGIN_HEADER
-	STA PLUGIN_LOAD_ADDR_LO
-		STA ZP_IRQ_API_DATA_LO		; Target load address for payload
-	LDA PLUGIN_HEADER+1
-	STA PLUGIN_LOAD_ADDR_HI
-	STA ZP_IRQ_API_DATA_HI
-
-		; Step 3: Get file size (FAT directory entry) so we can load exact bytes
-		; Reuse PLUGIN_HEADER buffer to receive the 256-byte info block.
-		LDA #<PLUGIN_HEADER
-		STA ZP_IRQ_API_DATA_LO
-		LDA #>PLUGIN_HEADER
-		STA ZP_IRQ_API_DATA_HI
-		LDY #$00
-		CART_ROM_ENABLE
-		JSR PROT_GetInfoForFile
-		CART_ROM_RESTORE
-		BCS BINPLUGIN_LOAD_ERROR_INFO	; If GetInfo failed, abort
-
-		; Extract 32-bit file size (offset 28..31 in first 32 bytes of dir entry)
-		LDA PLUGIN_HEADER+28
-		STA ZP_LOADFILE_API_SIZE0		; $80
-		LDA PLUGIN_HEADER+29
-		STA ZP_LOADFILE_API_SIZE1		; $81
-		LDA PLUGIN_HEADER+30
-		STA ZP_LOADFILE_API_SIZE2		; $82
-		LDA PLUGIN_HEADER+31
-		STA ZP_LOADFILE_API_SIZE3		; $83
-
-		; Step 4: Load full PRG payload (skip 2-byte header) to PLUGIN_LOAD_ADDR
-		LDA #$02
-		STA ZP_LOADFILE_API_SKIP_LO		; $84
-		LDA #$00
-		STA ZP_LOADFILE_API_SKIP_HI		; $85
-
-		CART_ROM_ENABLE
-		JSR LoadFileBySize
-		CART_ROM_RESTORE
-		BCS BINPLUGIN_LOAD_ERROR_LOAD	; If load failed, abort
-
-	
-; ------------------------------------------------------------
-; BIN Plugin load error handlers
-; ------------------------------------------------------------
-BINPLUGIN_LOAD_ERROR_INFO:
-	JSR PROT_CloseFile
-	JSR PROT_EnableDisplay
-	JMP INPUT_GET
-
-BINPLUGIN_LOAD_ERROR_LOAD:
-	JSR PROT_CloseFile
-	JSR PROT_EnableDisplay
-	JMP INPUT_GET
-
-LDA #1
-	STA $D020
-
-	;JSR PROT_EnableDisplay
-
-	DELAYFRAMES	1
-	JSR PROT_CloseFile
-
-	JSR PROT_EnableDisplay
-
-	JSR GETCURRENTROW
-
-	JSR PrepareFileNameParameter
-
-	; Jump to plugin entry point (indirect jump using load address)
-	JMP (PLUGIN_LOAD_ADDR_LO)	
-
-		
 PRGPLUGINEXISTS	
 	DELAYFRAMES	1	
 	JSR PROT_CloseFile	
@@ -544,6 +438,7 @@ PRGPLUGINEXISTS
 	LDX #<PLUGINNAME
 	LDY #>PLUGINNAME
 	JSR PROT_SetNameZ
+	LDX #$01
 	JSR PROT_InvokeWithName
 
 	JMP *
@@ -1707,13 +1602,9 @@ MSG_PLUGIN_MISSING
 	.BYTE 0
 .enc "none"		; restore default encoding
 
-; Plugin load address parsing support
-PLUGIN_LOAD_ADDR_LO
-	.BYTE 0
-PLUGIN_LOAD_ADDR_HI
-	.BYTE 0
+; Protocol scratch buffer used by PROT_GetCurrentPath.
 PLUGIN_HEADER
-	.FILL 256	; Buffer for reading plugin header (first 256 bytes including load address)
+	.FILL 256
 
 ; Scroll rate limiter: ~100ms busy-wait (PAL ~985kHz: 80 × 250 × 5 = 100000 cycles).
 ; Called after UP/DOWN single-row scroll to limit continuous-scroll to ~10 rows/sec.

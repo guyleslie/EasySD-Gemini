@@ -6,7 +6,7 @@ TYPE_CHECK_PLUGIN	= 1
 ;
 ; Goal (2025-12): plugins live in /PLUGINS/ and are opened using
 ; absolute paths. Extension-based dispatch becomes deterministic:
-;   /PLUGINS/<EXT>PLUGIN.PRG  (fallback .BIN optionally)
+;   /PLUGINS/<EXT>PLUGIN.PRG
 ;
 ; CHECKFILENAME extracts only the first 1..3 chars of the extension
 ; (after the last '.'). Plugin dispatch therefore expects 3-char media
@@ -110,38 +110,6 @@ _done_prg
 	RTS
 
 
-; Build "/PLUGINS/<EXT>PLUGIN.BIN" into PLUGINNAME (0-terminated).
-BUILDPLUGINNAME_BIN
-	LDX #0
-_copy_prefix_bin
-	LDA PLUGIN_PREFIX, X
-	BEQ _prefix_done_bin
-	STA PLUGINNAME, X
-	INX
-	BNE _copy_prefix_bin
-_prefix_done_bin
-	LDY #0
-_copy_ext_bin
-	CPY EXT_LEN
-	BEQ _ext_done_bin
-	LDA EXTBUF, Y
-	STA PLUGINNAME, X
-	INX
-	INY
-	BNE _copy_ext_bin
-_ext_done_bin
-	LDY #0
-_copy_suffix_bin
-	LDA PLUGIN_BIN, Y
-	STA PLUGINNAME, X
-	BEQ _done_bin
-	INX
-	INY
-	BNE _copy_suffix_bin
-_done_bin
-	RTS
-
-
 ; Case-insensitive PRG check: accepts .prg, .PRG, .Prg, etc.
 ; ORA #$20 forces ASCII uppercase → lowercase before comparing.
 ; A is preserved on the SEC (not-PRG) path because the caller
@@ -165,6 +133,29 @@ ISPRG
 	RTS
 _isprg_no
 	PLA			; restore A (CHECKFILENAME result)
+	SEC
+	RTS
+
+; Case-insensitive KOA check.
+ISKOA
+	LDA EXT_LEN
+	CMP #3
+	BNE _iskoa_no
+	LDA EXTBUF
+	ORA #$20
+	CMP #$6B		; 'k'
+	BNE _iskoa_no
+	LDA EXTBUF+1
+	ORA #$20
+	CMP #$6F		; 'o'
+	BNE _iskoa_no
+	LDA EXTBUF+2
+	ORA #$20
+	CMP #$61		; 'a'
+	BNE _iskoa_no
+	CLC
+	RTS
+_iskoa_no
 	SEC
 	RTS
 
@@ -219,8 +210,4 @@ PLUGIN_PREFIX
 
 PLUGIN_PRG
 	.TEXT "PLUGIN.PRG"
-	.BYTE 0
-
-PLUGIN_BIN
-	.TEXT "PLUGIN.BIN"
 	.BYTE 0

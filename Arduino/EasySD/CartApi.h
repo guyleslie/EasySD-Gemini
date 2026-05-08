@@ -114,6 +114,7 @@ class CartApi {
   void HandleCreateDirectory();
   void HandleEndTalking();
   void HandleInvokeWithName();
+  void HandleKoalaInvoke(char* mediaPath, const char* returnPath);
   void HandleStream();
   void HandleNonInterruptedStream();
   void HandleReadNextChunk();
