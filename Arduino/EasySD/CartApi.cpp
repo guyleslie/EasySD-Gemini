@@ -619,15 +619,25 @@ void CartApi::HandleInvokeWithName() {
   // Reuse NI-buffer tail (bytes 130–193) instead of a local array — saves 64B of
   // stack.  ni[130+] is beyond the args overlap (ni[0..129]) and is never touched
   // by IO2/NI streaming during command dispatch.  Sequential use only.
+  // savedPath shares this region with launchPath in LoadAndLaunchFile: the
+  // user's CWD captured here is what LoadAndLaunchFile restores after the launch
+  // sequence (ResetC64 + Init() resets CWD to root).
   char* savedPath = reinterpret_cast<char*>(sharedBuf.ni + 130);
-  bool restoreCwd = false;
 
   // NUL-terminate the received filename (GetArgumentsDynamic does not do this).
   Arguments[2 + fileNameLength] = '\0';
 
+  // Capture the user's CWD as the post-launch return path. This must persist
+  // across any chdir done below for sd.open(), and across Init() in
+  // LoadAndLaunchFile (which resets dirFunc state to root).
+  strncpy(savedPath, dirFunc.currentPath, 63);
+  savedPath[63] = '\0';
+
   // For absolute paths (e.g. "/PLUGINS/PRGPLUGIN.PRG"), the target file is NOT
-  // in the current CWD — temporarily navigate to the parent directory, open by
-  // basename, then restore CWD afterwards.  Same pattern as HandleOpenFile.
+  // in the current CWD — navigate to the parent directory so SdFat 2.x can open
+  // the basename reliably (absolute LFN paths are flaky in SdFat 2.x). The CWD
+  // stays at the parent into LoadAndLaunchFile so its sd.open() succeeds; the
+  // user's CWD is restored from savedPath/launchPath after launch.
   const char* openName = fileName;
   if (fileName[0] == '/') {
     const char* lastSlash = strrchr(fileName, '/');
@@ -636,10 +646,7 @@ void CartApi::HandleInvokeWithName() {
       return;
     }
 
-    strncpy(savedPath, dirFunc.currentPath, 63);
-    savedPath[63] = '\0';
     openName = lastSlash + 1;
-    restoreCwd = true;
 
     if (lastSlash == fileName) {
       // Parent is root "/"
@@ -669,21 +676,17 @@ void CartApi::HandleInvokeWithName() {
     static char matchBuf[64];
     uint8_t len = strlen(openName);
     if (!dirFunc.FindByPrefix(openName, len, matchBuf, sizeof(matchBuf))) {
-      if (restoreCwd) dirFunc.NavigateToPath(savedPath);
+      // Restore user CWD before erroring so menu state stays consistent.
+      dirFunc.NavigateToPath(savedPath);
       HandleResponse(FILE_NOT_FOUND, 0);
       return;
     }
     openName = matchBuf;
   }
 
-  // Restore CWD before launch — LoadAndLaunchFile needs the game directory
-  // as CWD (not /PLUGINS/) so that preserveLaunchPath captures the right path.
-  // Guard: skip if we are already there (avoids a redundant root→subdir round-trip
-  // when the target file's parent dir == the original CWD, e.g. /PRG → /PRG).
-  if (restoreCwd && strcmp(dirFunc.currentPath, savedPath) != 0) {
-    dirFunc.NavigateToPath(savedPath);
-  }
-
+  // Do NOT restore CWD here: LoadAndLaunchFile's sd.open(openName) needs the
+  // parent directory as CWD. The user's CWD lives in savedPath (shared memory
+  // with launchPath in LoadAndLaunchFile) and is restored after launch.
   HandleResponse(SUCCESSFUL, 0);
   LoadAndLaunchFile(openName);
 }
@@ -1176,17 +1179,15 @@ void CartApi::TransferMenu() {
 void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
   const size_t BUF_SIZE = 16;
   uint8_t buf[BUF_SIZE];
-  // Reuse NI-buffer tail for launchPath — same region as savedPath in the caller
-  // (HandleInvokeWithName), but savedPath is no longer needed once we reach here.
-  // Saves 64B of stack at the deepest point of the invoke+launch call chain.
+  // launchPath shares the NI-buffer tail with savedPath in the caller. The
+  // caller (HandleInvokeWithName) populates this region with the user's CWD
+  // before invoking us — that is what we restore after the launch sequence
+  // (ResetC64 + Init() reset dirFunc state to root). Do NOT strncpy from
+  // dirFunc.currentPath here: when invoking a plugin, currentPath is the
+  // plugin's parent dir (e.g. /PLUGINS), not the user's launch dir (e.g. /CVD).
   char* launchPath = reinterpret_cast<char*>(sharedBuf.ni + 130);
-  const bool preserveLaunchPath = (dirFunc.pathDepth > 0);
+  const bool preserveLaunchPath = (launchPath[0] != '\0');
   cartInterface.EndListening();
-
-  if (preserveLaunchPath) {
-    strncpy(launchPath, dirFunc.currentPath, 63);
-    launchPath[63] = '\0';
-  }
 
   unsigned char crtFile = 0;
   unsigned char booter = 0;
