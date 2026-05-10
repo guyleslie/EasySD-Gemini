@@ -217,6 +217,16 @@ void CartApi::HandleOpenFile() {
     }
   }
 
+  // Resolve LFN→SFN if the file already exists.  SdFat 2.x sd.open() can
+  // fail for LFN names with spaces/lowercase even when the file is on disk;
+  // opening by SFN is reliable.  If FindFileSFN returns false the file does
+  // not exist yet — the original name is kept so O_CREAT paths can write a
+  // brand-new file under its user-chosen LFN.
+  static char sfnBuf[16];
+  if (dirFunc.FindFileSFN(openName, (uint8_t)strlen(openName), sfnBuf, sizeof(sfnBuf))) {
+    openName = sfnBuf;
+  }
+
   LOG_LOAD_OPEN(openName);
   workingFile = sd.open(openName, flags);
 
@@ -285,14 +295,18 @@ void CartApi::HandleDeleteFile() {
     fileName[MAX_ARGUMENTS_LENGTH-1] = 0;
   }
 
-  if (!sd.exists(fileName)) {
+  // Resolve LFN→SFN so sd.remove() works for files with spaces/lowercase.
+  // sd.exists check is folded into the resolver: no match means no file.
+  static char sfnBuf[16];
+  if (!dirFunc.FindFileSFN(fileName, (uint8_t)strlen(fileName),
+                           sfnBuf, sizeof(sfnBuf))) {
     HandleResponse(FILE_NOT_FOUND, 0);
+    return;
+  }
+  if (sd.remove(sfnBuf)) {
+    HandleResponse(SUCCESSFUL, 0);
   } else {
-    if (sd.remove(fileName)) {
-      HandleResponse(SUCCESSFUL, 0);
-    } else {
-      HandleResponse(FILE_DELETION_FAILED, 0);
-    }
+    HandleResponse(FILE_DELETION_FAILED, 0);
   }
 }
 
@@ -555,14 +569,17 @@ void CartApi::HandleDeleteDirectory() {
     fileName[MAX_ARGUMENTS_LENGTH-1] = 0;
   }
 
-  if (!sd.exists(fileName)) {
+  // Resolve LFN→SFN so sd.rmdir() works for dirs with spaces/lowercase.
+  static char sfnBuf[16];
+  if (!dirFunc.FindDirSFN(fileName, (uint8_t)strlen(fileName),
+                          sfnBuf, sizeof(sfnBuf))) {
     HandleResponse(DIR_NOT_FOUND, 0);
+    return;
+  }
+  if (sd.rmdir(sfnBuf)) {
+    HandleResponse(SUCCESSFUL, 0);
   } else {
-    if (sd.rmdir(fileName)) {
-      HandleResponse(SUCCESSFUL, 0);
-    } else {
-      HandleResponse(DIR_DELETION_FAILED, 0);
-    }
+    HandleResponse(DIR_DELETION_FAILED, 0);
   }
 }
 
@@ -622,64 +639,6 @@ static bool EndsWithIgnoreCase(const char* value, const char* suffix) {
     if (a != b) return false;
   }
   return true;
-}
-
-static bool OpenReadPath(char* fileName, File& outFile, bool restoreAfterOpen) {
-  char* savedPath = reinterpret_cast<char*>(sharedBuf.ni + 194);
-  char* matchBuf = reinterpret_cast<char*>(sharedBuf.ni + 258);
-  const char* openName = fileName;
-  bool restoreCwd = false;
-
-  strncpy(savedPath, dirFunc.currentPath, 63);
-  savedPath[63] = '\0';
-
-  if (fileName[0] == '/') {
-    char* lastSlash = strrchr(fileName, '/');
-    if (lastSlash == NULL || lastSlash[1] == '\0') {
-      return false;
-    }
-
-    openName = lastSlash + 1;
-    restoreCwd = true;
-
-    if (lastSlash == fileName) {
-      if (strcmp(savedPath, "/") != 0 && !dirFunc.NavigateToPath("/")) {
-        return false;
-      }
-    } else {
-      *lastSlash = '\0';
-      bool navOk = dirFunc.NavigateToPath(fileName);
-      *lastSlash = '/';
-      if (!navOk) {
-        return false;
-      }
-    }
-  }
-
-  if (!sd.exists(openName)) {
-    uint8_t len = strlen(openName);
-    if (!dirFunc.FindByPrefix(openName, len, matchBuf, 64)) {
-      if (restoreCwd && strcmp(savedPath, dirFunc.currentPath) != 0) {
-        dirFunc.NavigateToPath(savedPath);
-      }
-      return false;
-    }
-    openName = matchBuf;
-  }
-
-  outFile = sd.open(openName, FILE_READ);
-
-  if (restoreAfterOpen && restoreCwd && strcmp(savedPath, dirFunc.currentPath) != 0) {
-    if (!dirFunc.NavigateToPath(savedPath)) {
-      dirFunc.ToRoot();
-    }
-  }
-
-  return (bool)outFile;
-}
-
-static bool OpenReadPath(char* fileName, File& outFile) {
-  return OpenReadPath(fileName, outFile, true);
 }
 
 static void SendHeaderToAddress(uint8_t launchLow, uint8_t launchHigh,
@@ -932,23 +891,21 @@ void CartApi::HandleInvokeWithName() {
     }
   }
 
-  // Verify file exists before committing to C64 — once SUCCESSFUL is sent,
-  // C64 expects a reset; if the file is missing we cannot send an error after.
-  // The C64 protocol sends at most 31 chars per filename. For files with names
-  // longer than 31 chars the received name is a truncated prefix. When
-  // sd.exists() fails, scan the CWD using SdFat's getName() to find the full
-  // LFN that starts with the received prefix (case-insensitive).
-  if (!sd.exists(openName)) {
-    static char matchBuf[64];
-    uint8_t len = strlen(openName);
-    if (!dirFunc.FindByPrefix(openName, len, matchBuf, sizeof(matchBuf))) {
-      // Restore user CWD before erroring so menu state stays consistent.
-      dirFunc.NavigateToPath(savedPath);
-      HandleResponse(FILE_NOT_FOUND, 0);
-      return;
-    }
-    openName = matchBuf;
+  // Resolve the basename to its 8.3 SFN before any sd.open() downstream.
+  // SdFat 2.x sd.open()/sd.exists() can fail for LFN names with spaces or
+  // lowercase even when the file is on disk; the SFN form (PICBRA~1.KOA)
+  // opens reliably for the same entry.  FindFileSFN iterates via openNext
+  // (which handles LFN entries) and writes the SFN into sfnBuf.
+  // sfnBuf needs at most 13 bytes (8.3 + null) — 16 for safety.
+  static char sfnBuf[16];
+  uint8_t nameLen = strlen(openName);
+  if (!dirFunc.FindFileSFN(openName, nameLen, sfnBuf, sizeof(sfnBuf))) {
+    // Restore user CWD before erroring so menu state stays consistent.
+    dirFunc.NavigateToPath(savedPath);
+    HandleResponse(FILE_NOT_FOUND, 0);
+    return;
   }
+  openName = sfnBuf;
 
   if (isKoa) {
     HandleKoalaInvoke((char*)openName, savedPath);

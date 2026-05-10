@@ -9,6 +9,7 @@ class DirFunction {
     File m_dirFile;
     bool ResyncDirFromCwd();
     void CountEntries();
+    bool FindEntrySFN(const char* prefix, uint8_t len, char* outSFN, size_t outSize, bool wantDir);
 
   public:
     char currentPath[64];
@@ -36,11 +37,15 @@ class DirFunction {
     void ForceReset();
     void CloseDirHandle();
 
-    // Scan CWD for a non-hidden file whose LFN starts with the first `len`
-    // chars of `prefix` (case-insensitive). On match writes the captured name
-    // into outName[outSize] and returns true. Does not affect Iterate() state.
-    bool FindByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize);
-    bool FindDirectoryByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize);
+    // Resolve a (possibly LFN) basename to its 8.3 short filename (SFN).
+    // SdFat 2.x sd.open()/sd.chdir() can fail for LFN names with spaces or
+    // lowercase even when the entry exists; the SFN form (e.g. PICBRA~1.KOA,
+    // KOALAP~1) opens reliably for the same on-disk entry. Iterates CWD via
+    // openNext (which reads LFN entries correctly), case-insensitive prefix-
+    // matches the LFN, then writes the SFN into outSFN.
+    // SFN max is 12 chars + NUL — outSize 16 is plenty.
+    bool FindFileSFN(const char* prefix, uint8_t len, char* outSFN, size_t outSize);
+    bool FindDirSFN(const char* prefix, uint8_t len, char* outSFN, size_t outSize);
 
     // Preview buffer used for menu listing transport to the C64.
     // It intentionally stores only the leading part of a filename.

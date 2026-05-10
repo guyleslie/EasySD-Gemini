@@ -147,7 +147,10 @@ bool DirFunction::GoBack() {
 
   LOGI(DIR, "GoBack to: "); LOG_PRINTLN(currentPath);
 
-  if (!sd.chdir(currentPath)) {
+  // Use chdir("..") instead of chdir(absolutePath): SdFat 2.x absolute LFN
+  // paths are unreliable, while ".." reads the parent entry directly from
+  // the current dir's metadata regardless of LFN content in the path.
+  if (!sd.chdir("..")) {
     LOGE(DIR, "GoBack chdir FAIL");
     strcpy(currentPath, savedPath);
     pathDepth = savedDepth;
@@ -188,9 +191,18 @@ bool DirFunction::ChangeDirectory(char * directory) {
   }
   strcat(currentPath, directory);
 
-  // Use basename-relative chdir — SdFat 2.x absolute LFN paths are unreliable.
-  // CWD is already positioned correctly by prior navigation calls.
-  if (!sd.chdir(directory)) {
+  // Use basename-relative chdir.  SdFat 2.x absolute LFN paths are unreliable
+  // and even relative LFN names with spaces/lowercase can fail intermittently;
+  // on such failure, resolve the basename to its 8.3 SFN via openNext()
+  // (which reads LFN entries reliably) and retry with the SFN form.
+  bool chdirOk = sd.chdir(directory);
+  if (!chdirOk) {
+    char sfn[16];
+    if (FindDirSFN(directory, (uint8_t)strlen(directory), sfn, sizeof(sfn))) {
+      chdirOk = sd.chdir(sfn);
+    }
+  }
+  if (!chdirOk) {
     LOGE(DIR, "chdir FAILED: ");
     LOG_PRINTLN(directory);
     strcpy(currentPath, savedPath);
@@ -398,32 +410,31 @@ void DirFunction::CloseDirHandle() {
   }
 }
 
-bool DirFunction::FindByPrefix(const char* prefix, uint8_t len,
-                               char* outName, size_t outSize) {
-  m_dirFile.rewind();
-  File f;
-  while (f.openNext(&m_dirFile)) {
-    if (f.isDir() || f.isHidden()) { f.close(); continue; }
-    CaptureFileNamePreview(f, outName, outSize);
-    size_t n = strlen(outName);
-    f.close();
-    if (n < len) continue;
-    if (PrefixMatchesCaseInsensitive(outName, prefix, len)) return true;
-  }
-  return false;
+bool DirFunction::FindFileSFN(const char* prefix, uint8_t len,
+                              char* outSFN, size_t outSize) {
+  return FindEntrySFN(prefix, len, outSFN, outSize, false);
 }
 
-bool DirFunction::FindDirectoryByPrefix(const char* prefix, uint8_t len,
-                                        char* outName, size_t outSize) {
+bool DirFunction::FindDirSFN(const char* prefix, uint8_t len,
+                             char* outSFN, size_t outSize) {
+  return FindEntrySFN(prefix, len, outSFN, outSize, true);
+}
+
+bool DirFunction::FindEntrySFN(const char* prefix, uint8_t len,
+                               char* outSFN, size_t outSize, bool wantDir) {
+  char lfnBuf[64];
   m_dirFile.rewind();
   File f;
   while (f.openNext(&m_dirFile)) {
-    if (!f.isDir() || f.isHidden()) { f.close(); continue; }
-    CaptureFileNamePreview(f, outName, outSize);
-    size_t n = strlen(outName);
+    if (f.isHidden() || (bool)f.isDir() != wantDir) { f.close(); continue; }
+    CaptureFileNamePreview(f, lfnBuf, sizeof(lfnBuf));
+    size_t n = strlen(lfnBuf);
+    if (n >= len && PrefixMatchesCaseInsensitive(lfnBuf, prefix, len)) {
+      f.getSFN(outSFN, outSize);
+      f.close();
+      return true;
+    }
     f.close();
-    if (n < len) continue;
-    if (PrefixMatchesCaseInsensitive(outName, prefix, len)) return true;
   }
   return false;
 }
