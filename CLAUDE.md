@@ -47,7 +47,7 @@ python Tools/build.py release --skip-arduino
 
 **Hardware debug workflow** (real C64 + Arduino serial logging):
 ```bash
-deploy-debug.bat
+deploy-serial-debug.bat
 # = python Tools/build.py release --skip-arduino
 #   python Tools/build.py arduino-upload-isp --debug
 #   python Tools/build.py sd-deploy D:
@@ -166,4 +166,4 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 
 ## Serial Debug
 
-Baud rate: 57600. Log format: `[LEVEL][CATEGORY] message` (e.g. `[INFO][SD] SD OK`, `[ERR][DIR] chdir failed`). Categories: `SYS`, `SD`, `DIR`, `FILE`, `PROTO`, `PRG`, `ERR`. Enable with `arduino-compile --debug` (or `arduino-upload-isp --debug`). Category compilation controlled by `LOG_ENABLE_*` flags in `EasySDLog.h` — `PRG` and `PROTO` are OFF by default to save flash. Real-hardware debug is the supported workflow: run `deploy-debug.bat`, then `python Tools/build.py arduino-monitor COM4` to view live logs while testing the cartridge in a C64. The previous `h` (help) and `m` (memory) interactive serial commands and the on-device self-test/protocol-test suites have been removed; RAM budget is observed via the event-driven `logRamBudget()` calls on boot/ready.
+Baud rate: 57600. Log format: `[LEVEL][CATEGORY] message` (e.g. `[INFO][SD] SD OK`, `[ERR][DIR] chdir failed`). Categories: `SYS`, `SD`, `DIR`, `FILE`, `PROTO`, `PRG`, `ERR`. Enable with `arduino-compile --debug` (or `arduino-upload-isp --debug`). Category compilation controlled by `LOG_ENABLE_*` flags in `EasySDLog.h` — `PRG` and `PROTO` are OFF by default to save flash. Real-hardware serial debug is the supported workflow: run `deploy-serial-debug.bat`, then `python Tools/build.py arduino-monitor COM4` to view live logs while testing the cartridge in a C64. The previous `h` (help) and `m` (memory) interactive serial commands and the on-device self-test/protocol-test suites have been removed; RAM budget is observed via the event-driven `logRamBudget()` calls on boot/ready.

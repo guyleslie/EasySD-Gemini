@@ -82,6 +82,7 @@ FG_GATE = $FB
 PICTUREROW = 3
 
 TRANSFERBUFFER = $A000
+FILEINFOBUFFER = TRANSFERBUFFER
 
 DELAYFRAMES	.macro
 	LDX #\1
@@ -132,17 +133,23 @@ CVD_SIZE = $8B
 
 +
 	; Query file size for natural end-of-stream detection.
-	; TRANSFERBUFFER ($A000) is safe to use here — streaming not yet started.
-	#GETFILEINFO TRANSFERBUFFER
+	; FILEINFOBUFFER aliases TRANSFERBUFFER ($A000); streaming not yet started.
+	#GETFILEINFO FILEINFOBUFFER
 	BCC +
-	; GETFILEINFO failed: set counter to max ($FFFFFFFF) — stream until SEL press
+	; GETFILEINFO failed: set counter to max ($FFFFFFFF).
 	LDA #$FF
 	STA CVD_SIZE
 	STA CVD_SIZE+1
 	STA CVD_SIZE+2
 	STA CVD_SIZE+3
 	JMP CVD_SIZE_READY
-+	#EXTRACTFILESIZE TRANSFERBUFFER, CVD_SIZE
++	; $A000-$BFFF is hidden by BASIC ROM when $01=$37. The fileinfo bytes
+	; were written to RAM, so expose RAM briefly while copying the size.
+	LDA #$35
+	STA $01
+	#EXTRACTFILESIZE FILEINFOBUFFER, CVD_SIZE
+	LDA #$37
+	STA $01
 CVD_SIZE_READY
 
 	DELAYFRAMES 2

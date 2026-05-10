@@ -35,17 +35,16 @@ status separate.
 
 ---
 
-## 2. Why Legacy VICE Tests Were Misleading
+## 2. Legacy VICE Tests Were Misleading
 
-`PROT_WaitProcessing` in `CartLibHi.s` compiles differently by build type:
+`PROT_WaitProcessing` previously compiled differently by build type: `DEBUG=1`
+returned immediate success instead of polling the hardware response register.
+That behavior has been removed; debug builds now use the same cartridge
+handshake as release builds:
 
 ```asm
 PROT_WaitProcessing:
-.if DEBUG = 1
-    CLC         ; ← VICE path: always success, returns immediately
-    RTS
-.else
-    NOP × 9     ; ← real hardware path: poll loop
+    NOP x 9
 -   LDA CARTRIDGE_BANK_VALUE   ; read $80AB (data bus D0-D7 from ROML)
     BEQ -       ; loop until non-zero
     BPL +       ; bit7=0 → SEC (error)
@@ -53,14 +52,14 @@ PROT_WaitProcessing:
     RTS
 +   SEC
     RTS
-.endif
 ```
 
 Every plugin that fails on real hardware calls `PROT_WaitProcessing` multiple
-times. In the legacy VICE/debug build (`DEBUG=1`) this was a no-op. Those
-emulator-only tests never exercised the hardware handshake path. A VICE pass
-meant "protocol logic is correct"; it did not validate timing or hardware
-responsiveness.
+times. In the legacy VICE/debug build (`DEBUG=1`) this used to be a no-op.
+Those emulator-only tests never exercised the hardware handshake path. A VICE
+pass meant "protocol logic is correct"; it did not validate timing or hardware
+responsiveness. Current `deploy-serial-debug.bat` is not a C64 mock build: it
+deploys release C64 software plus Arduino serial logging.
 
 ---
 
@@ -138,12 +137,11 @@ KernalBridge.
 
 ### BUG-2: PROT_WaitProcessing Bypassed in Legacy DEBUG=1 Builds
 
-**Severity:** Medium (architectural confidence gap, not a crash bug per se)
-**File:** `EasySD/Loader/CartLibHi.s:30–32`
+**Status:** Fixed
+**File:** `EasySD/Loader/CartLibHi.s`
 
-Legacy VICE plugin tests gave a false green signal. The hardware polling loop
-in `PROT_WaitProcessing` still needs validation on real C64 hardware with
-serial logs or a logic analyzer.
+`PROT_WaitProcessing` now always uses the hardware polling loop, independent of
+`DEBUG`. Legacy VICE/mock semantics are not supported by the active build.
 
 ---
 

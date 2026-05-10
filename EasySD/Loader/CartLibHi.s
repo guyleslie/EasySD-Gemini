@@ -27,11 +27,6 @@
 ; Registers Out : A (Processing status)
 ;-----------------------------------------
 PROT_WaitProcessing
-.if DEBUG = 1
-	; DEBUG: Skip hardware wait, return immediate success
-	CLC
-	RTS
-.else
 	NOP
 	NOP
 	NOP
@@ -50,7 +45,6 @@ PROT_WaitProcessing
 +
 	SEC
 	RTS
-.endif
 
 
 ; Used to retrieve error status along with a one byte response
@@ -567,11 +561,6 @@ PROT_EnableRasterInterrupts
 
 
 LoadFileBySize:
-.if DEBUG = 1
-	; DEBUG: Dump parameters before load
-	JSR DEBUG_DumpAll
-.endif
-
 	; Step 1: Seek past header/skip bytes if needed
 	LDA ZP_LOADFILE_API_SKIP_LO
 	ORA ZP_LOADFILE_API_SKIP_HI
@@ -613,21 +602,9 @@ LoadFileBySize:
 	BCS LoadFileBySize_Error
 
 LoadFileBySize_Done:
-.if DEBUG = 1
-	; DEBUG: Dump first 16 bytes of loaded data
-	JSR DEBUG_DumpFirst16Bytes
-	LDA #$00
-	JSR DEBUG_SetError
-	JSR DEBUG_Break			        ; Optional BRK
-.endif
 	CLC					; Success
 	RTS
 
 LoadFileBySize_Error:
-.if DEBUG = 1
-	LDA #$01				; Error code 1 = LoadFileBySize failed
-	JSR DEBUG_SetError
-	JSR DEBUG_Break
-.endif
 	SEC					; Error
 	RTS

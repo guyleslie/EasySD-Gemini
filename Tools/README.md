@@ -73,7 +73,7 @@ python Tools/build.py sd-deploy D:
 ### Arduino Serial Debug (real C64 hardware + serial logging)
 
 ```bash
-deploy-debug.bat
+deploy-serial-debug.bat
 ```
 
 Equivalent to:

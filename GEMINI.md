@@ -246,7 +246,7 @@ python Tools/build.py plugins                    # plugins only
 python Tools/build.py arduino-compile --debug    # Arduino debug firmware (SERIAL ON)
 python Tools/build.py arduino-upload-isp --debug # ISP upload, debug firmware
 python Tools/build.py arduino-monitor COM4       # serial monitor (57600 baud)
-deploy-debug.bat                                 # full hardware debug deploy (C64 release + Arduino debug + SD copy)
+deploy-serial-debug.bat                          # C64 release + Arduino serial debug + SD copy
 deploy-release.bat                               # full release deploy
 ```
 

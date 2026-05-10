@@ -858,7 +858,7 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
         # (static allocation happens at Serial.begin(), invisible to the compiler).
         # RX is not used by the firmware; keep it at a minimal ring size.
         #
-        # Log categories enabled in debug build (deploy-debug.bat workflow):
+        # Log categories enabled in debug build (deploy-serial-debug.bat workflow):
         #   LOAD=1  high-level activity ([LOAD] open / size / read / launch / done)
         #   SYS=1   protocol/state errors (Unknown cmd, Stale ident reset, Cmd timeout, HS OK)
         #   SD=1    SD card errors (SD FAIL, SD recover FAIL)

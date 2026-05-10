@@ -952,8 +952,8 @@ SETCOL
 	JSR SETCURRENTROW
 
 	; Print filename using ASCII to screen code conversion
-	; Works for both DEBUG (mock data) and release (SD card data) modes
-	; because both use ASCII encoding (.TEXT directive in 64tass)
+	; Filenames are ASCII from the SD-backed directory listing.
+	; .TEXT in 64tass stores these strings in ASCII encoding.
 	JSR PRINTASCIIFILENAME
 
 	INX
