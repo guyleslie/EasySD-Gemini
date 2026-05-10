@@ -785,14 +785,13 @@ def arduino_setup(ctx: Context) -> None:
     run_arduino_cli(cli_exe, ["core", "update-index"])
 
     # Install Arduino AVR boards
-    print("\n[2/4] Installing Arduino AVR boards...")
+    print("\n[2/3] Installing Arduino AVR boards...")
     run_arduino_cli(cli_exe, ["core", "install", "arduino:avr"])
 
-    # Install SdFat library
-    print("\n[3/4] Installing libraries...")
-    run_arduino_cli(cli_exe, ["lib", "install", "SdFat"], check=False)
-
-    print("\n[4/4] Listing installed libraries...")
+    # SdFat is bundled in Arduino/libraries/SdFat (2.3.0) and consumed via the
+    # compile-time --libraries flag, so we don't install it into the user's
+    # sketchbook to avoid version drift between machines.
+    print("\n[3/3] Listing installed libraries...")
     run_arduino_cli(cli_exe, ["lib", "list"])
 
     print("\n" + "="*70)
@@ -841,11 +840,17 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
     print(f"  DEBUG_SERIAL: {mode_label}")
     print("="*70)
 
+    # Force the project-bundled SdFat 2.3.0 (Arduino/libraries/SdFat) instead
+    # of whatever version sits in the user's sketchbook libraries.  This keeps
+    # the build reproducible and avoids the LFN/SFN behaviour drift that hit
+    # KOA media open when the user-installed SdFat differed from expectations.
+    project_libs_dir = ctx.repo_root / "Arduino" / "libraries"
     compile_args = [
         "compile",
         "--fqbn", ARDUINO_FQBN,
         "--verbose",
         "--build-path", str(build_path),
+        "--libraries", str(project_libs_dir),
     ]
     if debug_mode:
         # Reduce HardwareSerial TX/RX ring buffers from 64B each.
