@@ -148,8 +148,12 @@ CVD_SIZE_READY
 	DELAYFRAMES 2
 	LDA #50     ; 50 * 8 = 400 bytes per block
 	JSR PROT_NIStream
-	DELAYFRAMES 2
-	
+	; Do NOT add a delay here: the AVR has already entered its IO2 busy-wait
+	; loop by the time PROT_NIStream returns. Any extra delay shrinks the
+	; budget the AVR has before its first-byte timeout fires and bails out
+	; (DisableCartridge), leaving NMI_000 to read RAM garbage instead of
+	; AVR-driven bytes — which manifests as a frozen grey bitmap.
+
 ZIBIRT
 	JSR ENABLEDISPLAY
 

@@ -1046,7 +1046,17 @@ void CartApi::HandleNonInterruptedStream() {
   uint16_t bufferLength;
   // Busy-loop guard while global interrupts are disabled. If IO2 gets stuck
   // high/low (noise or aborted transfer), we must escape instead of wedging.
+  // ~8-10 cycles per inner iteration on AVR-GCC at -Os → 0xFFFF iterations
+  // ≈ 33-41 ms. That covers byte-to-byte and block-to-block gaps comfortably
+  // (C64 decompression budget is ~12 ms / block; SD refill is ~5-10 ms).
+  // The FIRST byte after PROT_NIStream needs a longer budget: the C64 plugin
+  // (e.g. CvdPlayer) takes ~40 ms (DELAYFRAMES + IRQ vector setup + raster
+  // wait at $241) before its first JSR NMI_000 fires the very first IO2
+  // strobe. Without an extended first-byte budget the AVR times out and
+  // DisableCartridge()s before the C64 even starts streaming, causing the
+  // plugin to read RAM garbage and hang on a grey screen.
   const uint16_t IO2_EDGE_TIMEOUT_LOOPS = 0xFFFF;
+  const uint8_t  IO2_FIRST_BYTE_RETRIES = 6;        // 6 × ~35 ms ≈ 210 ms
   
   GetArgumentsStatic(1);
   if (!m_argsOk) return;
@@ -1069,26 +1079,35 @@ void CartApi::HandleNonInterruptedStream() {
       noInterrupts();
       uint8_t portDVal = (PORTD & 0x0F);
       uint8_t portCVal = (PORTC & 0xF0);
+      bool firstByte = true;
 
       while(1) {
         for (bufferIndex = 0; bufferIndex < bufferLength; bufferIndex++) {
             /* Synchronization block for each byte */
             // Note: We don't use millis() inside the inner loop for speed.
             // If IO2 stops toggling, the loop counter below aborts the stream.
+            // First byte gets IO2_FIRST_BYTE_RETRIES extra timeout windows to
+            // absorb the C64's IRQ-setup gap; subsequent bytes use the
+            // single-window cap (matches the original timing budget).
+            uint8_t retriesLeft = firstByte ? IO2_FIRST_BYTE_RETRIES : 1;
             uint16_t waitLoops = 0;
 
             while (PIND & 0x08) {
-               if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) goto ni_out;
+               if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) {
+                 if (--retriesLeft == 0) goto ni_out;
+                 waitLoops = 0;
+               }
             }
             waitLoops = 0;
             while ((PIND & 0x08) == 0) {
               if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) goto ni_out;
             }  // Wait for rising edge
-            
+
             uint8_t val = sharedBuf.ni[bufferIndex];
             PORTD = portDVal | (val & 0xF0);
-            PORTC = portCVal | (val & 0x0F);            
-        }   
+            PORTC = portCVal | (val & 0x0F);
+            firstByte = false;
+        }
 
         if (stopAfterCurrentBuffer) goto ni_out;
         
