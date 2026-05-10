@@ -119,7 +119,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 |--------|-----------|----------------|
 | KernalBridge (PRG loader, P2TK) | `.PRG` | ✅ working |
 | WavPlayer | `.WAV` | ❌ needs debug |
-| KoalaDisplayer | `.KOA` | ❌ needs debug |
+| KoalaDisplayer | `.KOA` | ✅ working (incl. LFN media names) |
 | PetsciiDisplayer | `.PET` | ❌ needs debug |
 | CvdPlayer (CVD video player) | `.CVD` | ❌ needs debug |
 
@@ -134,14 +134,15 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **Never use Arduino `String` class** — costs ~1700 bytes of flash. Use `char[]` instead.
 - **Limit local arrays to 32-64 bytes** to avoid stack overflow.
 - **Monitor memory with `FreeStack()`** — aim for 300+ bytes free minimum.
-- **SdFat 2.x API only:** Use `File` type (not deprecated `SdFile`), 1-parameter `openNext()`.
+- **SdFat 2.3.0 bundled** in `Arduino/libraries/SdFat`; `arduino-cli compile` is pinned to it via `--libraries Arduino/libraries`. Do **not** rely on whatever sits in the user's sketchbook. Use `File` type (not deprecated `SdFile`), 1-parameter `openNext()`.
 - **SPI speed:** Use `SPI_HALF_SPEED` (8 MHz) — tested stable on breadboard (8/8 tests pass). `SPI_QUARTER_SPEED` is no longer needed.
-- **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail on nested paths.
+- **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail on nested paths. `GoBack()` uses `sd.chdir("..")`, never an absolute path.
+- **LFN → SFN resolution before every `sd.open` / `sd.chdir` / `sd.remove` / `sd.rmdir`:** SdFat 2.x intermittently fails to open/chdir long file names with spaces or lowercase even when the entry exists; resolve the basename to its 8.3 SFN first via `dirFunc.FindFileSFN()` / `dirFunc.FindDirSFN()` (these iterate with `openNext()` + `getSFN()`). `ChangeDirectory()` already does this fallback internally on chdir failure. The SFN form (e.g. `PICBRA~1.KOA`, `KOALAP~1`) is the canonical input to all `sd.*` calls.
 - **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.
 - **Cartridge idle state must be truly BASIC-safe:** hide cartridge (`EXROM` HIGH), reset receive/session state, and tristate the data bus without leaving AVR pull-ups latched on D4-D7/A0-A3. Use the centralized `ReleaseToBasic()` / `EnterBasicSafeMode()` path instead of re-creating this sequence ad hoc.
 - **No active EEPROM persistence:** the current firmware does not use the Nano's internal EEPROM for boot, menu navigation, or last-directory restore. Treat any remaining EEPROM references as stale or legacy code unless reintroduced deliberately.
 - **SRAM overlay:** IO2 streaming, NI streaming, and command argument buffers share a single union (`sharedBuf` in CartApi.cpp). These are mutually exclusive at runtime, so `max(128, 400, 130) = 400 B` instead of `658 B`. Never add a new static buffer without checking the SRAM budget.
-- **Flash budget:** Release ≈ 22.9 KB / 30.7 KB (74%, ~7.8 KB free). Debug ≈ 24.7 KB / 30.7 KB (80%, ~6 KB free).
+- **Flash budget:** Release ≈ 24.0 KB / 30.7 KB (78%, ~6.7 KB free). Debug ≈ 29.0 KB / 30.7 KB (94%, ~1.7 KB free). Debug is tight — the SdFat 2.3.0 LFN code is ≈4 KB heavier than the legacy 1.x copy that used to ship in `Arduino/libraries/`.
 
 ## Key File Locations
 

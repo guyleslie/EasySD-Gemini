@@ -123,8 +123,8 @@ COMMAND_END_TALKING=30, COMMAND_EXIT_TO_MENU=31
 ```
 
 ### Memory Constraints (ATmega328P — CRITICAL)
-- **Flash**: 32768B max (no bootloader). Release: ~23708B (77%, ~7KB free). Debug: ~30684B (99%, 36B margin)
-- **SRAM**: 2KB total, ~413B free at boot. Keep 300B+ minimum free.
+- **Flash**: 32768B max (no bootloader). Release: ~24036B (78%, ~6.7KB free). Debug: ~28982B (94%, ~1.7KB free — tight; SdFat 2.3.0 LFN is ~4KB heavier than the legacy 1.x copy).
+- **SRAM**: 2KB total, ~574B free at boot (release), ~503B free (debug). Keep 300B+ minimum free.
 - Monitor with `FreeStack()`. RAM threshold: `>400`=OK, `>300`=LOW, `≤300`=CRIT!
 
 **Never use:**
@@ -133,17 +133,24 @@ COMMAND_END_TALKING=30, COMMAND_EXIT_TO_MENU=31
 - Unbounded `strcpy()` — always validate buffer sizes
 - Local arrays >64B — stack overflow risk
 
-### SdFat 2.x Patterns
+### SdFat 2.3.0 Patterns
+
+The project bundles SdFat 2.3.0 in `Arduino/libraries/SdFat`; `Tools/build.py`
+passes `--libraries Arduino/libraries` to `arduino-cli compile` so the build
+is reproducible regardless of whatever the user has in their sketchbook.
+LFN support is on by default in this build.
+
 ```cpp
 // Directory navigation — MUST use relative paths from root
 sd.chdir();           // return to root first
 sd.chdir("DIRNAME");  // then relative step
-// NEVER: sd.chdir("/DIRNAME") — fails on nested paths
+sd.chdir("..");       // GoBack — never sd.chdir(absolutePath) for parent
+// NEVER: sd.chdir("/DIRNAME") — fails on nested paths in 2.x
 
 // File open/read
-File f = sd.open("FILE.DAT", O_READ);
-// File type (not deprecated SdFile), 1-param openNext()
-while (f.openNext(&dir, O_READ)) { ... }
+File f = sd.open("FILE.DAT", FILE_READ);  // FILE_READ is the canonical alias
+while (f.openNext(&dir, O_READ)) { ... }  // 1-param openNext()
+m_dirFile.openCwd();                       // sync handle to vol's CWD
 
 // Write pattern
 File f = sd.open("FILE.DAT", O_WRONLY | O_CREAT);
@@ -159,7 +166,29 @@ sd.begin(chipSelect, SPI_HALF_SPEED);
 dirFunc.ForceReset();
 ```
 
-**SdFat version note**: `openCwd()` and `vwd()` are NOT in SdFat 2.3.0 — check build log for version.
+**LFN → SFN resolution (CRITICAL, 2026-05-10)**: SdFat 2.x intermittently
+fails for long file names with spaces/lowercase — `sd.open("pic b rambo.koa")`
+returned a null File even though the entry was on disk; once it failed the
+internal cache could poison subsequent `sd.chdir(LFN)` calls. The fix is to
+always resolve the basename to its on-disk 8.3 SFN before any `sd.*` call:
+
+```cpp
+// In the C64-facing handlers (HandleInvokeWithName, HandleOpenFile,
+// HandleDeleteFile, HandleDeleteDirectory):
+char sfnBuf[16];                                   // 8.3 + NUL fits in 13
+if (dirFunc.FindFileSFN(name, strlen(name),
+                        sfnBuf, sizeof(sfnBuf))) {
+  workingFile = sd.open(sfnBuf, FILE_READ);        // reliable
+}
+// Use FindDirSFN(...) for directories.
+// ChangeDirectory(directory) already retries with FindDirSFN+SFN
+// internally if the first sd.chdir(directory) fails.
+```
+
+`FindFileSFN` / `FindDirSFN` walk CWD with `openNext()` (which reads LFN
+entries correctly) and call `getSFN()` on the matching entry. Names that
+are already 8.3 (`ELITE.KOA`) round-trip identically.
+
 **SPI speed**: `SPI_HALF_SPEED` (8 MHz) — stable on breadboard (8/8 tests) and PCB v3. `SPI_QUARTER_SPEED` not needed.
 
 ### SD Error Codes

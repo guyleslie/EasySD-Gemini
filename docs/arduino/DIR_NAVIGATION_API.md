@@ -1,7 +1,7 @@
 # Directory Navigation API Reference
 
 **File:** `Arduino/EasySD/DirFunction.h` / `DirFunction.cpp`
-**Last updated:** 2026-04-18
+**Last updated:** 2026-05-10
 
 ---
 
@@ -56,7 +56,7 @@ Alias for `ToRoot()`. Used at startup.
 
 Navigate into a subdirectory relative to the current directory.
 
-**Parameters:** `directory` — bare name, no slashes (e.g. `"GAMES"`)
+**Parameters:** `directory` — bare name, no slashes (e.g. `"GAMES"` or LFN `"My Games"`)
 
 **Returns:** `true` on success, `false` on failure (state unchanged)
 
@@ -64,10 +64,11 @@ Navigate into a subdirectory relative to the current directory.
 1. Validates non-empty name and path buffer space (`currentPath + name + 2 <= 64`)
 2. Saves current state for rollback
 3. Appends name to `currentPath`
-4. Calls `sd.chdir(directory)` — relative, not absolute
-5. Calls `ResyncDirFromCwd()`
-6. On success: increments `pathDepth`, sets `InSubDir = 1`
-7. On any failure: rolls back to saved state
+4. Tries `sd.chdir(directory)` — relative, not absolute
+5. **LFN fallback:** if the first chdir fails, calls `FindDirSFN(directory, ...)` to resolve the name to its 8.3 SFN form (`KOALAP~1`) and retries `sd.chdir(SFN)`. SdFat 2.x intermittently fails to chdir LFN names with spaces or lowercase even when the directory exists.
+6. Calls `ResyncDirFromCwd()`
+7. On success: increments `pathDepth`, sets `InSubDir = 1`
+8. On any failure: rolls back to saved state
 
 ---
 
@@ -82,7 +83,7 @@ Navigate to the parent directory.
 2. Saves current state for rollback
 3. Truncates `currentPath` to the parent path
 4. If new path is root: calls `ToRoot()` and returns `true`
-5. Otherwise: calls `sd.chdir(parentPath)` + `ResyncDirFromCwd()`
+5. Otherwise: calls `sd.chdir("..")` + `ResyncDirFromCwd()`. `".."` reads the parent entry directly from the current directory's metadata, so it is immune to the SdFat absolute-LFN-path weakness that broke the older `sd.chdir(absolutePath)` form.
 6. Decrements `pathDepth`; sets `InSubDir = 0` if back at root
 7. On any failure: rolls back to saved state
 
@@ -191,15 +192,17 @@ Look up a directory entry by its visible index (as seen by the C64 menu). Used b
 
 ---
 
-### `bool FindByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize)`
+### `bool FindFileSFN(const char* prefix, uint8_t len, char* outSFN, size_t outSize)`
 
-Scan CWD for a non-hidden, non-directory file whose name starts with `prefix` (case-insensitive). Does not affect `Iterate()` state.
+Scan CWD for a non-hidden file whose **LFN** starts with `prefix` (case-insensitive) and write its **8.3 short filename** into `outSFN`. `outSize` should be at least 13 bytes (8.3 + NUL fits in 13).
+
+This is the canonical name-resolver before any `sd.open()` / `sd.remove()` call: SdFat 2.x intermittently fails to open LFN names with spaces or lowercase, while the SFN form (e.g. `PICBRA~1.KOA`) parses through the 8.3 path logic and opens reliably for the same on-disk entry. Names that are already 8.3 (`ELITE.KOA`) round-trip identically. Does not affect `Iterate()` state.
 
 ---
 
-### `bool FindDirectoryByPrefix(const char* prefix, uint8_t len, char* outName, size_t outSize)`
+### `bool FindDirSFN(const char* prefix, uint8_t len, char* outSFN, size_t outSize)`
 
-Same as `FindByPrefix` but matches directories only.
+Same as `FindFileSFN` but matches directories only. Used by `ChangeDirectory()`'s LFN→SFN fallback and by `HandleDeleteDirectory` before `sd.rmdir()`.
 
 ---
 
