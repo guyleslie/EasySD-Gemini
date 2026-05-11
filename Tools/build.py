@@ -935,12 +935,14 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
         "--build-path", str(build_path),
         "--libraries", str(project_libs_dir),
     ]
+
+    # Keep HardwareSerial buffers small in every firmware profile. The release
+    # build does not use Serial at all, but the AVR core still reserves the
+    # default 64B TX + 64B RX buffers unless these macros are set. Recovering
+    # that SRAM materially improves stack headroom on ATmega328/Nano.
+    serial_buffer_flags = "-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=2"
+
     if debug_mode:
-        # Reduce HardwareSerial TX/RX ring buffers from 64B each.
-        # Default 128B total is the main cause of SRAM exhaustion in debug builds
-        # (static allocation happens at Serial.begin(), invisible to the compiler).
-        # RX is not used by the firmware; keep it at a minimal ring size.
-        #
         # Log categories enabled in debug build (deploy-serial-debug.bat workflow):
         #   LOAD=1  high-level activity ([LOAD] open / size / read / launch / done)
         #   SYS=1   protocol/state errors (Unknown cmd, Stale ident reset, Cmd timeout, HS OK)
@@ -957,13 +959,15 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
             "-DLOG_ENABLE_DIR=1 -DLOG_ENABLE_FILE=1 -DLOG_ENABLE_RAW=1 "
             "-DLOG_ENABLE_NI=1 -DLOG_ENABLE_PRG=0 -DLOG_ENABLE_PROTO=0"
         )
-        common_flags = (
-            f"-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=2 {log_flags}"
-        )
-        compile_args += [
-            "--build-property", f"compiler.cpp.extra_flags={common_flags}",
-            "--build-property", f"compiler.c.extra_flags={common_flags}",
-        ]
+        common_flags = f"{serial_buffer_flags} {log_flags}"
+    else:
+        common_flags = serial_buffer_flags
+
+    compile_args += [
+        "--build-property", f"compiler.cpp.extra_flags={common_flags}",
+        "--build-property", f"compiler.c.extra_flags={common_flags}",
+    ]
+
     if output_dir is not None:
         output_dir.mkdir(parents=True, exist_ok=True)
         compile_args += ["--output-dir", str(output_dir)]

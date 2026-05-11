@@ -55,10 +55,10 @@
 ; STREAMING PIPELINE
 ; ------------------
 ; 1. C64 calls PROT_NIStream with A=50 (50 fragments × 8 bytes = 400 bytes/block)
-; 2. Arduino enters HandleNonInterruptedStream(): disables all interrupts,
-;    pre-loads two 400-byte SD buffers (double-buffering on Arduino side), then
-;    streams bytes synchronised to IO2 strobes from C64 NMI handlers.
-;    Streaming continues until EOF or an Arduino-side IO2 edge timeout.
+; 2. Arduino enters HandleNonInterruptedStream(), pre-loads the current 400-byte
+;    block, then disables interrupts for the IO2-synchronised byte loop. Between
+;    C64 block requests it briefly re-enables interrupts and refills the same
+;    buffer from SD. Streaming continues until EOF or an IO2 edge timeout.
 ; 3. NMI_000 fires at STARTRASTER=241 (VBlank) and performs a fully unrolled
 ;    400-byte read into $A000-$A18F. Protocol-wise this is still 50 fragments
 ;    of 8 bytes, matching COMMAND_NI_STREAM.
@@ -289,32 +289,7 @@ CVD_DONE
 	ASL $D019
 CVD_DONE_HALT
 	JMP CVD_DONE_HALT
-	
-;TRANSFERROUTINE
-;	LDX #$00
-;-	
-; 	BIT MODULATION_ADDRESS
-;	NOP	
-;	LDA CARTRIDGE_BANK_VALUE
-;	STA $C000,X		
-;	INX
-;	BNE - 
 
-;	TYA
-;	PHA
-;	LDY #$90
-;-		
-; 	BIT MODULATION_ADDRESS
-;	INX
-;	LDA CARTRIDGE_BANK_VALUE
-;	STA $C0FF,X		
-;	DEY
-;	BNE -
-	
-;	PLA
-;	TAY	
-;	RTS	
-	
 SIMPLEHANDLER
 	NOP	
 	NOP

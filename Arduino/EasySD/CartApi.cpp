@@ -43,6 +43,16 @@ static uint16_t ReadAndPadBuffer(File &file, uint8_t *buffer, uint16_t length, u
   return (uint16_t)readCount;
 }
 
+static bool ReadAndPadFinalAware(File &file, uint8_t *buffer, uint16_t length, uint8_t padValue) {
+  const uint16_t readCount = ReadAndPadBuffer(file, buffer, length, padValue);
+
+  // Short reads are padded final blocks. Exact block-size EOF is also final:
+  // without this, an exact 400-byte multiple makes NI wait for one extra C64
+  // IO2 request that the CVD player correctly never sends after its size
+  // counter reaches zero.
+  return readCount < length || file.available() == 0;
+}
+
 static bool OpenMenuFromSdRoot(File &outFile) {
   static const char kName0[] PROGMEM = "easysd.prg";
   static const char kName1[] PROGMEM = "EASYSD.PRG";
@@ -71,7 +81,23 @@ void CartApi::Init() {
   dirFunc.Prepare();
 }
 
+static inline void FlushSerialBeforeProtocolResponse() {
+#if defined(EASYSD_DEBUG_SERIAL) || defined(EASYSD_RELEASE_LOG)
+  // Serial logging is useful only if it does not perturb the IO2 pulse decoder.
+  // Most command handlers log before raising the response byte. If UART TX
+  // interrupts are still draining those logs when the C64 sends the next command,
+  // pulse timing can be mis-measured as a random command byte. Flush only when
+  // global interrupts are enabled; some transfer handlers call HandleResponse()
+  // inside noInterrupts(), where Serial.flush() would wait forever.
+  if (SREG & 0x80) {
+    Serial.flush();
+  }
+#endif
+}
+
 inline void HandleResponse(unsigned char response, uint16_t waitAfterResponse) {
+  FlushSerialBeforeProtocolResponse();
+
   // Two leading SetPage(0) writes ensure the C64 sees a definite low→non-zero
   // edge on CARTRIDGE_BANK_VALUE before the response byte is latched.
   cartInterface.SetPage(0);
@@ -1086,7 +1112,7 @@ void CartApi::HandleNonInterruptedStream() {
       cartInterface.SoftEndListening(); 
       bufferLength = countOf8Bytes * 8;
       LOG_NI_BLOCK_SIZE(bufferLength);
-      bool stopAfterCurrentBuffer = ReadAndPadBuffer(workingFile, sharedBuf.ni, bufferLength, 0x00) < bufferLength;
+      bool stopAfterCurrentBuffer = ReadAndPadFinalAware(workingFile, sharedBuf.ni, bufferLength, 0x00);
       
       TIMSK2 = 0; // Disable timer 2 interrupts (millis etc.) for maximum timing precision
 
@@ -1137,11 +1163,12 @@ void CartApi::HandleNonInterruptedStream() {
         // --- Refill the buffer we just finished sending ---
         // C64 is currently busy processing the 400 bytes we just sent.
         // interrupts() re-enabled here for SD card stability.
-        // EOF check: if read() returns 0 the file is exhausted — exit cleanly.
+        // EOF check: short reads are padded and exact block-size EOF is detected
+        // with available()==0, so no synthetic extra block is requested.
         // The C64 detects end-of-stream via its CVD_SIZE frame counter and will
         // call PROT_StartTalking to re-establish the session after this exit.
         interrupts();
-        stopAfterCurrentBuffer = ReadAndPadBuffer(workingFile, sharedBuf.ni, bufferLength, 0x00) < bufferLength;
+        stopAfterCurrentBuffer = ReadAndPadFinalAware(workingFile, sharedBuf.ni, bufferLength, 0x00);
         noInterrupts();
       } 
 
