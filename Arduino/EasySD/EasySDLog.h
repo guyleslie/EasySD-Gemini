@@ -56,6 +56,9 @@
   #ifndef LOG_ENABLE_RAW
     #define LOG_ENABLE_RAW    0  // raw variable prints bypass categories; opt in only
   #endif
+  #ifndef LOG_ENABLE_NI
+    #define LOG_ENABLE_NI     1  // CVD non-interrupted stream diagnostics
+  #endif
 
   //============================================================================
   // INITIALIZATION
@@ -191,6 +194,21 @@
   #endif
 
   //============================================================================
+  // CVD / non-interrupted stream diagnostics
+  //============================================================================
+  #if LOG_ENABLE_NI
+    #define LOG_NI_START() do { Serial.println(F("[NI  ] start")); } while(0)
+    #define LOG_NI_BLOCK_SIZE(bytes) do { Serial.print(F("[NI  ] block=")); Serial.println(bytes); } while(0)
+    #define LOG_NI_FIRST_TIMEOUT() do { Serial.println(F("[NI  ] first-byte timeout")); } while(0)
+    #define LOG_NI_EXIT(reason) do { Serial.println(F("[NI  ] exit " reason)); } while(0)
+  #else
+    #define LOG_NI_START() ((void)0)
+    #define LOG_NI_BLOCK_SIZE(bytes) ((void)0)
+    #define LOG_NI_FIRST_TIMEOUT() ((void)0)
+    #define LOG_NI_EXIT(reason) ((void)0)
+  #endif
+
+  //============================================================================
   // VARIABLE OUTPUT MACROS
   //============================================================================
   #if LOG_ENABLE_RAW
@@ -254,6 +272,10 @@
   #define LOG_LOAD_READ_NO_FILE() ((void)0)
   #define LOG_LOAD_INFO_NO_FILE() ((void)0)
   #define LOG_LOAD_SD_FAIL() ((void)0)
+  #define LOG_NI_START() ((void)0)
+  #define LOG_NI_BLOCK_SIZE(bytes) ((void)0)
+  #define LOG_NI_FIRST_TIMEOUT() ((void)0)
+  #define LOG_NI_EXIT(reason) ((void)0)
 
   #define LOG_PRINT(x)         ((void)0)
   #define LOG_PRINTLN(x)       ((void)0)
@@ -287,6 +309,10 @@
   #define LOG_LOAD_READ_NO_FILE() ((void)0)
   #define LOG_LOAD_INFO_NO_FILE() ((void)0)
   #define LOG_LOAD_SD_FAIL()    ((void)0)
+  #define LOG_NI_START()        ((void)0)
+  #define LOG_NI_BLOCK_SIZE(bytes) ((void)0)
+  #define LOG_NI_FIRST_TIMEOUT() ((void)0)
+  #define LOG_NI_EXIT(reason)   ((void)0)
   #define LOG_PRINT(x)          ((void)0)
   #define LOG_PRINTLN(x)        ((void)0)
   #define LOG_PRINT_F(msg)      ((void)0)

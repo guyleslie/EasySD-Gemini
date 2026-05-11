@@ -8,7 +8,8 @@ Usage:
     python Tools/cvd_convert.py input.mp4 VIDEO.CVD --threshold 100
     python Tools/cvd_convert.py --info input.mp4
 
-CVD format: flat binary, 4000 bytes/frame (10 blocks x 400 bytes/block).
+CVD format: flat binary, 4000 bytes/logical video frame
+(10 stream blocks x 400 bytes/block).
 See EasySD/Plugins/CvdPlayer/CvdPlayer.s for the full format spec.
 """
 
@@ -27,13 +28,13 @@ BLOCKS_PER_FRAME = 10
 BYTES_PER_BLOCK  = 400
 BYTES_PER_FRAME  = BLOCKS_PER_FRAME * BYTES_PER_BLOCK  # 4000
 
-# Block layout offsets (see TRANSFERDATAINNER macro in FGStuff.s)
-#   Quadrant 0 ($000-$04F): char_row_A, left  20 cols
-#   Quadrant 1 ($050-$09F): char_row_A, right 20 cols
-#   Quadrant 2 ($0A0-$0EF): char_row_B, left  20 cols
-#   Quadrant 3 ($0F0-$13F): char_row_B, right 20 cols
-#   $140-$167: Screen RAM color (both char rows of this pair, same 40 bytes)
-#   $168-$18F: D800 color RAM cache for this line pair
+# Stream block layout offsets (see TRANSFERDATAINNER macro in FGStuff.s)
+#   Quadrant 0 ($000-$04F): first C64 char row, left  20 cells
+#   Quadrant 1 ($050-$09F): first C64 char row, right 20 cells
+#   Quadrant 2 ($0A0-$0EF): second C64 char row, left  20 cells
+#   Quadrant 3 ($0F0-$13F): second C64 char row, right 20 cells
+#   $140-$167: Screen RAM colors for both C64 char rows in this block
+#   $168-$18F: D800 color RAM cache for both C64 char rows in this block
 QUADRANT_OFFSETS = [0x000, 0x050, 0x0A0, 0x0F0]
 SCREEN_OFFSET    = 0x140
 COLOR_OFFSET     = 0x168
@@ -147,29 +148,31 @@ def floyd_steinberg(pixels, threshold):
 
 def encode_block(pixels, y_pair, threshold):
     """
-    Encode one 400-byte CVD block for line pair y_pair (0..9).
+    Encode one 400-byte CVD stream block for row group y_pair (0..9).
 
     pixels: indexed sequence of grayscale values (int 0-255 or float).
-    y_pair: block index within the frame (0 = top, 9 = bottom).
+    y_pair: block index within the logical video frame (0 = top, 9 = bottom).
 
     Block covers y_vid rows [y_pair*8 .. y_pair*8+7], which map to two
-    C64 character rows.  Each block covers 8 "video rows" (each row
-    = 2 duplicated physical scan lines on the C64 bitmap).
+    C64 character rows. Each logical video row becomes two duplicated
+    physical scan lines on the C64 bitmap.
 
     Multicolor pixel encoding:
         white (>= threshold) → 2-bit '01' (screen RAM upper nibble = 1/white)
         black (<  threshold) → 2-bit '00' (background $D021)
 
-    Screen RAM ($140-$167): all 0x11 (color 1/white for both nibble slots)
-    D800 color ($168-$18F): all 0x01 (color 1/white, for '11' bits)
+    Screen RAM ($140-$167): all 0x11 (high and low nibble are color 1).
+    D800 color ($168-$18F): all 0x01. The current monochrome encoder does not
+    emit '10' or '11' bitmap fields, but those per-cell color slots are present
+    in the stream block for a future color encoder.
     """
     block = bytearray(BYTES_PER_BLOCK)
 
-    # Screen RAM: color 1 (white) in both nibbles for every cell
+    # Screen RAM: color 1 (white) in both nibbles for every cell.
     for x in range(40):
         block[SCREEN_OFFSET + x] = 0x11
 
-    # D800 color: color 1 (white) for every cell
+    # D800 color: color 1 (white) for every cell; unused by current 00/01 pixels.
     for x in range(40):
         block[COLOR_OFFSET + x] = 0x01
 

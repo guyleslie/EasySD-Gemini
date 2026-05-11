@@ -1044,6 +1044,13 @@ void CartApi::HandleReadNextChunk() {
 void CartApi::HandleNonInterruptedStream() {
   uint16_t bufferIndex = 0;
   uint16_t bufferLength;
+  enum NiExitReason {
+    NI_EXIT_EOF,
+    NI_EXIT_FIRST_BYTE_TIMEOUT,
+    NI_EXIT_IO2_FALL_TIMEOUT,
+    NI_EXIT_IO2_RISE_TIMEOUT
+  };
+  NiExitReason exitReason = NI_EXIT_EOF;
   // Busy-loop guard while global interrupts are disabled. If IO2 gets stuck
   // high/low (noise or aborted transfer), we must escape instead of wedging.
   // ~8-10 cycles per inner iteration on AVR-GCC at -Os → 0xFFFF iterations
@@ -1058,13 +1065,19 @@ void CartApi::HandleNonInterruptedStream() {
   const uint16_t IO2_EDGE_TIMEOUT_LOOPS = 0xFFFF;
   const uint8_t  IO2_FIRST_BYTE_RETRIES = 6;        // 6 × ~35 ms ≈ 210 ms
   
+  LOG_NI_START();
   GetArgumentsStatic(1);
-  if (!m_argsOk) return;
+  if (!m_argsOk) {
+    LOG_NI_EXIT("args-timeout");
+    return;
+  }
   uint8_t countOf8Bytes = Arguments[0];  
 
-  if (countOf8Bytes > NON_INTERRUPTED_BUFFER_SIZE / 8) {
+  if (countOf8Bytes == 0 || countOf8Bytes > NON_INTERRUPTED_BUFFER_SIZE / 8) {
+    LOG_NI_EXIT("invalid-arg");
     HandleResponse(INVALID_ARGUMENT, 0);
   } else if (!workingFile.isOpen()) {
+    LOG_NI_EXIT("no-file");
     HandleResponse(FILE_IS_NOT_OPENED, 0);
   } else {
       HandleResponse(SUCCESSFUL, 0);
@@ -1072,6 +1085,7 @@ void CartApi::HandleNonInterruptedStream() {
       // Disable receiving interrupt but keep the state of the communication channel on.
       cartInterface.SoftEndListening(); 
       bufferLength = countOf8Bytes * 8;
+      LOG_NI_BLOCK_SIZE(bufferLength);
       bool stopAfterCurrentBuffer = ReadAndPadBuffer(workingFile, sharedBuf.ni, bufferLength, 0x00) < bufferLength;
       
       TIMSK2 = 0; // Disable timer 2 interrupts (millis etc.) for maximum timing precision
@@ -1094,13 +1108,19 @@ void CartApi::HandleNonInterruptedStream() {
 
             while (PIND & 0x08) {
                if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) {
-                 if (--retriesLeft == 0) goto ni_out;
+                 if (--retriesLeft == 0) {
+                   exitReason = firstByte ? NI_EXIT_FIRST_BYTE_TIMEOUT : NI_EXIT_IO2_FALL_TIMEOUT;
+                   goto ni_out;
+                 }
                  waitLoops = 0;
                }
             }
             waitLoops = 0;
             while ((PIND & 0x08) == 0) {
-              if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) goto ni_out;
+              if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) {
+                exitReason = NI_EXIT_IO2_RISE_TIMEOUT;
+                goto ni_out;
+              }
             }  // Wait for rising edge
 
             uint8_t val = sharedBuf.ni[bufferIndex];
@@ -1109,7 +1129,10 @@ void CartApi::HandleNonInterruptedStream() {
             firstByte = false;
         }
 
-        if (stopAfterCurrentBuffer) goto ni_out;
+        if (stopAfterCurrentBuffer) {
+          exitReason = NI_EXIT_EOF;
+          goto ni_out;
+        }
         
         // --- Refill the buffer we just finished sending ---
         // C64 is currently busy processing the 400 bytes we just sent.
@@ -1127,6 +1150,21 @@ ni_out:
       TIMSK2 = 0x02; // Enable timer 2 interrupts
       cartInterface.DisableCartridge(); // Always return to BASIC-safe bus state
       cartInterface.StartListening();
+      switch (exitReason) {
+        case NI_EXIT_EOF:
+          LOG_NI_EXIT("eof");
+          break;
+        case NI_EXIT_FIRST_BYTE_TIMEOUT:
+          LOG_NI_FIRST_TIMEOUT();
+          LOG_NI_EXIT("first-byte-timeout");
+          break;
+        case NI_EXIT_IO2_FALL_TIMEOUT:
+          LOG_NI_EXIT("io2-fall-timeout");
+          break;
+        case NI_EXIT_IO2_RISE_TIMEOUT:
+          LOG_NI_EXIT("io2-rise-timeout");
+          break;
+      }
   }
 }
 

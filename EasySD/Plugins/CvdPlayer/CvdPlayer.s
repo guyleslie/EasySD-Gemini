@@ -5,38 +5,40 @@
 ; CVD FORMAT SPECIFICATION
 ;==============================================================================
 ; CVD is a custom, C64-optimized video format designed for NMI-driven
-; streaming via the EasySD cartridge. Each frame is exactly 400 bytes,
-; consumed as 50 fragments of 8 bytes each via COMMAND_NI_STREAM (26).
+; streaming via the EasySD cartridge. Each stream block is exactly 400 bytes,
+; consumed as 50 fragments of 8 bytes via COMMAND_NI_STREAM (26). One complete
+; logical video frame is 10 stream blocks = 4000 bytes.
 ;
-; FRAME BLOCK LAYOUT (400 bytes, stored at TRANSFERBUFFER = $A000)
+; STREAM BLOCK LAYOUT (400 bytes, stored at TRANSFERBUFFER = $A000)
 ; ----------------------------------------------------------------
-; Offset $000-$04F (80 bytes): Bitmap quadrant 0 (line pairs 0-1)
-; Offset $050-$09F (80 bytes): Bitmap quadrant 1 (line pairs 2-3)
-; Offset $0A0-$0EF (80 bytes): Bitmap quadrant 2 (line pairs 4-5)
-; Offset $0F0-$13F (80 bytes): Bitmap quadrant 3 (line pairs 6-7)
-; Offset $140-$167 (40 bytes): Screen color data for this frame row
-; Offset $168-$18F (40 bytes): D800 color data for the final line pair
+; Offset $000-$04F (80 bytes): Bitmap, first C64 char row, left 20 cells
+; Offset $050-$09F (80 bytes): Bitmap, first C64 char row, right 20 cells
+; Offset $0A0-$0EF (80 bytes): Bitmap, second C64 char row, left 20 cells
+; Offset $0F0-$13F (80 bytes): Bitmap, second C64 char row, right 20 cells
+; Offset $140-$167 (40 bytes): Screen color data for this logical row group
+; Offset $168-$18F (40 bytes): D800 color data for this logical row group
 ;
 ; DISPLAY PARAMETERS
 ; ------------------
 ; Mode    : Multicolor bitmap (VIC-II, PAL)
-; Resolution: 160×80 pixels effective (10 character rows × 40 chars wide)
-;             Each pixel is 2×2 physical pixels; physical size: 320×80.
+; Resolution: 160×80 logical pixels, doubled by the player to 320×160
+;             physical pixels (20 C64 character rows × 40 cells wide).
 ; Position: Starts at PICTUREROW=3 (screen row 3, approx Y=24 on PAL screen)
 ; Frame rate: 5 fps (1 video frame = 10 PAL raster frames = 10 CVD blocks)
-; Throughput: 10 blocks × 400 bytes × 50 Hz = 20 KB/s from SD card
-; Colors per cell (multicolor):
+; Throughput: 5 fps × 10 blocks/frame × 400 bytes = 20 KB/s from SD card
+; Colors per cell (VIC-II multicolor bitmap):
 ;   00 = Background ($D021)
-;   01 = Screen RAM color (from $0400 / $4400)
-;   10 = Color RAM ($D800)
-;   11 = Border color ($D020)
+;   01 = Screen RAM high nibble ($0400/$4400)
+;   10 = Screen RAM low nibble ($0400/$4400)
+;   11 = Color RAM low nibble ($D800-$DBE7)
 ;
 ; VIDEO FRAME ASSEMBLY (10 consecutive CVD blocks = 1 complete video frame)
-; Each CVD block updates exactly ONE character row (8 scan lines, 40 cells):
-;   Block 0 → character row 0 (scan lines 0-7)
-;   Block 1 → character row 1 (scan lines 8-15)
+; Each CVD block updates one logical 160×8 row group and maps it to two
+; physical C64 character rows by duplicating each bitmap byte vertically:
+;   Block 0 → logical rows 0-7,   C64 character rows 0-1
+;   Block 1 → logical rows 8-15,  C64 character rows 2-3
 ;   ...
-;   Block 9 → character row 9 (scan lines 72-79)
+;   Block 9 → logical rows 72-79, C64 character rows 18-19
 ; Blocks 0-9 fill bank B0, blocks 10-19 fill bank B1 (double-buffering).
 ; One bank displays while the other receives and decodes. No screen tearing
 ; because the NMI fires at STARTRASTER=241 (VBlank / vertical blanking period).
@@ -57,14 +59,14 @@
 ;    pre-loads two 400-byte SD buffers (double-buffering on Arduino side), then
 ;    streams bytes synchronised to IO2 strobes from C64 NMI handlers.
 ;    Streaming continues until EOF or an Arduino-side IO2 edge timeout.
-; 3. NMI handlers (NMI_000..NMI_031 in NMI.s) fire at STARTRASTER=241 (VBlank),
-;    each receiving 8 bytes via READCART_MODULATED into $A000+.
-;    32 handlers × 8 bytes = 256 bytes, remaining 144 bytes from a second pass.
+; 3. NMI_000 fires at STARTRASTER=241 (VBlank) and performs a fully unrolled
+;    400-byte read into $A000-$A18F. Protocol-wise this is still 50 fragments
+;    of 8 bytes, matching COMMAND_NI_STREAM.
 ; 4. Foreground (FGStuff.s) decompresses the 400-byte block:
 ;    copies the 4 bitmap quadrants to the inactive bank, writes screen color
 ;    data, and accumulates D800 colors in COLORBUFFER for all 10 rows.
 ; 5. Playback stops when the CVD file is exhausted; Arduino exits the NI stream,
-;    then the plugin closes the file/session and returns to the menu.
+;    then the plugin closes the file/session and remains in a stable halt state.
 ;
 ; VIDEO FILE: path provided by the EasySD menu via FILE_PATH_BUF (null-terminated).
 ;   The user selects any .CVD file from the menu and presses Enter.
@@ -83,6 +85,7 @@ PICTUREROW = 3
 
 TRANSFERBUFFER = $A000
 FILEINFOBUFFER = TRANSFERBUFFER
+COLORBUFFER = $4000
 
 DELAYFRAMES	.macro
 	LDX #\1
@@ -93,7 +96,7 @@ DELAYFRAMES	.macro
 .include "../../Loader/APIMacros.s"
 
 ; 4-byte ZP counter: remaining bytes in CVD file.
-; Decremented by 400 each block; underflow triggers clean exit.
+; Decremented by 400 each block; underflow or exact zero triggers clean exit.
 ; Uses $8B-$8E (free per CartZpMap.inc).
 CVD_SIZE = $8B
 
@@ -220,16 +223,12 @@ EXIT
 	;
 	;
 	
-	;At this point Raster moved to $20 or so and this foreground task has time to do something for the
-	;last transferred 400 byte at $C000
-	;The format of this data is
-	;160x8 multicolor bitmap data = 320 bytes 
-	;40 bytes screen color data
-	;40 bytes d800 colors
-	;bitmap data will be copied to current bank at current location
-	;screen color data will be copied to screen memory to current bank at current location
-	;D800 colors will be cached in a buffer for the initial 9 transfers. On last transfer cache will be copied to $d800 along with the 40 byte of the 
-	;10th transfer
+	; At this point raster is near $20 and the foreground task decodes the
+	; last transferred 400-byte block from TRANSFERBUFFER ($A000):
+	; 320 bytes bitmap, 40 bytes screen RAM colors, 40 bytes D800 colors.
+	; Bitmap and screen bytes are copied to the inactive display bank. D800
+	; colors are cached for the first 9 row groups, then COPYCOLOR writes the
+	; cached rows plus the 10th row group to color RAM at the bank flip.
 	
 	;At this point both X and Y registers are free and unused by both NMI and IRQ handlers.
 	;We have around 12000 cycles to complete our job.
@@ -257,6 +256,11 @@ OUTCOPY
 	SBC #0
 	STA CVD_SIZE+3
 	BCC CVD_DONE
+	LDA CVD_SIZE+0
+	ORA CVD_SIZE+1
+	ORA CVD_SIZE+2
+	ORA CVD_SIZE+3
+	BEQ CVD_DONE
 	INY
 	CPY #20
 	BNE +
@@ -272,12 +276,19 @@ CVD_DONE
 	SEI
 	LDA #$00
 	STA $D01A       ; Disable raster IRQ
+	ASL $D019       ; Acknowledge any pending raster IRQ
+	LDA #$37
+	STA $01
 	DELAYFRAMES 5
 	JSR PROT_StartTalking
 	JSR PROT_CloseFile
 	JSR PROT_EndTalking
-	JSR PROT_ExitToMenu
-	RTS
+	SEI
+	LDA #$00
+	STA $D01A
+	ASL $D019
+CVD_DONE_HALT
+	JMP CVD_DONE_HALT
 	
 ;TRANSFERROUTINE
 ;	LDX #$00
@@ -376,9 +387,20 @@ ERROR_OPENING_FILE
 	; PROT_StartTalking was called before PROT_OpenFile, so EndTalking is required.
 	JSR PROT_EndTalking
 	JSR PROT_ExitToMenu
+ERROR_OPENING_FILE_HALT
+	JMP ERROR_OPENING_FILE_HALT
 	
+.include "../../Loader/CartLibStream.s"
 
-	
+VIDEO_B0 = PICTURE_LO
+
+VIDEO_B1 = PICTURE_HI
+
+CVD_LOW_CODE_END
+ENDOFEXECUTABLE
+
+ * = $4800
+CVD_COLORCOPY_START
 COPYCOLOR
 .for line = 0,line<9,line=line+1
 	.for src = 0, src<40, src = src + 1
@@ -396,26 +418,29 @@ COPYCOLOR
 	.next
 .next
 
-	RTS	
-	
-.include "../../Loader/CartLibStream.s"
+	RTS
 
-VIDEO_B0 = PICTURE_LO 
+CVD_COLORCOPY_END
 
-VIDEO_B1 = PICTURE_HI 
-   
-ENDOFEXECUTABLE
+ * = $C000
+.include "Common.s"
+
+.include "NMI.s"
 
 ; Local copy of the media file path recovered from FILE_PATH_SHADOW ($FF00).
 MEDIAPATH_BUF
 	.FILL FILE_PATH_SHADOW_MAX, 0
 
-COLORBUFFER	= $4000
+CVD_HELPER_END
 
-.include "Common.s"
+.if CVD_LOW_CODE_END > $2000
+	.error "CVD low code overlaps bitmap buffer 0"
+.endif
 
+.if CVD_HELPER_END > $D000
+	.error "CVD helper segment exceeds $C000-$CFFF"
+.endif
 
-; * = $C1A0
- * = $C000
-.include "NMI.s"	  
-	RTS
+.if CVD_COLORCOPY_START < $4800 || CVD_COLORCOPY_END > $6000
+	.error "CVD color-copy segment exceeds $4800-$5FFF"
+.endif

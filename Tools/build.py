@@ -493,6 +493,19 @@ def parse_64tass_int(value: str) -> int:
     return int(value, 0)
 
 
+def read_64tass_labels(label_file: Path) -> dict[str, int]:
+    if not label_file.exists():
+        raise SystemExit(f"ERROR: Missing labels file: {label_file}")
+
+    symbols: dict[str, int] = {}
+    pattern = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^\s;]+)")
+    for line in label_file.read_text(encoding="utf-8", errors="ignore").splitlines():
+        m = pattern.match(line.strip())
+        if m:
+            symbols[m.group(1)] = parse_64tass_int(m.group(2))
+    return symbols
+
+
 def read_irq_loader_placeholder_positions(label_file: Path) -> list[int]:
     """
     Read IRQLoader PLACEHOLDER offsets from the 64tass labels file.
@@ -502,15 +515,7 @@ def read_irq_loader_placeholder_positions(label_file: Path) -> list[int]:
     Keeping this derived from labels prevents stale EPROM patch offsets after
     small loader layout changes.
     """
-    if not label_file.exists():
-        raise SystemExit(f"ERROR: Missing IRQLoader labels file: {label_file}")
-
-    symbols: dict[str, int] = {}
-    pattern = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*([^\s;]+)")
-    for line in label_file.read_text(encoding="utf-8", errors="ignore").splitlines():
-        m = pattern.match(line.strip())
-        if m:
-            symbols[m.group(1)] = parse_64tass_int(m.group(2))
+    symbols = read_64tass_labels(label_file)
 
     names = [f"PLACEHOLDER{i}" for i in range(1, 13)]
     missing = [name for name in names if name not in symbols]
@@ -527,6 +532,82 @@ def read_irq_loader_placeholder_positions(label_file: Path) -> list[int]:
         )
 
     return positions
+
+
+def validate_cvd_memory_layout(label_file: Path) -> None:
+    symbols = read_64tass_labels(label_file)
+
+    expected = {
+        "PICTURE_LO": 0x2000,
+        "VIDEO_B0": 0x2000,
+        "PICTURE_HI": 0x6000,
+        "VIDEO_B1": 0x6000,
+        "COLORBUFFER": 0x4000,
+        "SCREEN_HI": 0x4400,
+        "CVD_COLORCOPY_START": 0x4800,
+        "TRANSFERBUFFER": 0xA000,
+        "FILEINFOBUFFER": 0xA000,
+    }
+    missing_expected = [name for name in expected if name not in symbols]
+    if missing_expected:
+        raise SystemExit(
+            f"ERROR: CVD layout guard missing symbols in {label_file}: {', '.join(missing_expected)}"
+        )
+
+    wrong = [
+        f"{name}=${symbols[name]:04X} expected ${addr:04X}"
+        for name, addr in expected.items()
+        if symbols[name] != addr
+    ]
+    if wrong:
+        raise SystemExit("ERROR: CVD fixed memory layout changed: " + "; ".join(wrong))
+
+    critical = [
+        "INIT", "ENABLEDISPLAY", "INIT_GFX_MEM", "SET_LO_COLOR", "SET_HI_COLOR",
+        "SETMULTICOLOR", "COPYCOLOR", "MEDIAPATH_BUF", "ENDOFEXECUTABLE",
+        "CVD_LOW_CODE_END", "CVD_HELPER_END", "SIMPLEHANDLER", "WAITFRAMES",
+        "PREPAREJMPTAB", "OUTCOPY", "ERROR_OPENING_FILE", "CVD_DONE",
+        "NMI_000", "PROT_StartTalking", "PROT_EndTalking", "PROT_SetNameZ",
+        "PROT_OpenFile", "PROT_CloseFile", "PROT_GetInfoForFile",
+        "PROT_NIStream", "PROT_ExitToMenu",
+    ]
+    missing_critical = [name for name in critical if name not in symbols]
+    if missing_critical:
+        raise SystemExit(
+            f"ERROR: CVD layout guard missing critical symbols in {label_file}: {', '.join(missing_critical)}"
+        )
+
+    layout_markers = ["CVD_COLORCOPY_END"]
+    missing_markers = [name for name in layout_markers if name not in symbols]
+    if missing_markers:
+        raise SystemExit(
+            f"ERROR: CVD layout guard missing segment markers in {label_file}: {', '.join(missing_markers)}"
+        )
+
+    forbidden_ranges = [
+        (0x2000, 0x3FFF, "bitmap buffer 0"),
+        (0x6000, 0x7FFF, "bitmap buffer 1"),
+    ]
+    violations: list[str] = []
+    for name in critical:
+        addr = symbols[name]
+        for start, end, label in forbidden_ranges:
+            if start <= addr <= end:
+                violations.append(f"{name}=${addr:04X} in {label}")
+
+    if symbols["CVD_LOW_CODE_END"] > 0x2000:
+        violations.append(f"CVD_LOW_CODE_END=${symbols['CVD_LOW_CODE_END']:04X} exceeds $2000")
+    if symbols["CVD_HELPER_END"] > 0xD000:
+        violations.append(f"CVD_HELPER_END=${symbols['CVD_HELPER_END']:04X} exceeds $C000-$CFFF")
+    if not (0x4800 <= symbols["COPYCOLOR"] < 0x6000):
+        violations.append(f"COPYCOLOR=${symbols['COPYCOLOR']:04X} outside $4800-$5FFF")
+    if symbols["CVD_COLORCOPY_END"] > 0x6000:
+        violations.append(f"CVD_COLORCOPY_END=${symbols['CVD_COLORCOPY_END']:04X} exceeds $4800-$5FFF")
+
+    if violations:
+        raise SystemExit("ERROR: CVD memory layout guard failed: " + "; ".join(violations))
+
+    print("[CVD] Memory layout guard OK")
 
 
 
@@ -761,6 +842,8 @@ def build_plugins(ctx: Context, *, ensure_core_prereq: bool = True) -> None:
             ],
             cwd=ctx.irq_root
         )
+        if out_base == "cvdplugin":
+            validate_cvd_memory_layout(labels)
 
     print("[PLUGINS] OK")
 
@@ -864,6 +947,7 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
         #   SD=1    SD card errors (SD FAIL, SD recover FAIL)
         #   DIR=1   directory navigation issues
         #   FILE=1  per-file open/close ([INFO][FILE] File opened / closed / open failed)
+        #   NI=1    CVD NI stream start/block/exit diagnostics
         #   RAW=1   numeric variable prints (cmd byte values, sizes, etc.)
         #   PRG=0   PRG-loader internal traces (verbose; not needed for KOA debugging)
         #   PROTO=0 reserved category, no log calls in code
@@ -871,7 +955,7 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
         log_flags = (
             "-DLOG_ENABLE_LOAD=1 -DLOG_ENABLE_SYS=1 -DLOG_ENABLE_SD=1 "
             "-DLOG_ENABLE_DIR=1 -DLOG_ENABLE_FILE=1 -DLOG_ENABLE_RAW=1 "
-            "-DLOG_ENABLE_PRG=0 -DLOG_ENABLE_PROTO=0"
+            "-DLOG_ENABLE_NI=1 -DLOG_ENABLE_PRG=0 -DLOG_ENABLE_PROTO=0"
         )
         common_flags = (
             f"-DSERIAL_TX_BUFFER_SIZE=16 -DSERIAL_RX_BUFFER_SIZE=2 {log_flags}"
