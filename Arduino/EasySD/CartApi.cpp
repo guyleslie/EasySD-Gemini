@@ -1106,13 +1106,21 @@ void CartApi::HandleNonInterruptedStream() {
     LOG_NI_EXIT("no-file");
     HandleResponse(FILE_IS_NOT_OPENED, 0);
   } else {
-      HandleResponse(SUCCESSFUL, 0);
+      // Clear the previous command's response immediately. The C64 side is now
+      // in PROT_WaitProcessing and must keep polling zero until the first NI
+      // block is loaded and the AVR is about to arm the IO2 loop.
+      cartInterface.SetPage(0);
+      cartInterface.SetPage(0);
 
       // Disable receiving interrupt but keep the state of the communication channel on.
-      cartInterface.SoftEndListening(); 
+      cartInterface.SoftEndListening();
       bufferLength = countOf8Bytes * 8;
       LOG_NI_BLOCK_SIZE(bufferLength);
       bool stopAfterCurrentBuffer = ReadAndPadFinalAware(workingFile, sharedBuf.ni, bufferLength, 0x00);
+
+      // Only now report success: the first block is resident in SRAM, so the
+      // response means the NI stream can actually be started.
+      HandleResponse(SUCCESSFUL, 0);
       
       TIMSK2 = 0; // Disable timer 2 interrupts (millis etc.) for maximum timing precision
 
@@ -1129,6 +1137,9 @@ void CartApi::HandleNonInterruptedStream() {
             // First byte gets IO2_FIRST_BYTE_RETRIES extra timeout windows to
             // absorb the C64's IRQ-setup gap; subsequent bytes use the
             // single-window cap (matches the original timing budget).
+            const uint8_t val = sharedBuf.ni[bufferIndex];
+            const uint8_t outD = portDVal | (val & 0xF0);
+            const uint8_t outC = portCVal | (val & 0x0F);
             uint8_t retriesLeft = firstByte ? IO2_FIRST_BYTE_RETRIES : 1;
             uint16_t waitLoops = 0;
 
@@ -1141,6 +1152,7 @@ void CartApi::HandleNonInterruptedStream() {
                  waitLoops = 0;
                }
             }
+
             waitLoops = 0;
             while ((PIND & 0x08) == 0) {
               if (++waitLoops == IO2_EDGE_TIMEOUT_LOOPS) {
@@ -1149,9 +1161,13 @@ void CartApi::HandleNonInterruptedStream() {
               }
             }  // Wait for rising edge
 
-            uint8_t val = sharedBuf.ni[bufferIndex];
-            PORTD = portDVal | (val & 0xF0);
-            PORTC = portCVal | (val & 0x0F);
+            // Match the original IRQHack64 NI-stream handshake: the $DF00
+            // read is only the trigger; the C64 fetches the actual byte from
+            // ROML (CARTRIDGE_BANK_VALUE, $80AB on old ROMs) immediately
+            // afterwards. Precompute above, then
+            // latch the byte as soon as /IO2 returns high.
+            PORTD = outD;
+            PORTC = outC;
             firstByte = false;
         }
 
@@ -1650,5 +1666,4 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
 void CartApi::ResetNoCartridge() {
   cartInterface.ReleaseToBasic(true);
 }
-
 

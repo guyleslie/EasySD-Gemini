@@ -245,6 +245,17 @@ STA \1                    ; store to video buffer (3–6 cycles)
 ; total: ~11–14 cycles per byte
 ```
 
+For this tight path the Arduino NI loop precomputes the outgoing PORTD/PORTC
+values while waiting for /IO2, then latches them immediately after /IO2 returns
+high. This matches the official IRQHack64 NI-stream handshake: `$DF00` is the
+trigger, and the following `$80AB` read retrieves the byte from ROML.
+
+The AVR clears `CARTRIDGE_BANK_VALUE` before the first SD preload and raises
+`SUCCESSFUL` only after the first 400-byte block is resident in SRAM. The C64
+therefore waits in `PROT_WaitProcessing` until the NI stream is actually ready;
+the post-`PROT_NIStream` two-frame delay is retained to match the original
+BurstLoader startup cadence and provide deterministic raster setup margin.
+
 ### Raster synchronisation
 
 ```

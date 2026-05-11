@@ -252,7 +252,7 @@ This is passive termination — no explicit end-of-stream command.
 | Property | Value |
 |----------|-------|
 | Data path | Arduino SetPage() → D4–D7/A0–A3 → C64 data bus → $DE00 |
-| Trigger | C64 reads $DF00, /IO2 FALLING edge → Arduino INT0 ISR |
+| Trigger | C64 reads $DF00, /IO2 FALLING edge -> Arduino INT1 ISR (D3) |
 | Interrupt state on C64 | SEI — interrupts disabled throughout |
 | Loop overhead | ~73 cycles/byte (PAL, no page crossing) |
 | Transfer rate | ~13.5 KB/s @ PAL 0.985 MHz |
@@ -273,9 +273,10 @@ LDA CARTRIDGE_BANK_VALUE    ; LDA $80AB — reads byte from ROML latch
 STA $aXXX                   ; store to video buffer
 ```
 
-The Arduino ISR fires on the $DF00 read and prepares the next byte in the
-ROML latch; the subsequent $80AB read retrieves it. This is used 400 times
-per frame in the CVD video decoder.
+The Arduino NI foreground loop detects the $DF00 /IO2 pulse, waits until /IO2
+returns high, then latches the next byte in the ROML page/address latch. The
+subsequent $80AB read retrieves that byte. This is used 400 times per frame in
+the CVD video decoder.
 
 ---
 
@@ -287,8 +288,8 @@ When the C64 reads from an address, valid data must be on the bus within
 **~775 ns** of address assertion (6502 access time requirement: tACC ≤ 150 ns
 for ROM, data setup tDSU = 100 ns before Φ2 falling edge).
 
-For the streaming protocol, the Arduino ISR fires on the /IO2 FALLING edge
-and calls `SetPage()` to drive the byte onto the data bus (D4–D7, A0–A3).
+For the streaming protocol, the Arduino INT1 ISR fires on the /IO2 FALLING
+edge and calls `SetPage()` to drive the byte onto the data bus (D4-D7, A0-A3).
 The C64 reads it with the next `LDA $DE00` instruction (~4 µs later at PAL).
 This gives the Arduino adequate time.
 
@@ -296,7 +297,7 @@ This gives the Arduino adequate time.
 
 | Parameter | Value |
 |-----------|-------|
-| ATmega328P INT0 minimum (theory) | 4 cycles = 0.25 µs @ 16 MHz |
+| ATmega328P INT1 minimum (theory) | 4 cycles = 0.25 µs @ 16 MHz |
 | Measured latency (Nano, real hardware) | ~3.5 µs |
 | C64 window between LDA $DF00 and LDA $DE00 | ~4 µs (PAL) |
 
