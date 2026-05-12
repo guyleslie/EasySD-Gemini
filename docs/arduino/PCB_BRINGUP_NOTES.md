@@ -286,8 +286,8 @@ Comparing the codebase against the original IRQHack64 firmware
 
 1. EasySD held C64 `/RESET` LOW for 470–1000 ms during AVR init; IRQHack64
    never holds `/RESET` LOW.
-2. EasySD wires PHI2 to A4 and reads it for bus-change synchronization;
-   IRQHack64 does not wire PHI2 at all.
+2. EasySD wires PHI2 to A4, but runtime firmware no longer waits on it for
+   bus-change synchronization by default; IRQHack64 does not wire PHI2 at all.
 3. EasySD tristates the data bus when the cartridge is "disabled";
    IRQHack64 keeps the data bus driven (relies on EXROM HIGH to hide it).
 

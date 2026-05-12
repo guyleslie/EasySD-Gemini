@@ -18,7 +18,7 @@ They share hardware signals but operate independently depending on context.
 | MENU button | Local to PCB | Tact switch | A6 (analog input) | Detects short/long MENU button press |
 | /RESET | Arduino → C64 | Expansion pin 30 | D9 (output) | Triggers C64 reset |
 | IRQ    | — | — | A5 (input, future use) | C64 /IRQ line — not yet read in firmware |
-| PHI2   | C64 → Arduino | Expansion clock | A4 (input) | C64 system clock — used to synchronize cartridge visibility and bus-drive changes |
+| PHI2   | C64 -> Arduino | Expansion clock | A4 (input) | Optional diagnostic/experimental input; not used by default for runtime bus or stream timing |
 
 ### Clock Frequencies
 

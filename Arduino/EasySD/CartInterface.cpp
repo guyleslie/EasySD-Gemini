@@ -24,6 +24,11 @@ static unsigned long lastStaleIdentLogMs = 0;
 
 namespace {
 
+#ifndef EASYSD_USE_PHI2_BUS_SYNC
+#define EASYSD_USE_PHI2_BUS_SYNC 0
+#endif
+
+#if EASYSD_USE_PHI2_BUS_SYNC
 constexpr unsigned long PHI2_SYNC_TIMEOUT_US = 2000UL;
 
 inline bool phi2ReadFast() {
@@ -62,8 +67,10 @@ bool waitForStablePhi2Edges(uint16_t minEdges, unsigned long timeoutMs) {
 
   return false;
 }
+#endif
 
 void syncBusChangeToPhi2Low() {
+#if EASYSD_USE_PHI2_BUS_SYNC
   // Cartridge visibility and bus-driving changes should happen while PHI2 is low,
   // i.e. outside the CPU-owned half-cycle, to avoid mid-read mapping glitches.
   if (phi2ReadFast()) {
@@ -73,6 +80,12 @@ void syncBusChangeToPhi2Low() {
   }
 
   delayMicroseconds(1);
+#else
+  // Current EasySD hardware routes C64 PHI2 directly to AVR A4 without signal
+  // conditioning. Do not let that unqualified clock input gate EXROM/data-bus
+  // changes on real hardware; the original IRQHack64 path also does not use it.
+  delayMicroseconds(1);
+#endif
 }
 
 void tristateDataBus() {
@@ -317,7 +330,13 @@ void CartInterface::SoftEndListening() {
 }
 
 bool CartInterface::WaitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs) {
+#if EASYSD_USE_PHI2_BUS_SYNC
   return waitForStablePhi2Edges(minEdges, timeoutMs);
+#else
+  (void)minEdges;
+  (void)timeoutMs;
+  return true;
+#endif
 }
 
 void CartInterface::Init() {

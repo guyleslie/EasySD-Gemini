@@ -1506,9 +1506,9 @@ void CartApi::TransferMenu() {
   // The file is no longer needed — the menu PRG is now in C64 RAM.
   if (readFromFile && workingFile) workingFile.close();
 
-  // Wait until the reset/menu boot sequence has produced a stable PHI2 clock
-  // again before accepting a fresh IO2 protocol session from the C64.
-  cartInterface.WaitForStablePhi2(32, 250);
+  // Do not gate listener startup on PHI2. On current hardware PHI2 is a direct,
+  // unconditioned clock input; waiting on it here can miss the launched
+  // program's first IO2 handshake.
   delay(20);
   cartInterface.StartListening();
 }
@@ -1666,4 +1666,3 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
 void CartApi::ResetNoCartridge() {
   cartInterface.ReleaseToBasic(true);
 }
-
