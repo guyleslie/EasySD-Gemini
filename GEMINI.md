@@ -162,7 +162,7 @@ f.close();
 // SD recovery (after any SD error)
 dirFunc.CloseDirHandle();
 delay(50);
-sd.begin(chipSelect, SPI_HALF_SPEED);
+sd.begin(chipSelect, SPI_FULL_SPEED);
 dirFunc.ForceReset();
 ```
 
@@ -189,7 +189,7 @@ if (dirFunc.FindFileSFN(name, strlen(name),
 entries correctly) and call `getSFN()` on the matching entry. Names that
 are already 8.3 (`ELITE.KOA`) round-trip identically.
 
-**SPI speed**: `SPI_HALF_SPEED` (8 MHz) — stable on breadboard (8/8 tests) and PCB v3. `SPI_QUARTER_SPEED` not needed.
+**SPI speed**: `SPI_FULL_SPEED` for SD init and recovery. No reduced SPI speed profile is used.
 
 ### SD Error Codes
 - `0x0D` = WRITE_DATA (card rejected write data — SPI noise)

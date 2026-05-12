@@ -82,4 +82,4 @@ The 32-byte buffer is conservative but safe. SdFat internally buffers to 512-byt
 - **SD write current:** 100–200mA peak (flash programming)
 - **Decoupling:** 10–100µF electrolytic + 100nF ceramic at SD module VCC/GND
 - **Without capacitor:** write timeouts (0x21), data rejected (0x0D)
-- **SPI:** `SPI_HALF_SPEED` (8 MHz), keep wires under 5cm
+- **SPI:** `SPI_FULL_SPEED`, keep wires under 5cm

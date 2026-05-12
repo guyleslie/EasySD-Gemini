@@ -1424,6 +1424,7 @@ void CartApi::TransferMenu() {
     workingFile.close();
   }
   dirFunc.ReInit();
+  dirFunc.Prepare();
   
   unsigned char readFromFile = 0;
   LOG_PRINT_F("Menu RAM="); LOG_PRINTLN(FreeStack());
@@ -1434,20 +1435,10 @@ void CartApi::TransferMenu() {
   //int menu_data_length = (readFromFile? workingFile.size() : data_len) ;
   int menu_data_length = (readFromFile? workingFile.size() : data_len) ;
 
-  // Phase 1: EXROM LOW only — data bus stays tristate so the cartridge ROML
-  // chip (AT28C64B / M27C64A) can present CBM80 ($8004-$8008) undisturbed.
-  // ATmega output sinks 40 mA vs chip source 4 mA, so any non-tristate Arduino
-  // output overrides the chip and the CBM80 check fails even with it installed.
-  cartInterface.EnableExromOnly();
-  // ResetC64() = ResetLow(1ms) + ResetHigh(). The C64 was running BASIC (cold
-  // boot default or long-press reset) or the menu/loaded program (subsequent calls).
-  // /RESET HIGH → C64 starts → ROML chip presents CBM80 → NMI vector installed.
+  cartInterface.EnableCartridge();
   cartInterface.ResetC64();
 
-  delay(300);  // CBM80 window: cartridge ROML chip drives bus, sets $0318 NMI vector
-
-  // Phase 2: data bus OUTPUT — safe now, NMI handler is already installed
-  cartInterface.EnableDataBus();
+  delay(300);
 
   unsigned char low;
   unsigned char high;
@@ -1501,16 +1492,9 @@ void CartApi::TransferMenu() {
 
   delayMicroseconds(30);
   cartInterface.DisableCartridge();
-
-  // Close the menu source file: keeps SdFat state clean.
-  // The file is no longer needed — the menu PRG is now in C64 RAM.
-  if (readFromFile && workingFile) workingFile.close();
-
-  // Do not gate listener startup on PHI2. On current hardware PHI2 is a direct,
-  // unconditioned clock input; waiting on it here can miss the launched
-  // program's first IO2 handshake.
-  delay(20);
   cartInterface.StartListening();
+
+  if (readFromFile && workingFile) workingFile.close();
 }
 
 
@@ -1664,5 +1648,6 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
 }
 
 void CartApi::ResetNoCartridge() {
-  cartInterface.ReleaseToBasic(true);
+  cartInterface.DisableCartridge();
+  cartInterface.ResetC64();
 }

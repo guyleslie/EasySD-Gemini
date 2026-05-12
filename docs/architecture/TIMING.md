@@ -14,7 +14,7 @@ locations in the code, and what to check when something breaks.
 | Streaming audio glitches / dropouts | `CartApi.cpp` — `DoubleBufferedStreaming()` | ISR timing, buffer size |
 | CVD video tears / sync loss | `CvdPlayer/CvdPlayer.s` | `STARTRASTER = 241` |
 | Hang after file operation | `CartLib.s` — `TransferHandler` / `WAITFOR` | Page counter X, ZP_IRQ_STATE_WAITHANDLE |
-| SD card errors during transfer | `EasySD.ino` — `SPI_HALF_SPEED` | SPI clock rate |
+| SD card errors during transfer | `EasySD.ino` — `SPI_FULL_SPEED` | SPI clock rate |
 
 ---
 
@@ -306,7 +306,7 @@ WAITVALUE .macro
 
 ## 6. SPI / SD card
 
-SdFat is initialised at `SPI_HALF_SPEED` (8 MHz). Tested stable on breadboard (8/8 tests pass). `SPI_QUARTER_SPEED` is no longer needed.
+SdFat is initialised at `SPI_FULL_SPEED`. No reduced SPI speed profile is used.
 
 ---
 

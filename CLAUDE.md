@@ -135,7 +135,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **Limit local arrays to 32-64 bytes** to avoid stack overflow.
 - **Monitor memory with `FreeStack()`** — aim for 300+ bytes free minimum.
 - **SdFat 2.3.0 bundled** in `Arduino/libraries/SdFat`; `arduino-cli compile` is pinned to it via `--libraries Arduino/libraries`. Do **not** rely on whatever sits in the user's sketchbook. Use `File` type (not deprecated `SdFile`), 1-parameter `openNext()`.
-- **SPI speed:** Use `SPI_HALF_SPEED` (8 MHz) — tested stable on breadboard (8/8 tests pass). `SPI_QUARTER_SPEED` is no longer needed.
+- **SPI speed:** Use `SPI_FULL_SPEED` for SD init and recovery. No reduced SPI speed profile is used.
 - **Directory navigation must use relative paths from root:** `sd.chdir()` then `sd.chdir("DIRNAME")` — absolute paths fail on nested paths. `GoBack()` uses `sd.chdir("..")`, never an absolute path.
 - **LFN → SFN resolution before every `sd.open` / `sd.chdir` / `sd.remove` / `sd.rmdir`:** SdFat 2.x intermittently fails to open/chdir long file names with spaces or lowercase even when the entry exists; resolve the basename to its 8.3 SFN first via `dirFunc.FindFileSFN()` / `dirFunc.FindDirSFN()` (these iterate with `openNext()` + `getSFN()`). `ChangeDirectory()` already does this fallback internally on chdir failure. The SFN form (e.g. `PICBRA~1.KOA`, `KOALAP~1`) is the canonical input to all `sd.*` calls.
 - **SD error recovery:** After any SD error, call `recoverSD()` to reinitialize the card and resync `dirFunc`. Critical for C64 service reliability.

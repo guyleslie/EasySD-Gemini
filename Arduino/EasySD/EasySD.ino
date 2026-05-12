@@ -77,7 +77,7 @@ bool initSD() {
   const uint16_t SD_RETRY_DELAY_MS = 200;
 
   for (uint8_t retry = 0; retry < SD_RETRY_COUNT; retry++) {
-    if (sd.begin(chipSelect, SPI_HALF_SPEED)) {
+    if (sd.begin(chipSelect, SPI_FULL_SPEED)) {
       delay(50);  // Let card stabilize after init
       return true;
     }
@@ -112,10 +112,10 @@ static bool ensureRuntimeReady() {
 bool recoverSD() {
   dirFunc.CloseDirHandle();
   delay(50);
-  if (!sd.begin(chipSelect, SPI_HALF_SPEED)) {
+  if (!sd.begin(chipSelect, SPI_FULL_SPEED)) {
     // Retry after longer delay
     delay(200);
-    if (!sd.begin(chipSelect, SPI_HALF_SPEED)) {
+    if (!sd.begin(chipSelect, SPI_FULL_SPEED)) {
       LOGE(SD, "SD recover FAIL");
       return false;
     }
@@ -132,8 +132,8 @@ void printSDStatus(bool sdInitSuccess) {
 }
 
 void setup() {
-  // IOSetup leaves /RESET HIGH (released) and EXROM HIGH (cartridge hidden).
-  // The C64 boots to BASIC from its own RC reset while AVR initializes SD.
+  // IRQHack64-style boot: configure the cartridge interface immediately, leave
+  // /RESET released, and let the C64 boot while the AVR initializes SD.
   cartInterface.Init();
 
   LOG_BEGIN(57600);
@@ -142,10 +142,6 @@ void setup() {
   pinMode(chipSelect, OUTPUT);
   digitalWrite(chipSelect, HIGH);
   SPI.begin();
-
-  // IO2 receive not armed during cold boot — listening starts after TransferMenu()
-  // which is only called on explicit SEL button press, not at boot.
-  cartInterface.ResetReceive();
 
   // SD Physical Layer spec section 6.4.1: cards need up to 300ms after power-up
   // before accepting SPI commands. C64 boots to BASIC in parallel during this wait.

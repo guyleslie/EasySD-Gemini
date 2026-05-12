@@ -163,7 +163,7 @@ Closes `m_dirFile` if open. Must be called before `sd.begin()` during SD error r
 ```cpp
 dirFunc.CloseDirHandle();
 delay(50);
-sd.begin(chipSelect, SPI_HALF_SPEED);
+sd.begin(chipSelect, SPI_FULL_SPEED);
 dirFunc.ForceReset();
 ```
 

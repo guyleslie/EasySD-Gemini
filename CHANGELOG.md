@@ -506,7 +506,7 @@ Fixed critical bugs in SD write/delete handlers, added on-device self-test suite
 - Debug log format: `"Got HandleXxx"` → `"[TAG] Cmd"` (-180 bytes)
 
 **SPI Reliability:**
-- `SPI_HALF_SPEED` (8 MHz) — tested stable on breadboard (8/8 pass)
+- `SPI_FULL_SPEED` — current default for SD init/recovery
 - `delay(50)` after SD init for card stabilization
 
 #### New Files
@@ -525,7 +525,7 @@ Fixed critical bugs in SD write/delete handlers, added on-device self-test suite
 | `0x19` | `READ_TOKEN` | Bad read data token (SPI signal integrity) |
 | `0x21` | `WRITE_TIMEOUT` | Flash programming timeout |
 
-#### Test Results (breadboard, 100nF+100µF caps, SPI_HALF_SPEED)
+#### Test Results (breadboard, 100nF+100µF caps, SPI_FULL_SPEED)
 
 | Test | Result | Notes |
 |------|--------|-------|
@@ -538,11 +538,11 @@ Fixed critical bugs in SD write/delete handlers, added on-device self-test suite
 | ROOT_LIST | PASS | Directory listing correct (4 items) |
 | DIR_NAV | PASS | cd TESTDIR + GoBack works |
 
-**8/8 PASS.** All tests pass on breadboard with proper decoupling caps and SPI_HALF_SPEED.
+**8/8 PASS.** All tests pass on breadboard with proper decoupling caps and SPI_FULL_SPEED.
 
 #### Hardware Notes
 - 100µF electrolytic + 100nF ceramic on SD module VCC/GND recommended
-- SPI_HALF_SPEED (8 MHz) stable on breadboard — no need to reduce to QUARTER_SPEED
+- SPI_FULL_SPEED is the SD default; no reduced SPI speed profile is used
 
 #### Files Modified
 

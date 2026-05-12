@@ -24,68 +24,10 @@ static unsigned long lastStaleIdentLogMs = 0;
 
 namespace {
 
-#ifndef EASYSD_USE_PHI2_BUS_SYNC
-#define EASYSD_USE_PHI2_BUS_SYNC 0
-#endif
-
-#if EASYSD_USE_PHI2_BUS_SYNC
-constexpr unsigned long PHI2_SYNC_TIMEOUT_US = 2000UL;
-
-inline bool phi2ReadFast() {
-  #ifdef __AVR__
-  return (PINC & _BV(PC4)) != 0;
-  #else
-  return phi2Read();
-  #endif
-}
-
-bool waitForPhi2Level(bool targetLevel, unsigned long timeoutUs) {
-  unsigned long start = micros();
-  while (phi2ReadFast() != targetLevel) {
-    if ((unsigned long)(micros() - start) > timeoutUs) {
-      return false;
-    }
-  }
-  return true;
-}
-
-bool waitForStablePhi2Edges(uint16_t minEdges, unsigned long timeoutMs) {
-  unsigned long startMs = millis();
-  bool lastLevel = phi2ReadFast();
-  uint16_t edgeCount = 0;
-
-  while ((unsigned long)(millis() - startMs) < timeoutMs) {
-    bool currentLevel = phi2ReadFast();
-    if (currentLevel != lastLevel) {
-      lastLevel = currentLevel;
-      edgeCount++;
-      if (edgeCount >= minEdges) {
-        return true;
-      }
-    }
-  }
-
-  return false;
-}
-#endif
-
 void syncBusChangeToPhi2Low() {
-#if EASYSD_USE_PHI2_BUS_SYNC
-  // Cartridge visibility and bus-driving changes should happen while PHI2 is low,
-  // i.e. outside the CPU-owned half-cycle, to avoid mid-read mapping glitches.
-  if (phi2ReadFast()) {
-    if (!waitForPhi2Level(false, PHI2_SYNC_TIMEOUT_US)) {
-      return;
-    }
-  }
-
+  // Match the original IRQHack64 boot path: PHI2 is not used as a firmware
+  // gate for cartridge visibility or bus-drive changes.
   delayMicroseconds(1);
-#else
-  // Current EasySD hardware routes C64 PHI2 directly to AVR A4 without signal
-  // conditioning. Do not let that unqualified clock input gate EXROM/data-bus
-  // changes on real hardware; the original IRQHack64 path also does not use it.
-  delayMicroseconds(1);
-#endif
 }
 
 void tristateDataBus() {
@@ -275,23 +217,15 @@ uint16_t CartInterface::Read() {
 }
 
 void CartInterface::IOSetup() {
-  // irqhack-style cold boot: do NOT hold C64 in /RESET. The C64 cold-boots
-  // from its own RC reset (~50 ms); AVR catches up on its own timeline. By
-  // the time IOSetup() runs (~70 ms after AVR Vcc valid), the C64's 556 has
-  // already released /RESET HIGH, so AVR driving HIGH causes no contention.
-  // EXROM stays HIGH (cartridge hidden) and data bus stays INPUT (tristate)
-  // so the C64 reaches BASIC normally. Menu loads only on explicit SEL press.
-  pinMode(RESET, OUTPUT);
-  digitalWrite(RESET, HIGH);
-
-  NmiHigh();
-
+  // IRQHack64-style cold boot: configure the cartridge immediately, release
+  // /RESET and /NMI open-collector style, and let the C64 boot on its own RC
+  // reset timing. SEL is A6 with an external 10k pull-up, so no pull-up here.
   pinMode(IO2, INPUT);
+  PORTD |= _BV(PD2);   // EXROM latch HIGH before enabling output.
+  DDRD  |= _BV(PD2);   // EXROM HIGH: cartridge hidden.
+  ResetHigh();
+  NmiHigh();
   pinMode(PHI2, INPUT);
-  // Set EXROM HIGH before enabling output — avoids a ~1-2µs LOW glitch.
-  PORTD |= _BV(PD2);   // latch HIGH first
-  DDRD  |= _BV(PD2);   // then enable output — pin starts HIGH, no glitch
-  // SEL is on A6 (analog-only): no pinMode/pullup needed, external 10k pullup used
 }
 
 
@@ -316,7 +250,9 @@ void CartInterface::StartListening() {
 }
 
 void CartInterface::EndListening() {
-  EnterBasicSafeMode();
+  detachInterrupt(digitalPinToInterrupt(IO2));
+  ResetReceive();
+  DisableCartridge();
 }
 
 void CartInterface::SoftStartListening() {
@@ -330,21 +266,15 @@ void CartInterface::SoftEndListening() {
 }
 
 bool CartInterface::WaitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs) {
-#if EASYSD_USE_PHI2_BUS_SYNC
-  return waitForStablePhi2Edges(minEdges, timeoutMs);
-#else
   (void)minEdges;
   (void)timeoutMs;
   return true;
-#endif
 }
 
 void CartInterface::Init() {
   IOSetup();
-  // IOSetup() drives /RESET HIGH (released, irqhack-style) and EXROM HIGH
-  // (cartridge hidden). Data bus pins remain INPUT (tristate);
-  // SetAddressPinsOutput() must NOT be called here to avoid bus contention.
-  // The C64 cold-boots to BASIC on its own RC reset while AVR initializes SD.
+  SetAddressPinsOutput();
+  StartListening();
 }
 
 
@@ -431,7 +361,6 @@ void CartInterface::EnableDataBus() {
 void CartInterface::DisableCartridge() {
   syncBusChangeToPhi2Low();
   PORTD |= _BV (PD2);    // EXROM HIGH — cartridge hidden from C64
-  tristateDataBus();
 }
 
 void CartInterface::EnterBasicSafeMode() {
@@ -456,8 +385,8 @@ void CartInterface::ResetLow() {
 }
 
 void CartInterface::ResetHigh() {
-  PORTB |= _BV(PB1);
-  DDRB |= _BV(PB1);
+  DDRB &= ~_BV(PB1);  // release /RESET
+  PORTB |= _BV(PB1);  // weak pull-up only, matching original IRQHack64 style
 }
 
 void CartInterface::NmiLow() {
