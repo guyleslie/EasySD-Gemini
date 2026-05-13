@@ -420,11 +420,19 @@ void CartApi::HandleGetPath() {
   delayMicroseconds(20);
 }
 
+// Sorted-scan state for HandleReadDirectory.
+// These 64 bytes are file-scope statics to avoid stack pressure; they are
+// only accessed from HandleReadDirectory() and are never used during stream
+// or NI transfers, so they do not alias sharedBuf.
+static char s_sortLastName[32];   // watermark: last emitted name
+static char s_sortFoundName[32];  // best candidate in current scan
+
 void CartApi::HandleReadDirectory() {
   GetArgumentsStatic(3);
-  uint8_t numberOfEntries = Arguments[0];
-  uint8_t dataLength = Arguments[1];
-  uint8_t startPage = Arguments[2];
+  // Copy args to locals before sharedBuf is repurposed.
+  const uint8_t numberOfEntries = Arguments[0];
+  const uint8_t dataLength      = Arguments[1];
+  const uint8_t startPage       = Arguments[2];
 
   LOGI(DIR, "RD");
   LOG_PRINT_F(" pg="); LOG_PRINT(startPage);
@@ -433,75 +441,131 @@ void CartApi::HandleReadDirectory() {
 
   if (numberOfEntries == 0 || dataLength == 0) {
     HandleResponse(INVALID_ARGUMENT, 1);
+    return;
+  }
+
+  HandleResponse(SUCCESSFUL, 1);
+  uint16_t actualTransferredBytes = 0;
+  const uint16_t maxBytesToTransfer = (uint16_t)dataLength * 256;
+  const uint16_t startingIndex = (uint16_t)numberOfEntries * startPage;
+
+  // Guard against stale page index: return 0 items instead of wrapping.
+  uint8_t currentItemsCount;
+  if (startingIndex >= (uint16_t)dirFunc.GetCount()) {
+    currentItemsCount = 0;
+  } else if ((uint16_t)dirFunc.GetCount() >= startingIndex + numberOfEntries) {
+    currentItemsCount = numberOfEntries;
   } else {
-    HandleResponse(SUCCESSFUL, 1);
-    uint16_t actualTransferredBytes = 0;
-    uint16_t maxBytesToTransfer = dataLength * 256;
+    currentItemsCount = (uint8_t)(dirFunc.GetCount() - startingIndex);
+  }
+  const uint8_t pagePadValue = (dirFunc.GetCount() % numberOfEntries) > 0 ? 1 : 0;
+  const uint8_t pageCount = (uint8_t)(dirFunc.GetCount() / numberOfEntries + pagePadValue);
 
-    uint16_t itemIndex = 0;
-    uint16_t startingIndex = numberOfEntries * startPage;
+  LOG_PRINT_F(" items="); LOG_PRINT(currentItemsCount);
+  LOG_PRINT_F(" pages="); LOG_PRINTLN(pageCount);
 
-    dirFunc.Rewind();
+  // -------------------------------------------------------------------
+  // Sorted-scan delivery: ".." first (if in subdir), then all dirs A-Z,
+  // then all files A-Z.  For each output slot we scan the whole directory
+  // once to find the lexicographically-next name past the watermark.
+  // O(N^2) SD reads — acceptable for typical EasySD directory sizes.
+  // -------------------------------------------------------------------
+  uint16_t sentSoFar   = 0;   // sorted position counter (skip + send)
+  uint8_t  sortPhase   = 0;   // 0 = emit dirs A-Z, 1 = emit files A-Z
+  uint8_t  curItemIndex = 0;  // items sent so far on this page
+  s_sortLastName[0] = '\0';
 
-    while (itemIndex<startingIndex && dirFunc.Iterate() && !dirFunc.IsFinished) {
-      itemIndex++;      
-    }
+  cartInterface.ResetIndex();
+  noInterrupts();
 
+  cartInterface.TransmitByteFast(currentItemsCount);
+  cartInterface.TransmitByteFast(pageCount);
+  actualTransferredBytes = 2;
 
-    // Guard against uint8_t underflow: if startingIndex >= count (stale page
-    // index from C64), return 0 items instead of wrapping to ~245 which would
-    // cause PRINTPAGE to loop hundreds of times and corrupt the C64 stack.
-    uint8_t currentItemsCount;
-    if (startingIndex >= (uint16_t)dirFunc.GetCount()) {
-      currentItemsCount = 0;
-    } else if ((uint16_t)dirFunc.GetCount() >= startingIndex + numberOfEntries) {
-      currentItemsCount = numberOfEntries;
-    } else {
-      currentItemsCount = (uint8_t)(dirFunc.GetCount() - startingIndex);
-    }
-    uint8_t pagePadValue = (dirFunc.GetCount() % numberOfEntries) > 0 ? 1 : 0;
-    uint8_t pageCount = (byte)(dirFunc.GetCount()/numberOfEntries + pagePadValue);  
-  
-    LOG_PRINT_F(" items="); LOG_PRINT(currentItemsCount);
-    LOG_PRINT_F(" pages="); LOG_PRINTLN(pageCount);
-
-    cartInterface.ResetIndex();
-    noInterrupts();
-    
-    cartInterface.TransmitByteFast(currentItemsCount);   
-    cartInterface.TransmitByteFast(pageCount); 
-  
-    actualTransferredBytes = 2;
-     
-    uint8_t curItemIndex = 0;
-    // Iterate() now skips hidden files internally, so every returned
-    // entry is visible and ready to transmit.
-    while (curItemIndex < numberOfEntries && dirFunc.Iterate() && !dirFunc.IsFinished) {
-      if (actualTransferredBytes + 32 < maxBytesToTransfer) {
-        uint8_t flen = (uint8_t)strlen(dirFunc.currentFileName);
-        if (flen > 31) flen = 31;
-        for (uint8_t i = 0; i < flen; i++) {
-          cartInterface.TransmitByteFast((uint8_t)dirFunc.currentFileName[i]);
-        }
-        for (uint8_t i = flen; i < 31; i++) {
-          cartInterface.TransmitByteFast(0x00);
-        }
-        cartInterface.TransmitByteFast(dirFunc.IsDirectory ? 0x04 : 0x00);
+  // --- ".." occupies sorted position 0 when in a subdirectory ---
+  if (dirFunc.InSubDir) {
+    if (sentSoFar >= startingIndex) {
+      if (curItemIndex < currentItemsCount &&
+          actualTransferredBytes + 32 < maxBytesToTransfer) {
+        cartInterface.TransmitByteFast('.');
+        cartInterface.TransmitByteFast('.');
+        for (uint8_t i = 2; i < 31; i++) cartInterface.TransmitByteFast(0x00);
+        cartInterface.TransmitByteFast(0x04);  // directory flag
         actualTransferredBytes += 32;
         curItemIndex++;
-      } else {
-        break;
       }
-    }   
-  
-    for (int i = 0;i<(maxBytesToTransfer - actualTransferredBytes);i++) {
-      cartInterface.TransmitByteFast(0x00);    
+    }
+    sentSoFar++;
+  }
+
+  // --- Sorted dir entries then sorted file entries ---
+  while (curItemIndex < currentItemsCount) {
+    // Find the smallest entry name > watermark of the current phase.
+    bool found = false;
+    s_sortFoundName[0] = '\0';
+    uint8_t foundIsDir = 0;
+
+    dirFunc.Rewind();
+    while (dirFunc.Iterate() && !dirFunc.IsFinished) {
+      // ".." is emitted separately; ignore it in both phases.
+      if (dirFunc.currentFileName[0] == '.' &&
+          dirFunc.currentFileName[1] == '.' &&
+          dirFunc.currentFileName[2] == '\0') continue;
+
+      // Phase gate: phase 0 = dirs only, phase 1 = files only.
+      const uint8_t isDir = dirFunc.IsDirectory ? 1 : 0;
+      if (sortPhase == 0 && !isDir) continue;
+      if (sortPhase == 1 &&  isDir) continue;
+
+      // Accept if name is strictly greater than watermark and is a new best.
+      if (strcasecmp(dirFunc.currentFileName, s_sortLastName) > 0) {
+        if (!found || strcasecmp(dirFunc.currentFileName, s_sortFoundName) < 0) {
+          strncpy(s_sortFoundName, dirFunc.currentFileName, 31);
+          s_sortFoundName[31] = '\0';
+          foundIsDir = isDir;
+          found = true;
+        }
+      }
     }
 
-    interrupts();
-     
-    delayMicroseconds(20);
+    if (!found) {
+      if (sortPhase == 0) {
+        // All dirs emitted; switch to files and reset watermark.
+        sortPhase = 1;
+        s_sortLastName[0] = '\0';
+        continue;
+      }
+      break;  // No more entries in either phase.
+    }
+
+    // Transmit if this slot falls within the requested page window.
+    if (sentSoFar >= startingIndex) {
+      if (actualTransferredBytes + 32 < maxBytesToTransfer) {
+        uint8_t flen = (uint8_t)strlen(s_sortFoundName);
+        if (flen > 31) flen = 31;
+        for (uint8_t i = 0; i < flen; i++)
+          cartInterface.TransmitByteFast((uint8_t)s_sortFoundName[i]);
+        for (uint8_t i = flen; i < 31; i++)
+          cartInterface.TransmitByteFast(0x00);
+        cartInterface.TransmitByteFast(foundIsDir ? 0x04 : 0x00);
+        actualTransferredBytes += 32;
+        curItemIndex++;
+      }
+    }
+
+    // Advance watermark and global position counter.
+    strncpy(s_sortLastName, s_sortFoundName, 31);
+    s_sortLastName[31] = '\0';
+    sentSoFar++;
   }
+
+  // Pad the transfer buffer to the exact page size.
+  for (uint16_t i = actualTransferredBytes; i < maxBytesToTransfer; i++) {
+    cartInterface.TransmitByteFast(0x00);
+  }
+
+  interrupts();
+  delayMicroseconds(20);
 }
 
 void CartApi::HandleChangeDirectory() {

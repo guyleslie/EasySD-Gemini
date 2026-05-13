@@ -332,30 +332,62 @@ bool DirFunction::FindDirectoryNameByVisibleIndex(uint16_t visibleIndex,
     return false;
   }
 
-  // Use Iterate() so index mapping always matches the C64-visible order.
-  Rewind();
-  uint16_t currentVisibleIndex = 0;
-  while (Iterate()) {
-    if (currentVisibleIndex == visibleIndex) {
-      if (!IsDirectory || strcmp(currentFileName, "..") == 0) {
-        LOGE(DIR, "CDVI: not a normal dir");
-        Rewind();
-        return false;
-      }
-      strncpy(outName, currentFileName, outSize - 1);
-      outName[outSize - 1] = '\0';
-      LOGI(DIR, "CDVI found: ");
-      LOG_PRINTLN(outName);
-      Rewind();
-      return true;
-    }
-    currentVisibleIndex++;
+  // ".." always occupies sorted position 0 when inside a subdirectory.
+  if (InSubDir && visibleIndex == 0) {
+    strncpy(outName, "..", outSize - 1);
+    outName[outSize - 1] = '\0';
+    return true;
   }
 
-  LOGE(DIR, "CDVI: index not found");
-  LOG_PRINT_F(" vis="); LOG_PRINTLN(visibleIndex);
+  // Adjust for the ".." slot: directories start at position 0 when at root,
+  // or position 1 when in a subdirectory (position 0 = "..").
+  const uint16_t dirSortIndex = InSubDir ? visibleIndex - 1 : visibleIndex;
+
+  // Scan-based sorted lookup — mirrors HandleReadDirectory sort logic.
+  // Find the dirSortIndex-th directory in case-insensitive A-Z order.
+  char lastFoundName[32];
+  char bestName[32];
+  lastFoundName[0] = '\0';
+
+  for (uint16_t i = 0; i <= dirSortIndex; i++) {
+    bool found = false;
+    bestName[0] = '\0';
+
+    Rewind();
+    while (Iterate()) {
+      if (!IsDirectory) continue;
+      // Skip ".." — handled separately above.
+      if (currentFileName[0] == '.' &&
+          currentFileName[1] == '.' &&
+          currentFileName[2] == '\0') continue;
+
+      // Accept if name > watermark and is a new best (smallest candidate).
+      if (strcasecmp(currentFileName, lastFoundName) > 0) {
+        if (!found || strcasecmp(currentFileName, bestName) < 0) {
+          strncpy(bestName, currentFileName, 31);
+          bestName[31] = '\0';
+          found = true;
+        }
+      }
+    }
+
+    if (!found) {
+      LOGE(DIR, "CDVI: index not found");
+      LOG_PRINT_F(" vis="); LOG_PRINTLN(visibleIndex);
+      Rewind();
+      return false;
+    }
+
+    strncpy(lastFoundName, bestName, 31);
+    lastFoundName[31] = '\0';
+  }
+
+  strncpy(outName, lastFoundName, outSize - 1);
+  outName[outSize - 1] = '\0';
+  LOGI(DIR, "CDVI found: ");
+  LOG_PRINTLN(outName);
   Rewind();
-  return false;
+  return true;
 }
 
 const char* DirFunction::GetCurrentPath() const {

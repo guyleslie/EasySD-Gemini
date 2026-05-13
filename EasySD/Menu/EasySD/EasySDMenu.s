@@ -664,7 +664,7 @@ _SETARR_LOOP
 	LDA NAMELOW		; Switch back to screen RAM
 	STA COLHIGH
 	INY
-	CPY #$22		; 34 = end of filename area
+	CPY #$21		; col 33 = last extension char (end of reversed area)
 	BNE _SETARR_LOOP
 	; Restore original COLHIGH
 	PLA
@@ -679,7 +679,7 @@ _CLRARR_UNREV
 	AND #$7F
 	STA (COLLOW),Y
 	INY
-	CPY #$22
+	CPY #$21		; col 33 = last extension char
 	BNE _CLRARR_UNREV
 	; Restore decoration based on position (X = current row)
 	; (first item is now the dir header, all file items use middle or last style)
@@ -721,7 +721,7 @@ _CLRARR_COLORS
 _CLRARR_COL
 	STA (COLLOW),Y
 	INY
-	CPY #$22
+	CPY #$26		; col 38 = last content col
 	BNE _CLRARR_COL
 	; Restore screen RAM pointer
 	PLA
@@ -771,59 +771,208 @@ GETCURRENTROW	; Input : None, Output : X (current row)
 ; ------------------------------------------------------------
 ; PRINTASCIIFILENAME - ASCII to screen code filename printer
 ; ------------------------------------------------------------
-; Converts ASCII filenames to C64 mixed-case screen codes.
-; The original case is preserved in the dir buffer for sd.chdir().
+; Display layout (col 3 = Y=0 base):
+;   Directories : name 0-25 (26 chars max), 2 spaces at 26-27,
+;                 "DIR" screen codes at 28-30, spaces 31-35
+;   Files       : stem 0-25 (26 chars max, extension stripped),
+;                 2-space gap at 26-27,
+;                 extension at 28-30 (up to 3 chars),
+;                 1 space at 31, tail spaces 32-35
 ;
-; ASCII $20-$3F (space/symbols/digits) -> screen code as-is
-; ASCII $40 (@)                         -> screen code $00
-; ASCII $41-$5A (uppercase A-Z)         -> screen code $41-$5A
-; ASCII $5B-$5F ([ \ ] ^ _)             -> screen code $1B-$1F (subtract $40)
-; ASCII $61-$7A (lowercase a-z)         -> screen code $01-$1A (subtract $60)
+; Entry format (32 bytes per GAMELIST slot):
+;   bytes 0-30 : null-terminated ASCII filename
+;   byte  31   : 0x04 = directory, 0x00 = file
 ;
-; Input:  NAMELOW/HIGH = pointer to ASCII filename
-;         COLLOW/HIGH = pointer to screen memory position
+; Input:  NAMELOW/HIGH = pointer to 32-byte entry
+;         COLLOW/HIGH  = pointer to screen memory (col 4 of row)
 ; Output: None
 ; Changes: A, Y
+; ZP temps: $8B (last dot pos, 0=none), $8C/$8D/$8E (ext ASCII, default $20)
 ; ------------------------------------------------------------
 PRINTASCIIFILENAME
-	LDY #$00
-FILENAMEPRINT_A
-	LDA (NAMELOW), Y    ; Read ASCII character
-	BNE NOTEND_A        ; If not null terminator, continue
-	LDA #$20            ; Replace null with space
-	JMP WRITECHAR_A
-NOTEND_A
-	CMP #$40            ; '@'?
-	BEQ _paf_at
-	CMP #$41            ; >= 'A'?
-	BCC WRITECHAR_A     ; No -> $20-$3F: space, punctuation, digits, as-is
-	CMP #$5B            ; <= 'Z'?
-	BCC WRITECHAR_A     ; yes -> uppercase screen codes are ASCII-compatible
-	CMP #$60            ; < '`'? ($5B-$5F: [, \, ], ^, _)
-	BCC _paf_symbol     ; yes -> subtract $40
-	CMP #$7B            ; >= '{' ?
-	BCS WRITECHAR_A     ; yes (backtick $60 or above 'z') -> as-is
-	SEC
-	SBC #$60            ; Lowercase $61-$7A -> screen codes $01-$1A
-	JMP WRITECHAR_A
-_paf_symbol
-	SEC
-	SBC #$40            ; $5B-$5F -> $1B-$1F
-	JMP WRITECHAR_A
-_paf_at
-	LDA #$00            ; @
-WRITECHAR_A
-	STA (COLLOW), Y     ; Write to screen memory
-	INY
-	CPY #$1A            ; Print 26 characters (cols 4-29)
-	BNE FILENAMEPRINT_A
-	; Pad cols 30-35 with spaces so scroll indicators can overwrite cleanly
-	LDA #$20
-_fname_pad
+	; --- Check directory/file type flag (byte 31 of entry) ---
+	LDY #31
+	LDA (NAMELOW), Y
+	AND #$04
+	BEQ _paf_file
+
+	; === DIRECTORY: print up to 26 chars, gap, "DIR" label, fill ===
+_paf_dir
+	LDY #0
+_paf_dloop
+	CPY #26
+	BCS _paf_dfill		; >= 26 chars printed, fill spaces
+	LDA (NAMELOW), Y
+	BEQ _paf_dfill		; null terminator, fill spaces
+	JSR _paf_conv		; ASCII -> screen code
 	STA (COLLOW), Y
 	INY
-	CPY #$20            ; 32 total
-	BNE _fname_pad
+	JMP _paf_dloop
+_paf_dfill
+	LDA #$20		; pad name area to Y=26
+_paf_dspace
+	CPY #26
+	BCS _paf_dgap
+	STA (COLLOW), Y
+	INY
+	BNE _paf_dspace
+_paf_dgap
+	; 2-space gap at Y=26-27
+	LDA #$20
+	STA (COLLOW), Y
+	INY
+	STA (COLLOW), Y
+	INY			; Y=28
+	; "DIR" screen codes at Y=28-30 ($44,$49,$52 = D,I,R uppercase passthrough)
+	LDA #$44		; D
+	STA (COLLOW), Y
+	INY
+	LDA #$49		; I
+	STA (COLLOW), Y
+	INY
+	LDA #$52		; R
+	STA (COLLOW), Y
+	INY			; Y=31
+	; Fill Y=31-35 with spaces (space + MORE area)
+	LDA #$20
+_paf_dtail
+	CPY #$24		; 36 total
+	BCS _paf_ret
+	STA (COLLOW), Y
+	INY
+	BNE _paf_dtail
+_paf_ret
+	RTS
+
+	; === FILE: find last dot, split into stem (21) + gap (2) + ext (3) ===
+_paf_file
+	; -- Pass 1: scan for last dot, pre-load up to 3 ext chars --
+	LDA #$20		; default: spaces (no extension)
+	STA $8C
+	STA $8D
+	STA $8E
+	LDA #0
+	STA $8B			; $8B = last dot position (0 = not found)
+	LDY #0
+_paf_scan
+	LDA (NAMELOW), Y
+	BEQ _paf_scan_done
+	CMP #$2E		; '.'?
+	BNE _paf_scan_next
+	STY $8B
+_paf_scan_next
+	INY
+	CPY #31			; scan bytes 0-30 only (byte 31 is type flag)
+	BNE _paf_scan
+_paf_scan_done
+	; If a dot was found and it is not the last byte, read ext chars
+	LDA $8B
+	BEQ _paf_stem		; no dot -> no extension
+	CMP #30			; dot at pos 30 means no char follows in name area
+	BCS _paf_stem
+	CLC
+	ADC #1			; first ext char index = dot_pos + 1
+	TAY
+	LDA (NAMELOW), Y	; ext char 0
+	BEQ _paf_stem
+	STA $8C
+	INY
+	LDA (NAMELOW), Y	; ext char 1
+	BEQ _paf_stem
+	STA $8D
+	INY
+	LDA (NAMELOW), Y	; ext char 2
+	BEQ _paf_stem
+	STA $8E
+
+	; -- Pass 2: print stem (source = dest = Y, stop at dot, 26, or null) --
+_paf_stem
+	LDY #0
+_paf_sloop
+	CPY #26
+	BCS _paf_stem_done	; 26 chars written, stop
+	LDA $8B
+	BNE _paf_check_dot	; dot exists: check if Y has reached it
+	; No dot in name: stop stem at null terminator
+	LDA (NAMELOW), Y
+	BEQ _paf_stem_done
+	JMP _paf_stem_write
+_paf_check_dot
+	TYA
+	CMP $8B			; Y >= dot position?
+	BCS _paf_stem_done	; yes, stem ends here
+	LDA (NAMELOW), Y
+	BEQ _paf_stem_done	; null safety
+_paf_stem_write
+	JSR _paf_conv		; ASCII -> screen code
+	STA (COLLOW), Y
+	INY
+	JMP _paf_sloop
+_paf_stem_done
+	; -- Pad stem area to position 26 with spaces --
+	LDA #$20
+_paf_pad21
+	CPY #26
+	BCS _paf_gap
+	STA (COLLOW), Y
+	INY
+	BNE _paf_pad21
+_paf_gap
+	; 2-space gap at positions 26 and 27
+	LDA #$20
+	STA (COLLOW), Y		; position 26
+	INY
+	STA (COLLOW), Y		; position 27
+	INY			; Y = 28
+	; Extension characters at positions 28, 29, 30
+	LDA $8C
+	JSR _paf_conv
+	STA (COLLOW), Y
+	INY
+	LDA $8D
+	JSR _paf_conv
+	STA (COLLOW), Y
+	INY
+	LDA $8E
+	JSR _paf_conv
+	STA (COLLOW), Y
+	INY			; Y = 31
+	; Space at position 31 (separator before MORE area)
+	LDA #$20
+	STA (COLLOW), Y
+	INY			; Y = 32
+	; Fill positions 32-35 with spaces (MORE overlay area)
+_paf_tail
+	CPY #$24		; 36 total
+	BCS _paf_ret
+	STA (COLLOW), Y
+	INY
+	BNE _paf_tail
+	BEQ _paf_ret		; Y wrapped (impossible here, but safe)
+
+	; --- ASCII to C64 screen code conversion ---
+	; Input/Output: A    Changes: A only
+_paf_conv
+	CMP #$40		; '@'?
+	BEQ _paf_at
+	CMP #$41		; < 'A' ($20-$3F: space, digits, punct)?
+	BCC _paf_cret		; as-is
+	CMP #$5B		; < '[' ($41-$5A uppercase A-Z)?
+	BCC _paf_cret		; uppercase: screen code = ASCII value
+	CMP #$60		; < '`' ($5B-$5F: [ \ ] ^ _)?
+	BCC _paf_sym
+	CMP #$7B		; < '{' ($61-$7A lowercase a-z)?
+	BCS _paf_cret		; >= $7B: as-is
+	SEC
+	SBC #$60		; lowercase -> screen $01-$1A
+	RTS
+_paf_sym
+	SEC
+	SBC #$40		; $5B-$5F -> screen $1B-$1F
+	RTS
+_paf_at
+	LDA #$00		; '@' -> screen $00
+_paf_cret
 	RTS
 
 CLEARLINE	; Input : None, Changed: Y, A
@@ -832,7 +981,7 @@ CLEARLINE	; Input : None, Changed: Y, A
 ICLEARLINE		
 	STA (COLLOW), Y
 	INY
-	CPY #$20
+	CPY #$24		; 36 chars (col 3 to col 38)
 	BNE ICLEARLINE
 	RTS
 	
@@ -1061,10 +1210,10 @@ _DDEC_DONE
 ; ------------------------------------------------------------
 ; DRAW_SCROLL_INDICATORS
 ; Called after PRINTPAGE to overlay scroll hints on rows 2 and 22.
-; Row 2,  cols 30-35 ($046E): "  MORE" if previous pages exist
-; Row 22, cols 30-35 ($078E): "  MORE" if next pages exist
-;   M=$4D  O=$4F  R=$52  E=$45 (uppercase mixed-case C64 screen codes)
-;   Color: green ($05) via color RAM $D86E / $DB8E
+; Row 2,  cols 35-38 ($0473): "MORE" if previous pages exist
+; Row 22, cols 35-38 ($0793): "MORE" if next pages exist
+;   M=$4D  O=$4F  R=$52  E=$45 (uppercase C64 screen codes)
+;   Color: green ($05) via color RAM $D873 / $DB93
 ; Clobbers: A, Y
 ; ------------------------------------------------------------
 DRAW_SCROLL_INDICATORS
@@ -1075,28 +1224,18 @@ DRAW_SCROLL_INDICATORS
 	; --- MORE on row 2, when previous page exists ---
 	LDA CURPAGEINDEX
 	BEQ _dsi_check_below
-	LDY #0
-	LDA #$20
-	STA $046E,Y		; space
-	INY
-	LDA #$20
-	STA $046E,Y		; space where the arrow used to be
-	INY
 	LDA #$4D
-	STA $046E,Y		; M
-	INY
+	STA $0473		; M
 	LDA #$4F
-	STA $046E,Y		; O
-	INY
+	STA $0474		; O
 	LDA #$52
-	STA $046E,Y		; R
-	INY
+	STA $0475		; R
 	LDA #$45
-	STA $046E,Y		; E
+	STA $0476		; E
 	LDA #$05		; green
-	LDY #5
+	LDY #3
 _dsi_up_col
-	STA $D86E,Y
+	STA $D873,Y
 	DEY
 	BPL _dsi_up_col
 
@@ -1107,28 +1246,18 @@ _dsi_check_below
 	ADC #1
 	CMP PAGECOUNT		; CURPAGEINDEX+1 >= PAGECOUNT?
 	BCS _dsi_done		; on last page -> nothing
-	LDY #0
-	LDA #$20
-	STA $078E,Y		; space
-	INY
-	LDA #$20
-	STA $078E,Y		; space where the arrow used to be
-	INY
 	LDA #$4D
-	STA $078E,Y		; M
-	INY
+	STA $0793		; M
 	LDA #$4F
-	STA $078E,Y		; O
-	INY
+	STA $0794		; O
 	LDA #$52
-	STA $078E,Y		; R
-	INY
+	STA $0795		; R
 	LDA #$45
-	STA $078E,Y		; E
+	STA $0796		; E
 	LDA #$05		; green
-	LDY #5
+	LDY #3
 _dsi_down_col
-	STA $DB8E,Y
+	STA $DB93,Y
 	DEY
 	BPL _dsi_down_col
 
@@ -1194,15 +1323,15 @@ _lcc_p7
 ; Uses: NAMELOW/NAMEHIGH ($FB/$FC)
 ; ------------------------------------------------------------
 PRINTDIRHEADER
-	; ■ at col 2 (normal, same as file row decoration)
+	; ■ at col 1 (decoration adjacent to left frame)
 	LDA #$A0
-	STA $042A
-	; ─ at col 3 (normal)
+	STA $0429
+	; ─ at col 2
 	LDA #$40
-	STA $042B
-	; / reversed at col 4 (start of inverted area)
+	STA $042A
+	; / reversed at col 3 (start of inverted area)
 	LDA #$AF		; $2F|$80
-	STA $042C
+	STA $042B
 
 	; Read current path directly here (stable behavior from the proven flow).
 	JSR PROT_GetCurrentPath
@@ -1210,16 +1339,16 @@ PRINTDIRHEADER
 	LDA PATHBUFFER+1
 	BNE _pdh_subdir
 
-	; At root: write "ROOT" reversed at col 5-8
+	; At root: write "ROOT" reversed at col 4-7
 	LDA #$D2		; R ($52|$80)
-	STA $042D
+	STA $042C
 	LDA #$CF		; O ($4F|$80)
-	STA $042E
+	STA $042D
 	LDA #$CF		; O
-	STA $042F
+	STA $042E
 	LDA #$D4		; T ($54|$80)
-	STA $0430
-	LDY #$04		; Y=4 -> place frame end at col 9-10
+	STA $042F
+	LDY #$04		; Y=4 -> place frame end at col 8-9
 	JMP _pdh_done_copy
 
 _pdh_subdir
@@ -1255,7 +1384,7 @@ _pdh_noconv
 	; Reverse-video directory name inside the header bar.
 _pdh_reverse
 	ORA #$80		; reverse video
-	STA $042D, Y		; col 5+Y
+	STA $042C, Y		; col 4+Y
 	INY
 	CPY #$12		; max 18 chars (leaves room for ─■ before col 26)
 	BCC _pdh_copy
@@ -1263,26 +1392,26 @@ _pdh_reverse
 _pdh_done_copy
 	; ─■ normal after dirname
 	LDA #$40		; ─ normal
-	STA $042D, Y
+	STA $042C, Y
 	INY
 	LDA #$A0		; ■ normal
-	STA $042D, Y
+	STA $042C, Y
 	INY
 	; fill rest with spaces up to col 25
 	LDA #$20
 _pdh_fill_sub
-	CPY #$15		; stop before col 26 ($042D+20=col25)
+	CPY #$15		; stop before col 26 ($042C+20=col24+...)
 	BCS _pdh_colors
-	STA $042D, Y
+	STA $042C, Y
 	INY
 	BNE _pdh_fill_sub
 
 _pdh_colors
-	; color RAM for row 1 cols 2..39 = $D82A..$D84F → all white
+	; color RAM for row 1 cols 1..38 = $D829..$D84E → all white
 	LDA #$01
 	LDY #$00
 _pdh_col
-	STA $D82A, Y
+	STA $D829, Y
 	INY
 	CPY #$26		; 38 chars
 	BNE _pdh_col
@@ -1494,9 +1623,9 @@ ISMUSICPLAYING	.BYTE 0
 
 
 COLS	
-	.WORD $042C, $0454, $047C, $04A4, $04CC, $04F4, $051C, $0544, $056C , $0594
-	.WORD $05BC, $05E4, $060C, $0634, $065C, $0684, $06AC, $06D4, $06FC , $0724
-	.WORD $074C, $0774, $079C, $07C4, $0804
+	.WORD $042B, $0453, $047B, $04A3, $04CB, $04F3, $051B, $0543, $056B, $0593
+	.WORD $05BB, $05E3, $060B, $0633, $065B, $0683, $06AB, $06D3, $06FB, $0723
+	.WORD $074B, $0773, $079B, $07C3, $0803
 
 ;	.WORD $0404, $042C, $0454, $047C, $04A4, $04CC, $04F4, $051C, $0544, $056C 
 ;	.WORD $0594, $05BC, $05E4, $060C, $0634, $065C, $0684, $06AC, $06D4, $06FC
