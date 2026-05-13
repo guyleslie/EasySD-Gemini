@@ -15,9 +15,9 @@ EasySD is a DIY expansion cartridge for the Commodore 64. An Arduino Nano reads 
 - Browse folders and load `.PRG` programs directly from SD card — a typical 50 KB game loads in about 3 seconds
 - Plugin system for additional file types — loaded on demand
 - Supported file formats: `.PRG`, `.KOA` (Koala graphics), `.WAV` (audio), `.CVD` (CVD video)
-- C64 boots normally to BASIC — press MENU/RESET (SEL) to launch the EasySD menu
 - FAT16 / FAT32, any SD card capacity, long filenames supported
-- Short press SEL → open menu; long press SEL → return to BASIC
+- C64 boots normally to BASIC
+- Short press MENU/RESET (SEL) button → open menu; long press → return to BASIC
 
 ---
 
@@ -25,15 +25,14 @@ EasySD is a DIY expansion cartridge for the Commodore 64. An Arduino Nano reads 
 
 | Component | Notes |
 |-----------|-------|
-| Commodore 64 | PAL or NTSC |
-| Arduino Nano 3.x | ATmega328P, 5 V — clones work fine |
+| EasySD PCB | EasyEDA design |
+| Arduino Nano 3.x | ATmega328P, 5 V |
 | MicroSD card adapter (5 V) | Standard SPI module |
 | Cartridge ROML chip, 512 Kbit | AT27C512R-45PU or M27C512 |
-| EasySD PCB | EasyEDA design — see schematic below |
-| 100 nF ceramic capacitor | At SD module VCC/GND pins (required for stable SPI) |
-| 10–100 µF electrolytic capacitor | Optional, also at SD module VCC/GND |
-| 5 mm LED + 220 Ω resistor | Power indicator (always lit when powered) |
+| 100 nF ceramic capacitor | At SD module VCC/GND pins |
+| 5 mm LED + 220 Ω resistor | Power indicator |
 | Tactile pushbutton | SEL / long-press BASIC |
+| 10–100 µF electrolytic capacitor | Optional, at SD module VCC/GND |
 
 ![EasySD Schematic v3](Schematic%20EasySD%20v3.png)
 
