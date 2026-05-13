@@ -5,7 +5,6 @@
 #include "DirFunction.h"
 #include "EasySD.h"
 #include "FlashLib.h"
-#include "petscii.c"
 #include "FreeStack.h"
 #include "EasySDLog.h"
 

@@ -694,7 +694,6 @@ PLUGIN_MATRIX = [
     # (rel_path_from_irq_root, asm_file, out_basename)
     ("Plugins/CvdPlayer",               "CvdPlayer.s",        "cvdplugin"),
     ("Plugins/KoalaDisplayer",          "KoalaDisplayer.s",   "koaplugin"),
-    ("Plugins/PetsciiDisplayer",        "PetsciiDisplayer.s", "petgplugin"),
     ("Plugins/WavPlayer",               "WavPlayer.s",        "wavplugin"),
     ("Loader/Bridges/KernalBridge",     "KernalBridge.s",     "prgplugin"),
 ]
