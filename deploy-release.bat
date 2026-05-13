@@ -70,6 +70,7 @@ call :print_step "Release build" "%STEP1%"
 call :print_step "ISP upload" "%STEP2%"
 call :print_step "SD deploy" "%STEP3%"
 powershell -NoProfile -Command "Write-Host ''; Write-Host 'DEPLOY COMPLETE' -ForegroundColor Green"
+python Tools/build.py arduino-size
 pause
 exit /b 0
 

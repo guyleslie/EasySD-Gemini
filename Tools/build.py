@@ -28,6 +28,7 @@ Date: 2025-12-26
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import re
 import shutil
@@ -981,6 +982,8 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
     size = parse_arduino_size(result.stdout)
     if size:
         print_size_summary(size)
+        cache = default_arduino_compile_dir(ctx) / "size_cache.json"
+        cache.write_text(json.dumps(size))
     return size
 
 
@@ -1158,7 +1161,7 @@ Examples:
             "core", "plugins", "clean", "prebuild",
             # Arduino operations
             "arduino-setup", "arduino-compile", "arduino-upload-isp",
-            "arduino-monitor", "arduino-list-ports", "arduino-clean",
+            "arduino-monitor", "arduino-list-ports", "arduino-clean", "arduino-size",
             # SD card deploy
             "sd-deploy", "sd-content",
         ],
@@ -1226,6 +1229,14 @@ def main(argv: Sequence[str]) -> int:
 
     if args.target == "arduino-clean":
         arduino_clean(ctx)
+        return 0
+
+    if args.target == "arduino-size":
+        cache = default_arduino_compile_dir(ctx) / "size_cache.json"
+        if not cache.exists():
+            print("No size data — run 'python build.py release' or 'python build.py arduino-compile' first.")
+            return 1
+        print_size_summary(json.loads(cache.read_text()))
         return 0
 
     if args.target == "sd-content":

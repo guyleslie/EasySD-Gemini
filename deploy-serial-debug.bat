@@ -70,7 +70,8 @@ echo ==============================
 call :print_step "Release artifact refresh" "%STEP1%"
 call :print_step "ISP upload" "%STEP2%"
 call :print_step "SD deploy" "%STEP3%"
-powershell -NoProfile -Command "Write-Host ''; Write-Host 'SERIAL DEBUG DEPLOY COMPLETE' -ForegroundColor Green; Write-Host 'Serial monitor: python Tools/build.py arduino-monitor COM4' -ForegroundColor Cyan"
+powershell -NoProfile -Command "Write-Host ''; Write-Host 'SERIAL DEBUG DEPLOY COMPLETE' -ForegroundColor Green"
+python Tools/build.py arduino-size
 pause
 exit /b 0
 
