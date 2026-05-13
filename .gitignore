@@ -27,9 +27,12 @@ Thumbs.db
 .DS_Store
 nul
 
-# SD card media files (large binaries, generated locally)
-sdcard/*.CVD
-sdcard/*.cvd
+# SD card contents (generated locally — only README.md is tracked)
+sdcard/EASYSD.PRG
+sdcard/PLUGINS/
+sdcard/CVD/
+sdcard/KOALA PAINTER/
+sdcard/WAV PLAYER/
 
 # Charset preview working files (commercial font extracts)
 tmp_charset_preview/
