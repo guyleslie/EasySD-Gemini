@@ -2,7 +2,7 @@
 
 > Load programs and media files on your Commodore 64 straight from an SD card.
 
-EasySD is a DIY expansion cartridge for the Commodore 64. An Arduino Nano reads FAT-formatted SD cards and streams file data to the C64 over the NMI line at up to ~40 KB/s. A 512 Kbit ROML chip handles cartridge autostart, the cold-boot sequence, and the NMI byte-transfer handler that receives every file byte from the Arduino. The interactive menu and plugins are `.PRG` files on the SD card, loaded at runtime.
+EasySD is a DIY expansion cartridge for the Commodore 64. An Arduino Nano reads FAT-formatted SD cards and streams file data to the C64 via NMI pulses. A 512 Kbit ROML chip handles cartridge autostart, the cold-boot sequence, and the NMI byte-transfer handler that receives every file byte from the Arduino. The interactive menu and plugins are `.PRG` files on the SD card, loaded at runtime.
 
 ![EasySD v3 PCB](PCB%20EasySd%20v3%20.png)
 
@@ -12,7 +12,7 @@ EasySD is a DIY expansion cartridge for the Commodore 64. An Arduino Nano reads 
 
 ## Features
 
-- Browse folders and load `.PRG` programs directly from SD card
+- Browse folders and load `.PRG` programs directly from SD card — a typical 50 KB game loads in about 3 seconds
 - Plugin system for additional file types — loaded on demand, no ROM changes needed
 - Supported file formats: `.PRG`, `.KOA` (Koala graphics), `.WAV` (audio), `.CVD` (CVD video)
 - IRQHack64-style cold boot — Arduino never holds the C64 in reset
@@ -131,7 +131,7 @@ EasySD has two cooperating halves:
 
 | Transfer path | Rate | Used for |
 |---------------|------|----------|
-| NMI line | ~40 KB/s | PRG loading |
+| NMI line | ~16 KB/s | PRG loading |
 | IO2 streaming | ~13.5 KB/s | WAV / CVD playback |
 
 ---
