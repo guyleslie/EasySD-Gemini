@@ -137,7 +137,7 @@ EasySD has two cooperating halves:
 
 ## Credits
 
-EasySD Gemini is a major rewrite of the original **IRQHack64** project. Hardware concept and cartridge design from the IRQHack64 community.
+EasySD Gemini builds on the original **IRQHack64** project by **I.R.on**, carrying the concept forward with further development, optimizations, and hardware refinements.
 
 Hardware and firmware: **GuyLeslie** (2025–2026)
 
