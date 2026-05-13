@@ -771,15 +771,14 @@ GETCURRENTROW	; Input : None, Output : X (current row)
 ; ------------------------------------------------------------
 ; PRINTASCIIFILENAME - ASCII to screen code filename printer
 ; ------------------------------------------------------------
-; Converts ASCII filenames to screen codes. Both uppercase and
-; lowercase letters map to screen codes $01-$1A (A-Z), so the
-; display is always uppercase regardless of the LFN case on SD.
+; Converts ASCII filenames to C64 mixed-case screen codes.
 ; The original case is preserved in the dir buffer for sd.chdir().
 ;
-; ASCII $20-$40 (space/symbols/digits/@)  → screen code as-is
-; ASCII $41-$5A (uppercase A-Z)           → screen code $01-$1A (subtract $40)
-; ASCII $5B-$5F ([ \ ] ^ _)              → screen code $1B-$1F (subtract $40)
-; ASCII $61-$7A (lowercase a-z)           → screen code $01-$1A (subtract $60)
+; ASCII $20-$3F (space/symbols/digits) -> screen code as-is
+; ASCII $40 (@)                         -> screen code $00
+; ASCII $41-$5A (uppercase A-Z)         -> screen code $41-$5A
+; ASCII $5B-$5F ([ \ ] ^ _)             -> screen code $1B-$1F (subtract $40)
+; ASCII $61-$7A (lowercase a-z)         -> screen code $01-$1A (subtract $60)
 ;
 ; Input:  NAMELOW/HIGH = pointer to ASCII filename
 ;         COLLOW/HIGH = pointer to screen memory position
@@ -794,18 +793,25 @@ FILENAMEPRINT_A
 	LDA #$20            ; Replace null with space
 	JMP WRITECHAR_A
 NOTEND_A
+	CMP #$40            ; '@'?
+	BEQ _paf_at
 	CMP #$41            ; >= 'A'?
-	BCC WRITECHAR_A     ; No → $20-$40: space, punctuation, digits, @, as-is
-	CMP #$60            ; < '`'? ($41-$5F: A-Z, [, \, ], ^, _)
-	BCC _paf_upper      ; yes → subtract $40
+	BCC WRITECHAR_A     ; No -> $20-$3F: space, punctuation, digits, as-is
+	CMP #$5B            ; <= 'Z'?
+	BCC WRITECHAR_A     ; yes -> uppercase screen codes are ASCII-compatible
+	CMP #$60            ; < '`'? ($5B-$5F: [, \, ], ^, _)
+	BCC _paf_symbol     ; yes -> subtract $40
 	CMP #$7B            ; >= '{' ?
-	BCS WRITECHAR_A     ; yes (backtick $60 or above 'z') → as-is
+	BCS WRITECHAR_A     ; yes (backtick $60 or above 'z') -> as-is
 	SEC
-	SBC #$60            ; Lowercase $61-$7A → screen codes $01-$1A (A-Z)
+	SBC #$60            ; Lowercase $61-$7A -> screen codes $01-$1A
 	JMP WRITECHAR_A
-_paf_upper
+_paf_symbol
 	SEC
-	SBC #$40            ; $41-$5A→$01-$1A (A-Z), $5B-$5F→$1B-$1F ([£]↑↓)
+	SBC #$40            ; $5B-$5F -> $1B-$1F
+	JMP WRITECHAR_A
+_paf_at
+	LDA #$00            ; @
 WRITECHAR_A
 	STA (COLLOW), Y     ; Write to screen memory
 	INY
@@ -1055,38 +1061,37 @@ _DDEC_DONE
 ; ------------------------------------------------------------
 ; DRAW_SCROLL_INDICATORS
 ; Called after PRINTPAGE to overlay scroll hints on rows 2 and 22.
-; Row 2,  cols 30-35 ($046E): " ↑MORE" if previous pages exist
-; Row 22, cols 30-35 ($078E): " vMORE" if next pages exist
-;   ↑ = $1E (screen code for PETSCII $5E),  v = $16 (placeholder — replace with custom char later)
-;   M=$0D  O=$0F  R=$12  E=$05 (C64 screen codes)
+; Row 2,  cols 30-35 ($046E): "  MORE" if previous pages exist
+; Row 22, cols 30-35 ($078E): "  MORE" if next pages exist
+;   M=$4D  O=$4F  R=$52  E=$45 (uppercase mixed-case C64 screen codes)
 ;   Color: green ($05) via color RAM $D86E / $DB8E
 ; Clobbers: A, Y
 ; ------------------------------------------------------------
 DRAW_SCROLL_INDICATORS
 	LDA PAGECOUNT
 	CMP #1
-	BEQ _dsi_done		; single page → nothing to show
+	BEQ _dsi_done		; single page -> nothing to show
 
-	; --- ↑MORE on row 2, when previous page exists ---
+	; --- MORE on row 2, when previous page exists ---
 	LDA CURPAGEINDEX
 	BEQ _dsi_check_below
 	LDY #0
 	LDA #$20
 	STA $046E,Y		; space
 	INY
-	LDA #$1E
-	STA $046E,Y		; ↑ (screen code $1E = PETSCII $5E)
+	LDA #$20
+	STA $046E,Y		; space where the arrow used to be
 	INY
-	LDA #$0D
+	LDA #$4D
 	STA $046E,Y		; M
 	INY
-	LDA #$0F
+	LDA #$4F
 	STA $046E,Y		; O
 	INY
-	LDA #$12
+	LDA #$52
 	STA $046E,Y		; R
 	INY
-	LDA #$05
+	LDA #$45
 	STA $046E,Y		; E
 	LDA #$05		; green
 	LDY #5
@@ -1096,29 +1101,29 @@ _dsi_up_col
 	BPL _dsi_up_col
 
 _dsi_check_below
-	; --- vMORE on row 22, when next page exists ---
+	; --- MORE on row 22, when next page exists ---
 	LDA CURPAGEINDEX
 	CLC
 	ADC #1
 	CMP PAGECOUNT		; CURPAGEINDEX+1 >= PAGECOUNT?
-	BCS _dsi_done		; on last page → nothing
+	BCS _dsi_done		; on last page -> nothing
 	LDY #0
 	LDA #$20
 	STA $078E,Y		; space
 	INY
-	LDA #$1F
-	STA $078E,Y		; ↓ (custom char $1F from CharPad charset)
+	LDA #$20
+	STA $078E,Y		; space where the arrow used to be
 	INY
-	LDA #$0D
+	LDA #$4D
 	STA $078E,Y		; M
 	INY
-	LDA #$0F
+	LDA #$4F
 	STA $078E,Y		; O
 	INY
-	LDA #$12
+	LDA #$52
 	STA $078E,Y		; R
 	INY
-	LDA #$05
+	LDA #$45
 	STA $078E,Y		; E
 	LDA #$05		; green
 	LDY #5
@@ -1206,15 +1211,15 @@ PRINTDIRHEADER
 	BNE _pdh_subdir
 
 	; At root: write "ROOT" reversed at col 5-8
-	LDA #$92		; R ($12|$80) — screen code $12, inverted
+	LDA #$D2		; R ($52|$80)
 	STA $042D
-	LDA #$8F		; O ($0F|$80) — screen code $0F, inverted
+	LDA #$CF		; O ($4F|$80)
 	STA $042E
-	LDA #$8F		; O
+	LDA #$CF		; O
 	STA $042F
-	LDA #$94		; T ($14|$80) — screen code $14, inverted
+	LDA #$D4		; T ($54|$80)
 	STA $0430
-	LDY #$04		; Y=4 → place ─■ at col 9-10
+	LDY #$04		; Y=4 -> place frame end at col 9-10
 	JMP _pdh_done_copy
 
 _pdh_subdir
@@ -1226,19 +1231,26 @@ _pdh_subdir
 _pdh_copy
 	LDA (NAMELOW), Y
 	BEQ _pdh_done_copy
-	; ASCII → screen code, same mapping as PRINTASCIIFILENAME.
+	; ASCII -> screen code, same mapping as PRINTASCIIFILENAME.
+	CMP #$40		; '@'?
+	BEQ _pdh_at
 	CMP #$41		; >= 'A'?
-	BCC _pdh_noconv		; No → $20-$40: space, punctuation, digits, @, as-is
-	CMP #$60		; < '`'? ($41-$5F: A-Z, [, \, ], ^, _)
-	BCC _pdh_upper		; yes → subtract $40
+	BCC _pdh_noconv		; No -> $20-$3F: space, punctuation, digits, as-is
+	CMP #$5B		; <= 'Z'?
+	BCC _pdh_noconv		; yes -> uppercase screen codes are ASCII-compatible
+	CMP #$60		; < '`'? ($5B-$5F: [, \, ], ^, _)
+	BCC _pdh_symbol		; yes -> subtract $40
 	CMP #$7B		; >= '{' ?
-	BCS _pdh_noconv		; yes (backtick $60 or above 'z') → as-is
+	BCS _pdh_noconv		; yes (backtick $60 or above 'z') -> as-is
 	SEC
-	SBC #$60		; lowercase $61-$7A → screen code $01-$1A
+	SBC #$60		; lowercase $61-$7A -> screen code $01-$1A
 	JMP _pdh_reverse
-_pdh_upper
+_pdh_symbol
 	SEC
-	SBC #$40		; uppercase $41-$5A → screen code $01-$1A
+	SBC #$40		; $5B-$5F -> $1B-$1F
+	JMP _pdh_reverse
+_pdh_at
+	LDA #$00		; @
 _pdh_noconv
 	; Reverse-video directory name inside the header bar.
 _pdh_reverse
@@ -1619,10 +1631,9 @@ _sd_inner
 	BNE _sd_outer
 	RTS
 
-; Custom charset data (2KB, CharPad export).
+; Custom charset data (2KB, standard C64 mixed-case layout).
 ; LOAD_CUSTOM_CHARSET copies this to $3800-$3FFF (VIC bank 0, slot 7) at startup.
-; Char $1F = ↓ arrow (replaces original right-arrow).
 CUSTOM_CHARSET
-	.binary "upper case chars.bin"
+	.binary "mixed case chars.bin"
 
 	
