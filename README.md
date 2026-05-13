@@ -15,7 +15,7 @@ EasySD is a DIY expansion cartridge for the Commodore 64. An Arduino Nano reads 
 - Browse folders and load `.PRG` programs directly from SD card — a typical 50 KB game loads in about 3 seconds
 - Plugin system for additional file types — loaded on demand
 - Supported file formats: `.PRG`, `.KOA` (Koala graphics), `.WAV` (audio), `.CVD` (CVD video)
-- C64 boots normally to BASIC — press SEL to launch the EasySD menu
+- C64 boots normally to BASIC — press MENU/RESET (SEL) to launch the EasySD menu
 - FAT16 / FAT32, any SD card capacity, long filenames supported
 - Short press SEL → open menu; long press SEL → return to BASIC
 
