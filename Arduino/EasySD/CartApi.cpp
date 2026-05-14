@@ -46,6 +46,30 @@ static char    s_wm_prev_name[32]  = {'\0'};
 static uint8_t s_wm_prev_isDir     = 1;
 static char    s_wm_pp_name[32]    = {'\0'};
 static uint8_t s_wm_pp_isDir       = 1;
+static const uint16_t INVALID_DIR_IDX = 0xFFFF;
+static const uint16_t PAGE_DIRIDX_CACHE_OFFSET = NON_INTERRUPTED_BUFFER_SIZE - (21u * 2u);
+static uint8_t  s_pageEntryCount = 0;
+static uint8_t  s_pageEntryPage = 0xFF;
+
+static void SetCachedPageDirIdx(uint8_t row, uint16_t dirIdx) {
+  uint16_t offset = PAGE_DIRIDX_CACHE_OFFSET + (uint16_t)row * 2u;
+  sharedBuf.ni[offset] = (uint8_t)(dirIdx & 0xFF);
+  sharedBuf.ni[offset + 1] = (uint8_t)(dirIdx >> 8);
+}
+
+static uint16_t GetCachedPageDirIdx(uint8_t row) {
+  uint16_t offset = PAGE_DIRIDX_CACHE_OFFSET + (uint16_t)row * 2u;
+  return (uint16_t)sharedBuf.ni[offset] | ((uint16_t)sharedBuf.ni[offset + 1] << 8);
+}
+
+static void ClearCachedPageDirIdx() {
+  for (uint8_t i = 0; i < 21; i++) SetCachedPageDirIdx(i, INVALID_DIR_IDX);
+}
+
+static void InvalidatePageEntryCache() {
+  s_pageEntryCount = 0;
+  s_pageEntryPage = 0xFF;
+}
 
 static uint16_t ReadAndPadBuffer(File &file, uint8_t *buffer, uint16_t length, uint8_t padValue) {
   int readCount = file.read(buffer, length);
@@ -102,6 +126,7 @@ void CartApi::Init() {
   s_wm_name[0]      = '\0'; s_wm_isDir      = 1;
   s_wm_prev_name[0] = '\0'; s_wm_prev_isDir = 1;
   s_wm_pp_name[0]   = '\0'; s_wm_pp_isDir   = 1;
+  InvalidatePageEntryCache();
 
   dirFunc.ReInit();
   dirFunc.Prepare();
@@ -708,6 +733,17 @@ void CartApi::HandleReadDirectory() {
     s_wm_isDir = entIsDir ? 1 : 0;
   }
 
+  ClearCachedPageDirIdx();
+  uint8_t pageCacheRow = 0;
+  if (dotdotOnThisPage) {
+    SetCachedPageDirIdx(pageCacheRow++, INVALID_DIR_IDX);
+  }
+  for (uint8_t i = 0; i < numSlots && pageCacheRow < 21; i++) {
+    SetCachedPageDirIdx(pageCacheRow++, slots[i].dirIdx);
+  }
+  s_pageEntryCount = pageCacheRow;
+  s_pageEntryPage = startPage;
+
   // Pad the transfer to the exact page size expected by the C64.
   for (uint16_t i = actualTransferredBytes; i < maxBytesToTransfer; i++) {
     cartInterface.TransmitByteFast(0x00);
@@ -742,6 +778,7 @@ void CartApi::HandleChangeDirectory() {
   bool success = dirFunc.ChangeDirectoryBasename(fileName);
 
   if (success) {
+    InvalidatePageEntryCache();
     // Restore the proven post-chdir refresh path: after a successful basename
     // change, rebuild the directory handle/count before the menu asks for the
     // next page. This matches the older stable flow more closely than relying
@@ -789,6 +826,7 @@ void CartApi::HandleChangeDirectoryIndex() {
   }
 
   if (success) {
+    InvalidatePageEntryCache();
     LOGI(DIR, "CDI OK: ");
     LOG_PRINTLN(dirFunc.currentPath);
     HandleResponse(SUCCESSFUL, 1);
@@ -1194,6 +1232,44 @@ void CartApi::HandleInvokeWithName() {
   LoadAndLaunchFile(openName, expectPluginSession);
 }
 
+void CartApi::HandleInvokeWithIndex() {
+  GetArgumentsStatic(3);
+
+  const uint8_t pageIndex = Arguments[0];
+  const uint8_t rowIndex = Arguments[1];
+  const uint8_t flags = Arguments[2];
+  (void)flags;
+
+  if (rowIndex >= 21 ||
+      s_pageEntryPage != pageIndex ||
+      rowIndex >= s_pageEntryCount) {
+    HandleResponse(INVALID_ARGUMENT, 0);
+    return;
+  }
+
+  const uint16_t dirIdx = GetCachedPageDirIdx(rowIndex);
+  if (dirIdx == INVALID_DIR_IDX) {
+    HandleResponse(INVALID_ARGUMENT, 0);
+    return;
+  }
+
+  char selectedName[32];
+  bool isDir = false;
+  if (!dirFunc.GetLFNByDirIdx(dirIdx, selectedName, sizeof(selectedName), &isDir) || isDir) {
+    HandleResponse(FILE_NOT_FOUND, 0);
+    return;
+  }
+
+  if (!dirFunc.OpenFileByDirIdx(dirIdx, workingFile)) {
+    HandleResponse(FILE_CANNOT_BE_OPENED, 0);
+    return;
+  }
+
+  dirFunc.CloseDirHandle();
+  HandleResponse(SUCCESSFUL, 0);
+  LoadAndLaunchOpenedFile(selectedName, false);
+}
+
 void CartApi::HandleEndTalking() {
   // End session cleanly: hide cartridge and reset receiver state.
   cartInterface.DisableCartridge();
@@ -1566,6 +1642,7 @@ void CartApi::HandleApi() {
           case COMMAND_CREATE_DIR : HandleCreateDirectory(); break;      
           case COMMAND_END_TALKING : HandleEndTalking(); break;
           case COMMAND_INVOKE_WITH_NAME : HandleInvokeWithName();break;
+          case COMMAND_INVOKE_WITH_INDEX : HandleInvokeWithIndex();break;
           case COMMAND_STREAM : HandleStream();break;          
           case COMMAND_NI_STREAM : HandleNonInterruptedStream(); break;
           case COMMAND_READ_NEXT_CHUNK : HandleReadNextChunk(); break;
@@ -1747,7 +1824,7 @@ void CartApi::TransferMenu() {
 }
 
 
-void CartApi::LoadAndLaunchFile(const char* selectedFileName, bool expectPluginSession) {
+void CartApi::LoadAndLaunchOpenedFile(const char* selectedFileName, bool expectPluginSession) {
   const size_t BUF_SIZE = 16;
   uint8_t buf[BUF_SIZE];
   cartInterface.EndListening();
@@ -1755,8 +1832,6 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName, bool expectPluginS
   unsigned char crtFile = 0;
   unsigned char booter = 0;
   uint16_t contentLength = 0;
-
-  workingFile = sd.open(selectedFileName, FILE_READ);
 
   if (workingFile ) {
     contentLength = workingFile.size();
@@ -1844,6 +1919,12 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName, bool expectPluginS
     } else {
       LOGE(SYS, "FILENOTFOUND!");
     }
+}
+
+void CartApi::LoadAndLaunchFile(const char* selectedFileName, bool expectPluginSession) {
+  if (workingFile && workingFile.isOpen()) workingFile.close();
+  workingFile = sd.open(selectedFileName, FILE_READ);
+  LoadAndLaunchOpenedFile(selectedFileName, expectPluginSession);
 }
 
 void CartApi::ResetNoCartridge() {

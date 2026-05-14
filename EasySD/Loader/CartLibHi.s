@@ -437,14 +437,19 @@ PROT_InvokeWithName
 
 	
 ;-----------------------------------------
-; Registers In : X (Order number of selected program in the current path)
+; Registers In : A (page index), X (row index), Y (flags)
 ; Registers Used : A, X, Y
 ; Registers Out : A (Status of operation)
 ;-----------------------------------------	
 PROT_InvokeWithIndex
+	PHA
 	LDA #COMMAND_INVOKE_WITH_INDEX
 	JSR PROT_Send
+	PLA
+	JSR PROT_Send ;Send page index
 	TXA
+	JSR PROT_Send ;Send row index
+	TYA
 	JSR PROT_Send ;Send flags
 
 	JSR PROT_WaitProcessing		

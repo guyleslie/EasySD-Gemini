@@ -444,12 +444,10 @@ PRGPLUGINEXISTS
 	JMP *
 
 PROGRAM
+	LDA CURPAGEINDEX
 	JSR GETCURRENTROW
-	;Setting name of the file
-	JSR SETFILENAME	
-	;Invoking with name
-	LDX #$01		; flags: autorun
-	JSR PROT_InvokeWithName
+	LDY #$01		; flags: autorun
+	JSR PROT_InvokeWithIndex
 	BCC SUCCEEDINVOKE
 	JSR PROT_EnableDisplay
 SUCCEEDINVOKE

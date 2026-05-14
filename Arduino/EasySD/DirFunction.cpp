@@ -303,6 +303,17 @@ bool DirFunction::GetLFNByDirIdx(uint16_t idx, char* outName, size_t outSize, bo
   return true;
 }
 
+bool DirFunction::OpenFileByDirIdx(uint16_t idx, File& outFile) {
+  if (!m_dirFile.isOpen() && !ResyncDirFromCwd()) return false;
+  if (outFile.isOpen()) outFile.close();
+  if (!outFile.open(&m_dirFile, idx, O_RDONLY)) return false;
+  if (outFile.isDir()) {
+    outFile.close();
+    return false;
+  }
+  return true;
+}
+
 void DirFunction::Rewind() {
   m_dirFile.rewind();
   currentIndex = 0;

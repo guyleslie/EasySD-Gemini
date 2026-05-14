@@ -46,7 +46,7 @@
 #define COMMAND_SET_PORT            20
 #define COMMAND_SET_IO              21  // defined in protocol; currently no handler
 #define COMMAND_INVOKE_WITH_NAME    23
-#define COMMAND_INVOKE_WITH_INDEX   24  // defined in protocol; currently no handler
+#define COMMAND_INVOKE_WITH_INDEX   24  // menu-only: launch by current page + row index
 #define COMMAND_STREAM              25
 #define COMMAND_NI_STREAM           26
 #define COMMAND_READ_NEXT_CHUNK     27  // NMI-buffered chunk transfer (MK3 WAV path)
@@ -114,6 +114,7 @@ class CartApi {
   void HandleCreateDirectory();
   void HandleEndTalking();
   void HandleInvokeWithName();
+  void HandleInvokeWithIndex();
   void HandleKoalaInvoke(char* mediaPath, const char* returnPath);
   void HandleStream();
   void HandleNonInterruptedStream();
@@ -131,6 +132,7 @@ class CartApi {
   void TransferMenu();
   void ResetNoCartridge();
   void LoadAndLaunchFile(const char* path, bool expectPluginSession);
+  void LoadAndLaunchOpenedFile(const char* displayName, bool expectPluginSession);
 };
 
 #endif
