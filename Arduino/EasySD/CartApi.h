@@ -76,7 +76,6 @@
 // ============================================================================
 #define WRITE_BUFFER_SIZE       32
 #define MAX_ARGUMENTS_LENGTH   128
-#define STREAMING_BUFFER_SIZE   64
 #define DOUBLE_BUFFER_SIZE      64
 #define NON_INTERRUPTED_BUFFER_SIZE 400
 

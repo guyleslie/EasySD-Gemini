@@ -55,7 +55,6 @@ class CartInterface {
  protected:
   //static ByteQueue readQueue;
   unsigned int transferIndex;
-  unsigned int blockIndex;
   //unsigned char transferBufferIndex;
   //static const unsigned char bytesPerNMI = 1;   
 
@@ -71,8 +70,6 @@ class CartInterface {
   void SetPage(unsigned char value);   
   uint8_t ReadIO();
   void SetIO(unsigned char value);    
-  unsigned int GetTransferIndex();
-  unsigned int GetBlockIndex();
   void ResetC64();
   void TransmitByteSlow(unsigned char val);
   void TransmitByteBlockEnd(unsigned char val) ;

@@ -321,15 +321,6 @@ void DirFunction::Rewind() {
   IsFinished = 0;
 }
 
-void DirFunction::SetSelected(unsigned int selectedIndex) {
-  selected = selectedIndex;
-}
-
-unsigned int DirFunction::GetSelected(void) {
-  return selected;
-}
-
-
 bool DirFunction::ChangeDirectoryBasename(const char* basename) {
   if (!basename || basename[0] == '\0') {
     return false;

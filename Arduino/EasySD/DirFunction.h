@@ -17,7 +17,6 @@ class DirFunction {
 
     unsigned int count;
     unsigned int currentIndex;
-    unsigned int selected;
 
     void ReInit(void);
     void ToRoot();
@@ -25,8 +24,6 @@ class DirFunction {
     void Rewind();
     void Prepare();
     bool ChangeDirectory(char* directory);
-    void SetSelected(unsigned int);
-    unsigned int GetSelected(void);
     unsigned int GetCount();
     int Iterate();
 

@@ -20,7 +20,9 @@ volatile unsigned long interruptTime = 0;
 // Track when the state last changed; reset to IDLE if stuck too long.
 static unsigned long identifierStateChangeMs = 0;
 static constexpr unsigned long IDENTIFIER_STALE_TIMEOUT_MS = 200;
+#if defined(EASYSD_DEBUG_SERIAL) || defined(EASYSD_RELEASE_LOG)
 static unsigned long lastStaleIdentLogMs = 0;
+#endif
 
 namespace {
 
@@ -105,11 +107,13 @@ uint8_t CartInterface::ReceiveHandler() {
     // PROT_StartTalking can succeed without power-cycling.
     if (receiveState > IDLE && receiveState < IN_TRANSMISSION) {
       if ((unsigned long)(millis() - identifierStateChangeMs) > IDENTIFIER_STALE_TIMEOUT_MS) {
+#if defined(EASYSD_DEBUG_SERIAL) || defined(EASYSD_RELEASE_LOG)
         // Rate-limit log to avoid serial flood in release-log/debug modes.
         if ((unsigned long)(millis() - lastStaleIdentLogMs) > 1000UL) {
           LOGE(SYS, "Stale ident reset");
           lastStaleIdentLogMs = millis();
         }
+#endif
         bitState = BIT_STARTED;
         bitMask = 1;
         currentByte = 0;
@@ -278,15 +282,6 @@ void CartInterface::Init() {
 }
 
 
-unsigned int CartInterface::GetTransferIndex() {
-  return transferIndex;
-}
-
-unsigned int CartInterface::GetBlockIndex() {
-  return blockIndex;
-}
-
-
 void CartInterface::SetPage(unsigned char value) {
   #ifdef PORT_MANIPULATION
   // FIX: Read PORT registers (output state), not PIN registers (external signals)
@@ -325,7 +320,6 @@ void CartInterface::TransmitByteBlockEnd(unsigned char val) {
 
 void CartInterface::ResetIndex() {
   transferIndex = 0;
-  blockIndex = 0;
 }
 
 void CartInterface::EnableCartridge() {
@@ -416,7 +410,6 @@ void CartInterface::TransmitByteFast(unsigned char val)
       NmiHigh();
       delayMicroseconds(80); // Wait for interrupt to finish its job
       transferIndex = 0;
-      blockIndex++;
    } else {
       NmiLow();
       delayMicroseconds(10); // FIX: Increased from 6µs (was too short!)
@@ -436,7 +429,6 @@ void CartInterface::TransmitByteFastStd(unsigned char val)
       NmiHigh();
       delayMicroseconds(80); // Wait for interrupt to finish its job
       transferIndex = 0;
-      blockIndex++;
    } else {
       NmiLow();
       delayMicroseconds(10); // FIX: Increased from 7µs
@@ -458,7 +450,6 @@ void CartInterface::TransmitByteFastMK3(unsigned char val)
       NmiHigh();
       delayMicroseconds(80); // block-end: extra margin at 256-byte boundary
       transferIndex = 0;
-      blockIndex++;
    } else {
       NmiLow();
       delayMicroseconds(10);
