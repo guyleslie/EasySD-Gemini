@@ -50,6 +50,9 @@ static const uint16_t INVALID_DIR_IDX = 0xFFFF;
 static const uint16_t PAGE_DIRIDX_CACHE_OFFSET = NON_INTERRUPTED_BUFFER_SIZE - (21u * 2u);
 static uint8_t  s_pageEntryCount = 0;
 static uint8_t  s_pageEntryPage = 0xFF;
+// Shared SFN resolution buffer — only one command handler runs at a time,
+// so a single file-scope buffer replaces four separate static locals (-48 B SRAM).
+static char s_sfnBuf[16];
 
 static void SetCachedPageDirIdx(uint8_t row, uint16_t dirIdx) {
   uint16_t offset = PAGE_DIRIDX_CACHE_OFFSET + (uint16_t)row * 2u;
@@ -299,9 +302,8 @@ void CartApi::HandleOpenFile() {
   // opening by SFN is reliable.  If FindFileSFN returns false the file does
   // not exist yet — the original name is kept so O_CREAT paths can write a
   // brand-new file under its user-chosen LFN.
-  static char sfnBuf[16];
-  if (dirFunc.FindFileSFN(openName, (uint8_t)strlen(openName), sfnBuf, sizeof(sfnBuf))) {
-    openName = sfnBuf;
+  if (dirFunc.FindFileSFN(openName, (uint8_t)strlen(openName), s_sfnBuf, sizeof(s_sfnBuf))) {
+    openName = s_sfnBuf;
   }
 
   LOG_LOAD_OPEN(openName);
@@ -374,13 +376,12 @@ void CartApi::HandleDeleteFile() {
 
   // Resolve LFN→SFN so sd.remove() works for files with spaces/lowercase.
   // sd.exists check is folded into the resolver: no match means no file.
-  static char sfnBuf[16];
   if (!dirFunc.FindFileSFN(fileName, (uint8_t)strlen(fileName),
-                           sfnBuf, sizeof(sfnBuf))) {
+                           s_sfnBuf, sizeof(s_sfnBuf))) {
     HandleResponse(FILE_NOT_FOUND, 0);
     return;
   }
-  if (sd.remove(sfnBuf)) {
+  if (sd.remove(s_sfnBuf)) {
     HandleResponse(SUCCESSFUL, 0);
   } else {
     HandleResponse(FILE_DELETION_FAILED, 0);
@@ -851,13 +852,12 @@ void CartApi::HandleDeleteDirectory() {
   }
 
   // Resolve LFN→SFN so sd.rmdir() works for dirs with spaces/lowercase.
-  static char sfnBuf[16];
   if (!dirFunc.FindDirSFN(fileName, (uint8_t)strlen(fileName),
-                          sfnBuf, sizeof(sfnBuf))) {
+                          s_sfnBuf, sizeof(s_sfnBuf))) {
     HandleResponse(DIR_NOT_FOUND, 0);
     return;
   }
-  if (sd.rmdir(sfnBuf)) {
+  if (sd.rmdir(s_sfnBuf)) {
     HandleResponse(SUCCESSFUL, 0);
   } else {
     HandleResponse(DIR_DELETION_FAILED, 0);
@@ -1026,7 +1026,9 @@ static void TransmitZeroBytes(uint32_t byteCount) {
 // CartApi PUBLIC METHODS
 // ============================================================================
 
-void CartApi::HandleKoalaInvoke(char* mediaPath, const char* returnPath) {
+// Uses already-open workingFile (set by caller).  Mirrors LoadAndLaunchOpenedFile
+// for PRGs: caller opens by dirIdx, then calls this for the two-file transfer.
+void CartApi::HandleKoalaInvokeFromOpenFile(const char* returnPath) {
   const uint16_t KOA_LOAD_ADDR = 0x2000;
   const uint16_t KOA_PAYLOAD_SIZE = 10001;
   const uint16_t KOA_PLUGIN_ADDR = 0xC000;
@@ -1037,20 +1039,6 @@ void CartApi::HandleKoalaInvoke(char* mediaPath, const char* returnPath) {
   uint8_t buf[BUF_SIZE];
   uint8_t* pluginPayload = sharedBuf.ni + KOA_PLUGIN_BUFFER_OFFSET;
   File pluginFile;
-
-  if (workingFile && workingFile.isOpen()) {
-    workingFile.close();
-  }
-
-  // HandleInvokeWithName has already moved CWD to the media file's parent and
-  // resolved the same basename/prefix form that regular PRG launch uses.
-  workingFile = sd.open(mediaPath, FILE_READ);
-  if (!workingFile) {
-    LOGE(SYS, "KOA media open");
-    RestorePathIfProvided(returnPath);
-    HandleResponse(FILE_NOT_FOUND, 0);
-    return;
-  }
 
   uint32_t mediaSize = workingFile.size();
   uint16_t mediaSkip = 0;
@@ -1151,6 +1139,20 @@ void CartApi::HandleKoalaInvoke(char* mediaPath, const char* returnPath) {
   LOGI(SYS, "KOA launched");
 }
 
+// Open media file by SFN path from the current CWD (already set to parent dir
+// by HandleInvokeWithName), then run the two-file KOA transfer.
+void CartApi::HandleKoalaInvoke(char* mediaPath, const char* returnPath) {
+  if (workingFile && workingFile.isOpen()) workingFile.close();
+  workingFile = sd.open(mediaPath, FILE_READ);
+  if (!workingFile) {
+    LOGE(SYS, "KOA media open");
+    RestorePathIfProvided(returnPath);
+    HandleResponse(FILE_NOT_FOUND, 0);
+    return;
+  }
+  HandleKoalaInvokeFromOpenFile(returnPath);
+}
+
 void CartApi::HandleInvokeWithName() {
   GetArgumentsDynamic(1);
   unsigned int fileNameLength = Arguments[1];
@@ -1209,15 +1211,14 @@ void CartApi::HandleInvokeWithName() {
   // opens reliably for the same entry.  FindFileSFN iterates via openNext
   // (which handles LFN entries) and writes the SFN into sfnBuf.
   // sfnBuf needs at most 13 bytes (8.3 + null) — 16 for safety.
-  static char sfnBuf[16];
   uint8_t nameLen = strlen(openName);
-  if (!dirFunc.FindFileSFN(openName, nameLen, sfnBuf, sizeof(sfnBuf))) {
+  if (!dirFunc.FindFileSFN(openName, nameLen, s_sfnBuf, sizeof(s_sfnBuf))) {
     // Restore user CWD before erroring so menu state stays consistent.
     dirFunc.NavigateToPath(savedPath);
     HandleResponse(FILE_NOT_FOUND, 0);
     return;
   }
-  openName = sfnBuf;
+  openName = s_sfnBuf;
 
   if (isKoa) {
     HandleKoalaInvoke((char*)openName, savedPath);
@@ -1266,6 +1267,14 @@ void CartApi::HandleInvokeWithIndex() {
   }
 
   dirFunc.CloseDirHandle();
+
+  // KOA files require a two-file transfer (media + KOAPLUGIN.PRG).
+  // workingFile is already open; HandleKoalaInvokeFromOpenFile uses it directly.
+  if (EndsWithIgnoreCase(selectedName, ".koa")) {
+    HandleKoalaInvokeFromOpenFile(nullptr);
+    return;
+  }
+
   HandleResponse(SUCCESSFUL, 0);
   LoadAndLaunchOpenedFile(selectedName, false);
 }

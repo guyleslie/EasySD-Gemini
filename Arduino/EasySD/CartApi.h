@@ -115,6 +115,7 @@ class CartApi {
   void HandleEndTalking();
   void HandleInvokeWithName();
   void HandleInvokeWithIndex();
+  void HandleKoalaInvokeFromOpenFile(const char* returnPath);
   void HandleKoalaInvoke(char* mediaPath, const char* returnPath);
   void HandleStream();
   void HandleNonInterruptedStream();
