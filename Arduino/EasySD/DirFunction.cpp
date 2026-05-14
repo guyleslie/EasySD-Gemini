@@ -276,6 +276,7 @@ int DirFunction::Iterate() {
 
     CaptureFileNamePreview(file, currentFileName, sizeof(currentFileName));
     IsDirectory = file.isDir() ? 1 : 0;
+    currentDirIdx = file.dirIndex(); // save FAT entry index for GetLFNByDirIdx
     file.close();
     currentIndex++;
     return 1;
@@ -287,6 +288,19 @@ int DirFunction::Iterate() {
 
 unsigned int DirFunction::GetCount() {
   return count;
+}
+
+// Open a directory entry by FAT dir-entry index and capture its full LFN name.
+// Used by HandleReadDirectory pass 2 so full names are delivered without a
+// second forward scan.  After open(dirFile, index) SdFat scans backward for
+// the LFN chain, so printName() returns the complete long filename.
+bool DirFunction::GetLFNByDirIdx(uint16_t idx, char* outName, size_t outSize, bool* outIsDir) {
+  File f;
+  if (!f.open(&m_dirFile, idx, O_RDONLY)) return false;
+  CaptureFileNamePreview(f, outName, outSize);
+  if (outIsDir) *outIsDir = f.isDir();
+  f.close();
+  return true;
 }
 
 void DirFunction::Rewind() {

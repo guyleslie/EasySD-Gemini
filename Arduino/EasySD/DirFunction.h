@@ -47,9 +47,14 @@ class DirFunction {
     bool FindFileSFN(const char* prefix, uint8_t len, char* outSFN, size_t outSize);
     bool FindDirSFN(const char* prefix, uint8_t len, char* outSFN, size_t outSize);
 
+    // Open a directory entry by its FAT directory-entry index and retrieve its
+    // full LFN name.  Used by HandleReadDirectory's O(N) two-pass sort.
+    bool GetLFNByDirIdx(uint16_t idx, char* outName, size_t outSize, bool* outIsDir);
+
     // Preview buffer used for menu listing transport to the C64.
     // It intentionally stores only the leading part of a filename.
     char currentFileName[32];
+    uint16_t currentDirIdx; // FAT dir-entry index of the last Iterate() result
     int IsDirectory;
     int IsFinished;
     int InSubDir;

@@ -1188,8 +1188,12 @@ _DDEC_EMPTY
 	STA (COLLOW),Y
 	LDA #$0B		; Dark grey
 _DDEC_SETCOL
-	; Set color for cols 2-3 (A = color value)
-	STA NAMELOW		; Temp: save color
+	; Set color for col 2-3 (decoration, A = color value), then dark grey
+	; for the entire filename area (cols 4-38).  Without this, the filename
+	; area keeps whatever color the PETMATE background wrote, which can be
+	; white for some rows — causing the first filename character to appear
+	; white after a page load.
+	STA NAMELOW		; Temp: save decoration color
 	LDA COLHIGH
 	PHA
 	CLC
@@ -1197,9 +1201,16 @@ _DDEC_SETCOL
 	STA COLHIGH		; -> color RAM
 	LDY #$00
 	LDA NAMELOW
-	STA (COLLOW),Y		; col 2 color
+	STA (COLLOW),Y		; col 2 color (decoration)
 	INY
-	STA (COLLOW),Y		; col 3 color
+	STA (COLLOW),Y		; col 3 color (decoration)
+	INY			; Y=2 = col 4, first filename character
+	LDA #$0B		; dark grey for all filename chars
+_DDEC_NAMECOL
+	STA (COLLOW),Y
+	INY
+	CPY #$26		; stop at Y=$26 (covers cols 4-38 = Y 2-37)
+	BNE _DDEC_NAMECOL
 	PLA
 	STA COLHIGH		; -> screen RAM
 	INX
