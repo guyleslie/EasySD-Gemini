@@ -32,6 +32,9 @@ CHECKFILENAME
 	LDA #$00
 	STA PERIOD_POSITION
 	STA EXT_LEN
+	STA EXTBUF
+	STA EXTBUF+1
+	STA EXTBUF+2
 
 	LDY #0
 _find_last_dot
@@ -116,6 +119,9 @@ _done_prg
 ; needs the CHECKFILENAME return value for TYPE_PROGRAM/TYPE_CHECK_PLUGIN dispatch.
 ISPRG
 	PHA			; save A (CHECKFILENAME result)
+	LDA EXT_LEN
+	CMP #3
+	BNE _isprg_no
 	LDA EXTBUF
 	ORA #$20		; force lowercase ('P'→'p', 'p'→'p')
 	CMP #$70		; 'p'

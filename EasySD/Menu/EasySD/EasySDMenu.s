@@ -865,24 +865,33 @@ _paf_scan_next
 	CPY #31			; scan bytes 0-30 only (byte 31 is type flag)
 	BNE _paf_scan
 _paf_scan_done
-	; If a dot was found and it is not the last byte, read ext chars
+	; If a dot was found and exactly 3 visible extension chars follow, read them.
 	LDA $8B
 	BEQ _paf_stem		; no dot -> no extension
-	CMP #30			; dot at pos 30 means no char follows in name area
-	BCS _paf_stem
+	CMP #28			; dot after pos 27 cannot fit a 3-char extension
+	BCS _paf_invalid_ext
 	CLC
 	ADC #1			; first ext char index = dot_pos + 1
 	TAY
 	LDA (NAMELOW), Y	; ext char 0
-	BEQ _paf_stem
+	BEQ _paf_invalid_ext
 	STA $8C
 	INY
 	LDA (NAMELOW), Y	; ext char 1
-	BEQ _paf_stem
+	BEQ _paf_invalid_ext
 	STA $8D
 	INY
 	LDA (NAMELOW), Y	; ext char 2
-	BEQ _paf_stem
+	BEQ _paf_invalid_ext
+	STA $8E
+	JMP _paf_stem
+
+_paf_invalid_ext
+	LDA #0
+	STA $8B			; print as no-extension, do not strip at partial dot
+	LDA #$20
+	STA $8C
+	STA $8D
 	STA $8E
 
 	; -- Pass 2: print stem (source = dest = Y, stop at dot, 26, or null) --

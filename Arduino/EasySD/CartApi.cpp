@@ -31,6 +31,22 @@ volatile static uint8_t * streamBuffer2 = sharedBuf.io2.stream2;
 volatile static uint16_t streamBufferIndex;
 volatile static unsigned long lastStreamRequestTime = 0;
 
+// Watermark state for HandleReadDirectory's O(N) two-pass sort.
+// s_wm_name / s_wm_isDir remember the full name and type of the last entry
+// sent on the previous page so pass-1 can skip all already-sent entries in
+// a single forward scan rather than repeating M full directory passes.
+// Declared here (before Init()) so Init() can reset them after a PRG launch.
+static char    s_wm_name[32]      = {'\0'}; // full LFN of last sent entry
+static uint8_t s_wm_isDir         = 1;      // isDir of last sent entry (1=dir,0=file)
+static uint8_t s_sortCachedPage   = 0xFF;   // page whose end is in s_wm_*
+// Two-level history so backward-by-1 navigation hits the cache instead of rebuilding.
+// s_wm_prev = W_in for page s_sortCachedPage   (= end of s_sortCachedPage-1)
+// s_wm_pp   = W_in for page s_sortCachedPage-1 (= end of s_sortCachedPage-2)
+static char    s_wm_prev_name[32]  = {'\0'};
+static uint8_t s_wm_prev_isDir     = 1;
+static char    s_wm_pp_name[32]    = {'\0'};
+static uint8_t s_wm_pp_isDir       = 1;
+
 static uint16_t ReadAndPadBuffer(File &file, uint8_t *buffer, uint16_t length, uint8_t padValue) {
   int readCount = file.read(buffer, length);
   if (readCount < 0) readCount = 0;
@@ -75,6 +91,17 @@ void CartApi::Init() {
   Arguments = sharedBuf.args;
   m_argsOk = true;
   cartInterface.SetPage(0);
+
+  // Invalidate the sort-page watermark cache.  After a PRG launch, chdir,
+  // or SD error the directory context has changed; stale watermarks would
+  // cause the next multi-page scan to skip or duplicate entries.  The first
+  // HandleReadDirectory for page 0 resets the chain anyway, but resetting
+  // here guards against any edge-case where a non-zero page is requested
+  // before page 0 (e.g. after an unusual recovery path).
+  s_sortCachedPage  = 0xFF;
+  s_wm_name[0]      = '\0'; s_wm_isDir      = 1;
+  s_wm_prev_name[0] = '\0'; s_wm_prev_isDir = 1;
+  s_wm_pp_name[0]   = '\0'; s_wm_pp_isDir   = 1;
 
   dirFunc.ReInit();
   dirFunc.Prepare();
@@ -419,25 +446,6 @@ void CartApi::HandleGetPath() {
   delayMicroseconds(20);
 }
 
-// Sorted-scan state for HandleReadDirectory.
-// These 66 bytes are file-scope statics to avoid stack pressure; they are
-// only accessed from HandleReadDirectory() and are never used during stream
-// or NI transfers, so they do not alias sharedBuf.
-// Watermark state for HandleReadDirectory's O(N) two-pass sort.
-// s_wm_name / s_wm_isDir remember the full name and type of the last entry
-// sent on the previous page so pass-1 can skip all already-sent entries in
-// a single forward scan rather than repeating M full directory passes.
-static char    s_wm_name[32]     = {'\0'}; // full LFN of last sent entry
-static uint8_t s_wm_isDir        = 1;      // isDir of last sent entry (1=dir,0=file)
-static uint8_t s_sortCachedPage  = 0xFF;   // page whose end is in s_wm_*
-// Two-level history so backward-by-1 navigation hits the cache instead of rebuilding.
-// s_wm_prev = W_in used to load page s_sortCachedPage   (= end of s_sortCachedPage-1)
-// s_wm_pp   = W_in used to load page s_sortCachedPage-1 (= end of s_sortCachedPage-2)
-static char    s_wm_prev_name[32] = {'\0'};
-static uint8_t s_wm_prev_isDir    = 1;
-static char    s_wm_pp_name[32]   = {'\0'};
-static uint8_t s_wm_pp_isDir      = 1;
-
 // One slot in the in-place sort buffer overlaid on sharedBuf.ni.
 // 19 bytes * 21 = 399 bytes <= NON_INTERRUPTED_BUFFER_SIZE (400).
 struct DirSortSlot {
@@ -660,15 +668,24 @@ void CartApi::HandleReadDirectory() {
   }
 
   // ---- Pass 2: retrieve full LFN via dirIdx then transmit ----
-  // GetLFNByDirIdx opens the entry by index (SdFat scans the LFN chain
-  // backward from that index), giving us the complete long filename.
-  // Only 'numSlots' SD reads here (≤21) instead of the former M×N.
+  // GetLFNByDirIdx does random-access SD reads (cacheDir + seekSet +
+  // openNext).  Those reads must happen with interrupts ENABLED: SdFat
+  // Timeout uses millis() which is frozen under noInterrupts(), and the
+  // SD SPI bus should not be held while NMI timing is unrelated.
+  // Strategy: toggle interrupts per entry — SD read with IRQ on, NMI
+  // byte-burst with IRQ off.  Between bursts NMI is HIGH and the C64 is
+  // spinning in PROT_ReceiveFragment's WAIT_TRANSFER_DONE loop, so
+  // re-enabling interrupts here is safe (no IO2 bytes in flight).
   char    fullName[32];
   bool    entIsDir = false;
   for (uint8_t i = 0; i < numSlots; i++) {
     if (actualTransferredBytes + 32 > maxBytesToTransfer) break;
 
+    // SD read — interrupts enabled so millis() / SdFat timeouts work.
+    interrupts();
     const bool ok = dirFunc.GetLFNByDirIdx(slots[i].dirIdx, fullName, sizeof(fullName), &entIsDir);
+    noInterrupts();
+
     if (!ok) {
       // Fallback: use the truncated sort key so the slot is not silently lost.
       strncpy(fullName, slots[i].key, 15);
@@ -864,6 +881,41 @@ static bool EndsWithIgnoreCase(const char* value, const char* suffix) {
     if (b >= 'A' && b <= 'Z') b = b - 'A' + 'a';
     if (a != b) return false;
   }
+  return true;
+}
+
+static inline char LowerAscii(char c) {
+  return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+}
+
+static bool IsPluginPrgPath(const char* value) {
+  if (value == NULL) return false;
+  const size_t prefixLen = 9;   // "/plugins/"
+  const size_t suffixLen = 10;  // "plugin.prg"
+  size_t valueLen = strlen(value);
+  if (valueLen < prefixLen + suffixLen) return false;
+
+  if (value[0] != '/') return false;
+  if (LowerAscii(value[1]) != 'p') return false;
+  if (LowerAscii(value[2]) != 'l') return false;
+  if (LowerAscii(value[3]) != 'u') return false;
+  if (LowerAscii(value[4]) != 'g') return false;
+  if (LowerAscii(value[5]) != 'i') return false;
+  if (LowerAscii(value[6]) != 'n') return false;
+  if (LowerAscii(value[7]) != 's') return false;
+  if (value[8] != '/') return false;
+
+  value += valueLen - suffixLen;
+  if (LowerAscii(value[0]) != 'p') return false;
+  if (LowerAscii(value[1]) != 'l') return false;
+  if (LowerAscii(value[2]) != 'u') return false;
+  if (LowerAscii(value[3]) != 'g') return false;
+  if (LowerAscii(value[4]) != 'i') return false;
+  if (LowerAscii(value[5]) != 'n') return false;
+  if (value[6] != '.') return false;
+  if (LowerAscii(value[7]) != 'p') return false;
+  if (LowerAscii(value[8]) != 'r') return false;
+  if (LowerAscii(value[9]) != 'g') return false;
   return true;
 }
 
@@ -1065,30 +1117,26 @@ void CartApi::HandleInvokeWithName() {
   GetArgumentsDynamic(1);
   unsigned int fileNameLength = Arguments[1];
   char * fileName = (char *) &Arguments[2];
-  // Reuse NI-buffer tail (bytes 130–193) instead of a local array — saves 64B of
-  // stack.  ni[130+] is beyond the args overlap (ni[0..129]) and is never touched
-  // by IO2/NI streaming during command dispatch.  Sequential use only.
-  // savedPath shares this region with launchPath in LoadAndLaunchFile: the
-  // user's CWD captured here is what LoadAndLaunchFile restores after the launch
-  // sequence (ResetC64 + Init() resets CWD to root).
+  // Reuse NI-buffer tail (bytes 130-193) instead of a local array; ni[130+] is
+  // beyond the args overlap (ni[0..129]) and is never touched by IO2/NI
+  // streaming during command dispatch. Sequential use only.
   char* savedPath = reinterpret_cast<char*>(sharedBuf.ni + 130);
 
   // NUL-terminate the received filename (GetArgumentsDynamic does not do this).
   Arguments[2 + fileNameLength] = '\0';
 
-  // Capture the user's CWD as the post-launch return path. This must persist
-  // across any chdir done below for sd.open(), and across Init() in
-  // LoadAndLaunchFile (which resets dirFunc state to root).
+  // Capture the user's CWD for error rollback and plugin/media launch. Standard
+  // PRG launch intentionally does not restore menu directory state after reset.
   strncpy(savedPath, dirFunc.currentPath, 63);
   savedPath[63] = '\0';
 
   bool isKoa = EndsWithIgnoreCase(fileName, ".koa");
+  bool expectPluginSession = IsPluginPrgPath(fileName);
 
   // For absolute paths (e.g. "/PLUGINS/PRGPLUGIN.PRG"), the target file is NOT
   // in the current CWD — navigate to the parent directory so SdFat 2.x can open
   // the basename reliably (absolute LFN paths are flaky in SdFat 2.x). The CWD
-  // stays at the parent into LoadAndLaunchFile so its sd.open() succeeds; the
-  // user's CWD is restored from savedPath/launchPath after launch.
+  // stays at the parent into LoadAndLaunchFile so its sd.open() succeeds.
   const char* openName = fileName;
   if (fileName[0] == '/') {
     const char* lastSlash = strrchr(fileName, '/');
@@ -1139,10 +1187,11 @@ void CartApi::HandleInvokeWithName() {
   }
 
   // Do NOT restore CWD here: LoadAndLaunchFile's sd.open(openName) needs the
-  // parent directory as CWD. The user's CWD lives in savedPath (shared memory
-  // with launchPath in LoadAndLaunchFile) and is restored after launch.
+  // parent directory as CWD. Close the directory iterator copy before streaming
+  // so a large menu directory is not held open during the launch burst.
+  dirFunc.CloseDirHandle();
   HandleResponse(SUCCESSFUL, 0);
-  LoadAndLaunchFile(openName);
+  LoadAndLaunchFile(openName, expectPluginSession);
 }
 
 void CartApi::HandleEndTalking() {
@@ -1698,24 +1747,16 @@ void CartApi::TransferMenu() {
 }
 
 
-void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
+void CartApi::LoadAndLaunchFile(const char* selectedFileName, bool expectPluginSession) {
   const size_t BUF_SIZE = 16;
   uint8_t buf[BUF_SIZE];
-  // launchPath shares the NI-buffer tail with savedPath in the caller. The
-  // caller (HandleInvokeWithName) populates this region with the user's CWD
-  // before invoking us — that is what we restore after the launch sequence
-  // (ResetC64 + Init() reset dirFunc state to root). Do NOT strncpy from
-  // dirFunc.currentPath here: when invoking a plugin, currentPath is the
-  // plugin's parent dir (e.g. /PLUGINS), not the user's launch dir (e.g. /CVD).
-  char* launchPath = reinterpret_cast<char*>(sharedBuf.ni + 130);
-  const bool preserveLaunchPath = (launchPath[0] != '\0');
   cartInterface.EndListening();
 
   unsigned char crtFile = 0;
   unsigned char booter = 0;
   uint16_t contentLength = 0;
 
-  workingFile = sd.open(selectedFileName);
+  workingFile = sd.open(selectedFileName, FILE_READ);
 
   if (workingFile ) {
     contentLength = workingFile.size();
@@ -1742,16 +1783,8 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     delay(200);
     //delay(500);
     
-    int c = 0;
-    int index = 0;
     unsigned char low;
     unsigned char high;
-    unsigned char data;
-    int readCount = 0;
-    //TODO : Put input mechanics elsewhere...
-    //pressTime = millis();
-
-    uint8_t initialBuff[2];
     if (!crtFile) {
         low = workingFile.read();
         high = workingFile.read();
@@ -1760,9 +1793,6 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
       high = 0x80;
     }
     
-    // Timing-critical PRG transfer path:
-    // keep global interrupts disabled so UART TX/RX ISRs (serial logging) cannot
-    // jitter NMI byte pacing and break real-hardware burst transfers.
     noInterrupts();
     SendHeader(low, high, transferPages, transferLength, (crtFile ? TYPE_CARTRIDGE : (booter ? TYPE_BOOTER : TYPE_STANDARD_PRG)), cartInterface.TransferMode); 
 
@@ -1770,20 +1800,10 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     SendLoaderStub();
     #endif
 
-    while(workingFile.available() > 0) {      
-      readCount = workingFile.read(buf, sizeof(buf));
-  
-      if (readCount > 0) {
-        for (int i = 0;i<readCount;i++) {     
-            cartInterface.TransmitByteFast(buf[i]);
-        }
-      }
-    }        
+    bool readOk = TransmitFileBytes(workingFile, (uint32_t)transferLength, buf, BUF_SIZE);
         
     if (padBytes>0) {
-      for (int i=0;i<padBytes;i++) {    
-        cartInterface.TransmitByteFast(0x00); 
-      }
+      TransmitZeroBytes((uint32_t)padBytes);
     }
     interrupts();
     
@@ -1791,32 +1811,16 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
     workingFile.close();               // close before chdir — prevents SdFat state corruption
     cartInterface.DisableCartridge();  // EXROM HIGH + data bus tristate — clean state after transfer
 
-    // Attach IO2 listening BEFORE the post-launch SD housekeeping (Init + optional
-    // NavigateToPath). Once the LoaderStub jumps to plugin code (within ~1-2 ms
-    // of DisableCartridge), the plugin's INIT + PROT_StartTalking can start
-    // sending I/R/Q identifier bytes within ~5-15 ms. The SD operations below
-    // take 10-50 ms — if we attach later, the plugin's identifier bytes arrive
-    // into a detached IO2 input and are lost, the handshake never completes,
-    // and the C64 hangs forever in PROT_WaitProcessing.
-    cartInterface.StartListening();
+    if (!readOk) {
+      LOGE(SYS, "PRG read short");
+    }
 
-    // CRITICAL: pump ReceiveHandler() until the plugin's PROT_StartTalking
-    // handshake completes (receiveState reaches IN_TRANSMISSION) — or a
-    // generous timeout elapses.
-    //
-    // Background: the bit-level ISR only assembles bytes once receiveState ==
-    // IN_TRANSMISSION. During the identifier phase (IDLE → IDENTIFIER_*_OK →
-    // IN_TRANSMISSION) byte assembly is done by ReceiveHandler() in the main
-    // loop. If we drop straight into Init()+NavigateToPath() (20-60 ms of
-    // blocking SD work) before the handshake finishes, the main loop is
-    // suspended, ReceiveHandler() is never called, the ISR-set bitState gets
-    // overwritten by the next edge before any code can promote it to a byte,
-    // and the I/R/Q bytes are silently lost. Result: no HS OK, the plugin
-    // hangs in PROT_OpenFile waiting for an AVR response that never arrives.
-    //
-    // Once IN_TRANSMISSION, byte assembly happens entirely inside the ISR
-    // (queued for HandleApi to consume), so subsequent SD ops are safe.
-    {
+    // Standard PRG/CRT/IRQ launch is final from the menu's point of view:
+    // do not rebuild directory state or navigate back into a large folder here.
+    // Media plugins are the only launches expected to talk back immediately.
+    if (expectPluginSession) {
+      cartInterface.StartListening();
+
       const unsigned long handshakeWaitStartMs = millis();
       uint8_t lastLoggedState = 99;
       while ((unsigned long)(millis() - handshakeWaitStartMs) < 250UL) {
@@ -1832,11 +1836,6 @@ void CartApi::LoadAndLaunchFile(const char* selectedFileName) {
         if (state == IN_TRANSMISSION) break;
       }
       LOG_PRINT_F("hswait_end_ms="); LOG_PRINTLN(millis() - handshakeWaitStartMs);
-    }
-
-    Init();
-    if (preserveLaunchPath) {
-      dirFunc.NavigateToPath(launchPath);
     }
 
     LOGI(PRG, "Launched - C64 running game");

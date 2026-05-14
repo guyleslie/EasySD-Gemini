@@ -263,8 +263,8 @@ PROT_ReceiveFragment
 	LDX ZP_IRQ_API_DATA_LENGTH
    	LDY #$00				; Setup for transfer routine
 
-	CLV
-	#WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC
+	CLV						; V=0 so WAIT_TRANSFER_DONE enters the loop
+	#WAIT_TRANSFER_DONE		; Spin until NMI handler marks all bytes received
 
 	; Do a fake RTS
 	LDA ZP_IRQ_API_CALLBACK_HI
@@ -300,8 +300,8 @@ PROT_ReceiveFragmentNoCallback
 	LDX ZP_IRQ_API_DATA_LENGTH
    	LDY #$00				; Setup for transfer routine
 
-	CLV
-	#WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC
+	CLV						; V=0 so WAIT_TRANSFER_DONE enters the loop
+	#WAIT_TRANSFER_DONE		; Spin until NMI handler marks all bytes received
 
 	LDA #0
 	CLC					; Indicate successful execution (instead of using callback)

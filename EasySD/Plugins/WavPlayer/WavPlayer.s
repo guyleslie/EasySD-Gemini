@@ -1632,8 +1632,8 @@ RNC_NOT_EOF:
 	CLI                     ; enable CIA1 IRQ BEFORE waiting for NMI transfer
 
 	; Wait for NMI handler to finish all BUFFER_PAGES pages
-	CLV
-	#WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC
+	CLV						; V=0 so WAIT_TRANSFER_DONE enters the loop
+	#WAIT_TRANSFER_DONE		; Spin until NMI handler marks all bytes received
 
 	; Signal: buffer fully filled and ready for ISR to play
 	LDA #$01

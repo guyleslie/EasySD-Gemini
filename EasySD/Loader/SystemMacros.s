@@ -241,6 +241,25 @@ WAITFOR .macro
 	.endm
 
 ;-----------------------------------------------
+; WAIT_TRANSFER_DONE - Spin until NMI DMA transfer completes
+;-----------------------------------------------
+; Polls ZP_IRQ_STATE_WAITHANDLE bit 6, which the NMI receive handler sets
+; (via ORA #$40) once all expected bytes have been delivered to RAM.
+; Uses BIT so the accumulator is preserved across the wait.
+;
+; PRECONDITION: CLV must be called before this macro so the loop is entered
+;               on the first iteration (V starts clear).
+;
+; Registers affected: N, V, Z flags (from BIT); A unchanged
+; Replaces the opaque: CLV / #WAITFOR ZP_IRQ_STATE_WAITHANDLE, BVC
+;-----------------------------------------------
+WAIT_TRANSFER_DONE .macro
+-
+	BIT ZP_IRQ_STATE_WAITHANDLE   ; V = bit 6: 0=still receiving, 1=all done
+	BVC -                         ; loop while transfer incomplete
+	.endm
+
+;-----------------------------------------------
 ; WAITVALUE - Wait for specific value (alternative)
 ;-----------------------------------------------
 ; Polls memory location until it equals specific value.
