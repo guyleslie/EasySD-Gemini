@@ -155,21 +155,11 @@ CARTRIDGE
 	JMP $FCE2					; Kernal cold reset → finds CBM80 at $8004 in RAM → JMP ($8000)
 
 ULTIMAX_CART
-	; The 8KB/4KB Ultimax ROM was received into RAM at $E000-$FFFF.
-	; Writes go through the Kernal ROM shadow (6510 STA always reaches RAM).
+	; The Ultimax ROM was received into RAM at $E000-$FFFF.
 	; Set HIRAM=0 to expose that RAM, then jump through the reset vector.
 	LDA #$34					; HIRAM=0: $E000-$FFFF = RAM; I/O at $D000
 	STA $01
 	LDA #$00
 	STA BORDER
-	; Validate reset vector: some CRT dumps have a bad $FFFC-$FFFD value that
-	; points outside the ROM range (e.g. CLOWNS has $0066 due to a bad dump).
-	; Check $FFFD (high byte): if >= $E0 the vector is inside ROMH, use it.
-	; Otherwise fall back to jumping to the load address via DATA_LOW/DATA_HIGH.
-	LDA $FFFD					; high byte of reset vector (now in our RAM copy)
-	CMP #$E0					; is it within $E000-$FFFF?
-	BCS JUMP_RESET				; yes: use the stored reset vector
-	JMP (DATA_LOW)				; no: fallback - jump to load address directly
-JUMP_RESET
 	JMP ($FFFC)					; reset vector stored in RAM by the received ROM data
 
