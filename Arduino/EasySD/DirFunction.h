@@ -56,9 +56,9 @@ class DirFunction {
     // It intentionally stores only the leading part of a filename.
     char currentFileName[32];
     uint16_t currentDirIdx; // FAT dir-entry index of the last Iterate() result
-    int IsDirectory;
-    int IsFinished;
-    int InSubDir;
+    uint8_t IsDirectory;
+    uint8_t IsFinished;
+    uint8_t InSubDir;
 };
 
 #endif  // _DIR_FUNCTION_H

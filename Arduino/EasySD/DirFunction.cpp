@@ -455,10 +455,9 @@ bool DirFunction::NavigateToPath(const char* absPath) {
 
 void DirFunction::ForceReset() {
   LOGI(DIR, "ForceReset");
-
+  // ToRoot() already calls ResyncDirFromCwd() + CountEntries(); Prepare() would
+  // repeat both operations for no benefit.
   ToRoot();
-  Prepare();
-
 }
 
 void DirFunction::CloseDirHandle() {

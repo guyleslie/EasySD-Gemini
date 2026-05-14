@@ -25,9 +25,6 @@ static union {
   uint8_t ni[NON_INTERRUPTED_BUFFER_SIZE];
   uint8_t args[MAX_ARGUMENTS_LENGTH + 2];
 } sharedBuf;
-// Pointers initialized to static buffers (safe for ISR)
-volatile static uint8_t * streamBuffer1 = sharedBuf.io2.stream1;
-volatile static uint8_t * streamBuffer2 = sharedBuf.io2.stream2;
 volatile static uint16_t streamBufferIndex;
 volatile static unsigned long lastStreamRequestTime = 0;
 
@@ -1293,11 +1290,9 @@ void CartApi::DoubleBufferedStreaming() {
     lastStreamRequestTime = millis();
     cartInterface.SetPage(currentByte);
 
-    if (usedBuffer == 0) {
-      currentByte = streamBuffer1[streamBufferIndex];
-    } else if (usedBuffer == 1) {
-      currentByte = streamBuffer2[streamBufferIndex];
-    }
+    currentByte = (usedBuffer == 0)
+        ? sharedBuf.io2.stream1[streamBufferIndex]
+        : sharedBuf.io2.stream2[streamBufferIndex];
     
     streamBufferIndex++;    
     if (streamBufferIndex == DOUBLE_BUFFER_SIZE) {
@@ -1311,27 +1306,27 @@ void CartApi::DoubleBufferedStreaming() {
 void CartApi::HandleStream() {
   #define STREAM_TIMEOUT_MS 100 // 100 milliseconds timeout for streaming
 
-  // IO2 stream uses the shared static backing storage via streamBuffer1/2.
-  // The buffers are never active at the same time as NI streaming.
+  // IO2 stream uses sharedBuf.io2.{stream1,stream2} directly; the buffers
+  // are never active at the same time as NI streaming.
 
   GetArgumentsStatic(3);
-  uint8_t initialDelay = Arguments[0];
-  uint8_t countStreamedBytes = Arguments[1];
-  uint8_t padValue = Arguments[2];
+  // Arguments[0] (initial delay) and [1] (byte count) are consumed by protocol
+  // but not used by this implementation.
+  const uint8_t padValue = Arguments[2];
 
 
   if (!workingFile.isOpen()) {
     HandleResponse(FILE_IS_NOT_OPENED, 0);
   } else {
-      ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer1, DOUBLE_BUFFER_SIZE, padValue);
-      ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer2, DOUBLE_BUFFER_SIZE, padValue);
+      ReadAndPadBuffer(workingFile, sharedBuf.io2.stream1, DOUBLE_BUFFER_SIZE, padValue);
+      ReadAndPadBuffer(workingFile, sharedBuf.io2.stream2, DOUBLE_BUFFER_SIZE, padValue);
       HandleResponse(SUCCESSFUL, 0);
       
       // Reset state for new stream
       streamBufferIndex = 0;
       usedBuffer = 0;
-      currentByte = streamBuffer1[0];    // Pre-load first byte
-      streamBufferIndex = 1;             // Next request will get buffer[1]
+      currentByte = sharedBuf.io2.stream1[0];  // Pre-load first byte
+      streamBufferIndex = 1;                    // Next request will get buffer[1]
       lastStreamRequestTime = millis();  // Initialize timeout timer
 
       // EXROM LOW: cartridge ROML chip (AT28C64B / M27C64A) becomes visible to
@@ -1346,11 +1341,11 @@ void CartApi::HandleStream() {
         while(usedBuffer == 0) {
           if (millis() - lastStreamRequestTime > STREAM_TIMEOUT_MS) goto out; // Timeout check
         }
-        ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer1, DOUBLE_BUFFER_SIZE, padValue);
+        ReadAndPadBuffer(workingFile, sharedBuf.io2.stream1, DOUBLE_BUFFER_SIZE, padValue);
         while(usedBuffer == 1) {
           if (millis() - lastStreamRequestTime > STREAM_TIMEOUT_MS) goto out; // Timeout check
         }
-        ReadAndPadBuffer(workingFile, (uint8_t*)streamBuffer2, DOUBLE_BUFFER_SIZE, padValue);
+        ReadAndPadBuffer(workingFile, sharedBuf.io2.stream2, DOUBLE_BUFFER_SIZE, padValue);
       }
 out:
       TIMSK2 = 0x02; // Enable timer 2 interrupts (for milliseconds and so on)
