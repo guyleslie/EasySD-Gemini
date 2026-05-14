@@ -394,13 +394,12 @@ PLUGIN
 	JSR ISKOA
 	BCS PLUGIN_PRG_PATH
 
+	; KOA: use INVOKE_WITH_INDEX — Arduino detects .koa and handles the two-file
+	; transfer (media + KOAPLUGIN.PRG) without a path round-trip to the Arduino.
+	LDA CURPAGEINDEX
 	JSR GETCURRENTROW
-	JSR PrepareFileNameParameter
-	LDX #<PATHBUFFER
-	LDY #>PATHBUFFER
-	JSR PROT_SetNameZ
-	LDX #$01
-	JSR PROT_InvokeWithName
+	LDY #$00		; flags = 0
+	JSR PROT_InvokeWithIndex
 	BCC KOAPLUGINLAUNCHED
 	JSR PROT_EnableDisplay
 	JMP INPUT_GET
