@@ -1842,8 +1842,17 @@ void CartApi::LoadAndLaunchOpenedFile(const char* selectedFileName, bool expectP
       crtFile = 1;
       LOGI(PRG, "CRT");
     }
-    
-    if (crtFile) workingFile.seek(80);
+
+    // For CRT: read load address from CHIP packet header (bytes 76-77, big-endian),
+    // then seek to ROM data at byte 80.  Default values cover the non-CRT path.
+    unsigned char low = 0;
+    unsigned char high = 0x80;
+    if (crtFile) {
+      workingFile.seek(76);          // CHIP load address: high byte at 76 (big-endian)
+      high = workingFile.read();
+      low  = workingFile.read();
+      workingFile.seek(80);          // advance file pointer to ROM data
+    }
 
     long transferLength = crtFile ? contentLength - 80 : contentLength - 2;
     long padBytes = (transferLength%256==0) ? 0 : 256 - transferLength%256; 
@@ -1855,14 +1864,9 @@ void CartApi::LoadAndLaunchOpenedFile(const char* selectedFileName, bool expectP
     delay(200);
     //delay(500);
     
-    unsigned char low;
-    unsigned char high;
     if (!crtFile) {
-        low = workingFile.read();
+        low  = workingFile.read();   // PRG load address: little-endian (low first)
         high = workingFile.read();
-    } else {
-      low = 0;
-      high = 0x80;
     }
     
     noInterrupts();
@@ -1878,10 +1882,12 @@ void CartApi::LoadAndLaunchOpenedFile(const char* selectedFileName, bool expectP
       TransmitZeroBytes((uint32_t)padBytes);
     }
     interrupts();
-    
+
     delayMicroseconds(30);
-    workingFile.close();               // close before chdir — prevents SdFat state corruption
-    cartInterface.DisableCartridge();  // EXROM HIGH + data bus tristate — clean state after transfer
+    cartInterface.DisableCartridge();  // EXROM HIGH immediately after transfer: C64 Kernal cold reset
+                                       // (for CRT carts) runs entirely with EXROM=1 so RAMTAS can
+                                       // correctly verify RAM at $8000-$9FFF and set MEMSIZ to 64 KB.
+    workingFile.close();
 
     if (!readOk) {
       LOGE(SYS, "PRG read short");

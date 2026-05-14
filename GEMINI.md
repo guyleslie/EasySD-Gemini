@@ -113,6 +113,29 @@ Current firmware behavior from source:
 - `CartApi::Init()` resets directory state to root via `dirFunc.ReInit()` and `dirFunc.Prepare()`.
 - After PRG launch transfers, the firmware closes the file, disables the cartridge, re-initializes runtime state, and resumes listening.
 
+### CRT File Loading (TYPE_CARTRIDGE / TYPE_ULTIMAX)
+EasySD can launch `.CRT` cartridge image files directly from the SD card. This is handled by `LoadAndLaunchOpenedFile()` in `CartApi.cpp` and the `CARTRIDGE` / `ULTIMAX_CART` branches in `LoaderStub.65s`.
+
+**Mechanism:**
+1. Arduino detects `.crt`/`.CRT` extension → sets `TYPE_CARTRIDGE` or `TYPE_ULTIMAX` based on EXROM/GAME bytes in the CRT file header (byte 24=EXROM, byte 25=GAME).
+2. Load address is read from the CHIP packet header bytes 76–77 (big-endian: `high` at 76, `low` at 77). Default fallback: `$8000`.
+3. ROM data is streamed from file offset 80 (64-byte CRT header + 16-byte CHIP header) to the C64 and written to RAM at the load address. C64 writes always reach underlying RAM even with EXROM low.
+4. `cartInterface.DisableCartridge()` is called **immediately** after the NMI transfer (before `workingFile.close()`), raising EXROM within ~30 µs. This ensures the Kernal cold reset's RAMTAS memory-test runs with EXROM high and correctly detects the full 64 KB RAM.
+5. **CARTRIDGE branch** (`LoaderStub.65s`): black border, then `JMP $FCE2` (Kernal cold reset). Kernal finds the CBM80 autostart signature at `$8004` in RAM and jumps to the coldstart vector at `$8000`.
+6. **ULTIMAX_CART branch** (`LoaderStub.65s`): sets `$01=$34` (HIRAM=0, exposes RAM at `$E000–$FFFF`), reads the reset vector at `$FFFD`. If the high byte is `>= $E0` the vector is valid and `JMP ($FFFC)` is used; otherwise falls back to `JMP (DATA_LOW)` (load address from the header — handles bad-dump CRTs with an invalid reset vector such as CLOWNS `$0066`).
+
+**Supported CRT types (works reliably):**
+- Standard 8 KB ROML-only (hw_type=0, EXROM=0, GAME=1) with a CBM80 signature — the majority of classic C64 game cartridges.
+- Ultimax mode (EXROM=1, GAME=0) with the ROM image at `$E000`.
+
+**Known limitations:**
+- **16 KB cartridges** (EXROM=0, GAME=0): require GAME pin pulled low — EasySD PCB has only EXROM wired. Fundamentally unsupported with current hardware.
+- **Utility/monitor carts** that rely on an indirect RAM jump vector set up by Kernal init (e.g. 64MON uses `JMP ($A000)` where `$A000` holds an uninitialised value): incompatible with the RAM-copy approach.
+- **Non-type-0 hardware types** (Ocean, EasyFlash, Action Replay, etc.): require custom bank-register init; not handled.
+- **No CBM80 signature** (ROML carts only): Kernal cold reset falls through to BASIC. Symptom: `READY.` prompt instead of game.
+
+There is no dedicated plugin for CRT files; the loader path is a first-class feature baked into `CartApi.cpp` + `LoaderStub.65s`.
+
 ### Command Numbers (CartApi.h)
 ```
 COMMAND_OPEN_FILE=2, COMMAND_CLOSE_FILE=3, COMMAND_READ_FILE=78

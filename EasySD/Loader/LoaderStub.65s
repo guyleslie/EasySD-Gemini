@@ -137,39 +137,39 @@ LAUNCH_BASIC
 MACHINELANG 
 	LDA DATA_HIGH
 	CMP #$80
-	BEQ CARTRIDGE	
+	BEQ CARTRIDGE
+	CMP #$E0					; $E0/$F0 = Ultimax ROM (EXROM=1,GAME=0): $E000-$FFFF
+	BCS ULTIMAX_CART			; catches both $E0 and $F0 (4KB at $F000)
 	LDA #00					
 	STA BORDER	
 	JMP (DATA_LOW)				; Leave control to loaded stuff 
 
 CARTRIDGE
-;	LDA #$00
-;	STA $FB
-;	LDA #$E0
-;	STA $FC
-;	LDY #$00
-;-
-;	LDA ($FB),Y
-;	STA ($FB),Y
-;	INY
-;	BNE -
-;	INC $FC
-;	BNE -
+	; The 8 KB ROML image is in C64 RAM at $8000-$9FFF.
+	; Arduino raises EXROM immediately after the NMI transfer, so the Kernal
+	; cold reset's RAMTAS runs entirely with EXROM=1 and correctly detects
+	; the full 64 KB RAM.  All BASIC memory pointers are set by RAMTAS itself;
+	; there is nothing useful to pre-fill here.
+	LDA #$00
+	STA BORDER					; black border: visual indication of cartridge launch
+	JMP $FCE2					; Kernal cold reset → finds CBM80 at $8004 in RAM → JMP ($8000)
 
-;	LDA #$34
-
-	LDX #$00       ; FIX: Initialize X to $00 for $8000 boundary
-	LDY #$80
-	STX $0283					; highest ram address for Basic ($8000)
-	STY $0284
-	STX $c1      ; I/O Start Address low ($8000)
-	STY $c2 	
-	
-	LDA #$36					; $A000-$BFFF range is read from RAM
+ULTIMAX_CART
+	; The 8KB/4KB Ultimax ROM was received into RAM at $E000-$FFFF.
+	; Writes go through the Kernal ROM shadow (6510 STA always reaches RAM).
+	; Set HIRAM=0 to expose that RAM, then jump through the reset vector.
+	LDA #$34					; HIRAM=0: $E000-$FFFF = RAM; I/O at $D000
 	STA $01
-	LDA #00					
+	LDA #$00
 	STA BORDER
-	;JMP ($8000)
-	JMP $FCE2
+	; Validate reset vector: some CRT dumps have a bad $FFFC-$FFFD value that
+	; points outside the ROM range (e.g. CLOWNS has $0066 due to a bad dump).
+	; Check $FFFD (high byte): if >= $E0 the vector is inside ROMH, use it.
+	; Otherwise fall back to jumping to the load address via DATA_LOW/DATA_HIGH.
+	LDA $FFFD					; high byte of reset vector (now in our RAM copy)
+	CMP #$E0					; is it within $E000-$FFFF?
+	BCS JUMP_RESET				; yes: use the stored reset vector
+	JMP (DATA_LOW)				; no: fallback - jump to load address directly
+JUMP_RESET
+	JMP ($FFFC)					; reset vector stored in RAM by the received ROM data
 
-	
