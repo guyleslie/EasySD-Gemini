@@ -49,7 +49,6 @@ All ZP labels use `ZP_` prefix. Never invent ZP addresses — always use the lab
 | `$80-$87` | LoadFileBySize — **strictly reserved** | ZP_LF_SIZE0..3, ZP_LF_PAYLOAD_LO/HI — NEVER reuse |
 | `$8B-$8E` | Handler scratch (copy ptr lo/hi, end addr temps) | Safe to use in plugins if not in handler context |
 | `$90-$95` | StreamLargeFile | ZP_STREAM_TARGET_ADDR_LO/HI, ZP_STREAM_BYTES_REMAIN_0..3 |
-| `$91-$93` | WavPlayer MK3 ZP_WAV_TIMERLO/BUF_READY/SILENCE | Overlaps STREAM_REMAIN0/1 — safe (MK3 ≠ StreamLargeFile) |
 | `$FB/$FC` | NAMELOW/NAMEHIGH — nav indirect pointer | **NEVER use as temp** (SL_COLOR bug precedent) |
 | `$FD/$FE` | COLLOW/COLHIGH — color RAM indirect pointer | **NEVER use as temp** |
 
@@ -247,19 +246,6 @@ are already 8.3 (`ELITE.KOA`) round-trip identically.
 - Last-directory persistence is not an active feature.
 - Startup begins from root; the firmware does not preserve any session-local path across launches.
 - The MCU EEPROM is currently reserved for future use and must not be documented as a live boot/navigation dependency.
-
----
-
-## WavPlayer MK3 Summary
-See `memory/wavplayer_detail.md` for full CIA timing and rate calibration details.
-
-- **Modes**: PLAYTYPE 0-6. Modes 3-6 are DigiMax MK3 NMI-buffered (auto-detected)
-  - PLAYTYPE_MK3=3 (11025 Hz mono), PLAYTYPE_MK3_22K=4 (22050 Hz mono), PLAYTYPE_MK3_STEREO=5 (11025 Hz stereo), PLAYTYPE_MK3_STEREO_OS=6 (11025 Hz stereo 4× oversample)
-- **CIA rate rule**: CIA 6526 timer N+1 period → 985248/(N+1) Hz. Timer=89 → 10947 Hz; timer=44 → 21894 Hz
-- **MK3 calibration**: OCR1A must be slightly slower than C64 CIA rate to prevent FIFO drain
-  - Mode3: OCR1A=1461 (10944 Hz). Mode4: OCR1A=730 (21888 Hz)
-- **TransmitByteFastMK3**: 35µs inter-byte delay → 22133 Hz fill rate (needs hardware verification)
-- **ZP overlap**: $91-$93 (WAV_TIMERLO/BUF_READY/SILENCE) overlaps STREAM_API_REMAIN0/1 — safe (MK3 and StreamLargeFile never concurrent)
 
 ---
 

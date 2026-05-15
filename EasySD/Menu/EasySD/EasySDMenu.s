@@ -232,15 +232,18 @@ EXECPREV
 ENTER  	  
 
 	JSR STATUS_CLEAR
-	JSR PROT_DisableDisplay
 	;Decide if it's a file selection or special command (previous / next)
 	LDA COMMANDBYTE
 	AND #$40
-	BNE SPECIALCMD
+	BEQ _enter_regular
+	JSR PROT_DisableDisplay
+	JMP SPECIALCMD
+_enter_regular
 	JSR GETCURRENTROW
 	JSR ISDIRECTORY	
 	BNE NODIRECTORY	
 
+	JSR PROT_DisableDisplay
 	JSR ISPREVIOUSDIRECTORY
 	BCS NOPREV
 	JSR GOBACK
@@ -410,6 +413,7 @@ PLUGIN
 
 	; KOA: use INVOKE_WITH_INDEX — Arduino detects .koa and handles the two-file
 	; transfer (media + KOAPLUGIN.PRG) without a path round-trip to the Arduino.
+	JSR PREPARE_LAUNCH_DISPLAY
 	LDA CURPAGEINDEX
 	JSR GETCURRENTROW
 	LDY #$00		; flags = 0
@@ -457,11 +461,13 @@ PRGPLUGINEXISTS
 	LDY #>PLUGINNAME
 	JSR PROT_SetNameZ
 	LDX #$01
+	JSR PREPARE_LAUNCH_DISPLAY
 	JSR PROT_InvokeWithName
 
 	JMP *
 
 PROGRAM
+	JSR PREPARE_LAUNCH_DISPLAY
 	LDA CURPAGEINDEX
 	JSR GETCURRENTROW
 	LDY #$01		; flags: autorun
@@ -533,6 +539,28 @@ _sclr_loop
 	CPY #$25
 	BNE _sclr_loop
 	RTS
+
+; Blank screen/color RAM before hiding the display for a real launch.
+PREPARE_LAUNCH_DISPLAY
+	LDX #$00
+	LDA #$20
+_pld_screen
+	STA $0400, X
+	STA $0500, X
+	STA $0600, X
+	STA $0700, X
+	INX
+	BNE _pld_screen
+	LDX #$00
+	LDA #$00
+_pld_color
+	STA $D800, X
+	STA $D900, X
+	STA $DA00, X
+	STA $DB00, X
+	INX
+	BNE _pld_color
+	JMP PROT_DisableDisplay
 
 SPECIALCMD
 
