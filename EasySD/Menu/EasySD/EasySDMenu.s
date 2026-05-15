@@ -247,6 +247,16 @@ _enter_regular
 	BNE NODIRECTORY	
 
 	JSR PROT_DisableDisplay
+	JSR ISPREVIOUSDIRECTORY
+	BCS NOPREV
+	JSR GOBACK
+	; Reset page index after navigating to parent directory.
+	LDA #0
+	STA CURPAGEINDEX
+	JMP DOREADDIRECTORY
+
+NOPREV
+	; Enter directory by name using the existing, widely-supported protocol.
 	JMP ENTERDIR
 
 ; ------------------------------------------------------------
@@ -380,12 +390,13 @@ _eld_done
 
 
 ENTERDIR
-	; Change directory by the visible page/row selection.  The Arduino owns
-	; the sorted directory view and resolves row 0 on page 0 to ".." when
-	; inside a subdirectory, so the menu never sends truncated names here.
-	JSR GETCURRENTROW
-	LDA CURPAGEINDEX
-	JSR PROT_ChangeDirectoryIndex
+	; Set filename from selected directory record and change directory by name.
+	; Keeping this on COMMAND_CHANGE_DIR avoids a menu/firmware lockstep where
+	; an older Arduino would not answer a newer directory-index command.
+	LDX NAMELOW
+	LDY NAMEHIGH
+	JSR PROT_SetNameZ
+	JSR PROT_ChangeDirectory
 	BCS CHANGEDIRFAIL
 	; Reset page index — new directory always starts at page 0.
 	; Without this, a stale CURPAGEINDEX causes startingIndex > count on
@@ -612,6 +623,35 @@ _pld_color
 SPECIALCMD
 
 	; INVOKE PLUGIN
+
+GOBACK
+	; Send ".." through the normal change-directory command. The Arduino
+	; handles parent navigation by deriving the parent from currentPath and
+	; walking from root, so it no longer relies on fragile sd.chdir("..").
+	LDA #>PARENTDIR
+	TAY
+	LDA #<PARENTDIR
+	TAX
+	JSR PROT_SetNameZ
+	JSR PROT_ChangeDirectory
+	BCS CHANGEDIRFAIL
+	DELAYFRAMES 2
+	RTS
+
+ISPREVIOUSDIRECTORY
+	LDY #$00
+	LDA (NAMELOW), Y
+	CMP #$2E
+	BNE +
+	INY
+	LDA (NAMELOW), Y
+	CMP #$2E
+	BNE +
+	CLC
+	RTS
++
+	SEC
+	RTS
 
 NEWCONTENT
 ; Update the screen with the new content got from micro
@@ -1748,6 +1788,10 @@ MAXDIRITEMS = 21
 -       = GAMELIST + range(0, MAXDIRITEMS * MAXFILENAMELENGTH, MAXFILENAMELENGTH)
 NAMESLO   .byte <(-)
 NAMESHI   .byte >(-)
+
+PARENTDIR
+	.TEXT ".."
+	.FILL 30,0
 
 SID
 .include "../../Loader/CartLibStream.s"
