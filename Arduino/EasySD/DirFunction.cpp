@@ -146,57 +146,45 @@ bool DirFunction::GoBack() {
     return false;
   }
 
-  int len = strlen(currentPath);
+  char savedPath[64];
+  strcpy(savedPath, currentPath);
+
+  char parentPath[64];
+  strcpy(parentPath, currentPath);
+
+  int len = strlen(parentPath);
   if (len <= 1) {
     ToRoot();
     return true;
   }
 
-  // Save for rollback
-  char savedPath[64];
-  strcpy(savedPath, currentPath);
-  uint8_t savedDepth = pathDepth;
-
   // Strip trailing slash
-  if (currentPath[len-1] == '/') { currentPath[len-1] = '\0'; len--; }
+  if (parentPath[len-1] == '/') { parentPath[len-1] = '\0'; len--; }
 
   // Strip last path component
   for (int i = len - 1; i >= 0; i--) {
-    if (currentPath[i] == '/') {
+    if (parentPath[i] == '/') {
       if (i == 0) {
-        ToRoot();
-        return true;
+        parentPath[1] = '\0';
+        break;
       }
-      currentPath[i] = '\0';
+      parentPath[i] = '\0';
       break;
     }
   }
 
-  pathDepth--;
-  if (pathDepth == 0) InSubDir = 0;
+  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(parentPath);
 
-  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(currentPath);
-
-  // Use chdir("..") instead of chdir(absolutePath): SdFat 2.x absolute LFN
-  // paths are unreliable, while ".." reads the parent entry directly from
-  // the current dir's metadata regardless of LFN content in the path.
-  if (!sd.chdir("..")) {
-    LOGE(DIR, "GoBack chdir FAIL");
-    strcpy(currentPath, savedPath);
-    pathDepth = savedDepth;
-    InSubDir = (pathDepth > 0) ? 1 : 0;
+  // Do not rely on sd.chdir(".."). On some exFAT/newly-created directories
+  // the parent entry is not usable, even though walking from root by basename
+  // works reliably through the same ChangeDirectory/SFN fallback used for
+  // normal folder entry.
+  if (!NavigateToPath(parentPath)) {
+    LOGE(DIR, "GoBack parent nav FAIL");
+    NavigateToPath(savedPath);
     return false;
   }
 
-  if (!ResyncDirFromCwd()) {
-    LOGE(DIR, "GoBack ResyncDirFromCwd FAIL");
-    strcpy(currentPath, savedPath);
-    pathDepth = savedDepth;
-    InSubDir = (pathDepth > 0) ? 1 : 0;
-    return false;
-  }
-
-  CountEntries();
   return true;
 }
 
