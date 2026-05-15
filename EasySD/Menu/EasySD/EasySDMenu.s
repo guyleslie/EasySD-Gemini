@@ -96,7 +96,10 @@ CART_ROM_RESTORE .macro
 	LDX #<MSG_SD_READ_ERR
 	LDY #>MSG_SD_READ_ERR
 	JSR STATUS_LINE
+	JMP _after_mem_status
 _dir_ok
+	JSR SHOW_MEMORY_STATUS
+_after_mem_status
 
 ;Start of main loop
 INPUT_GET
@@ -296,6 +299,50 @@ _gcp_copy
 	RTS
 _gcp_error
 	SEC
+	RTS
+
+; ------------------------------------------------------------
+; SHOW_MEMORY_STATUS
+;   Requests the already formatted 37-byte status string from the Arduino:
+;   "   AVR #####B FLASH #####B C64 #####B".
+;   The leading three spaces align with STATUS_LINE's framed row layout.
+; ------------------------------------------------------------
+SHOW_MEMORY_STATUS
+	LDA #<PLUGIN_HEADER
+	STA ZP_IRQ_API_DATA_LO
+	LDA #>PLUGIN_HEADER
+	STA ZP_IRQ_API_DATA_HI
+	LDA #COMMAND_GET_MEMORY_STATUS
+	JSR PROT_Send
+	JSR PROT_WaitProcessing
+	BPL _sms_done
+	LDA #$01
+	STA ZP_IRQ_API_DATA_LENGTH
+	LDY #$00
+	JSR PROT_ReceiveFragmentNoCallback
+	LDA #$05			; green values
+	LDX #<PLUGIN_HEADER
+	LDY #>PLUGIN_HEADER
+	JSR STATUS_LINE
+	JSR STATUS_MEMORY_COLORS
+_sms_done
+	RTS
+
+STATUS_MEMORY_COLORS
+	LDA #$03			; cyan: AVR
+	STA $DBC3
+	STA $DBC4
+	STA $DBC5
+	LDA #$07			; yellow: FLASH
+	STA $DBCE
+	STA $DBCF
+	STA $DBD0
+	STA $DBD1
+	STA $DBD2
+	LDA #$0E			; light blue: C64
+	STA $DBDB
+	STA $DBDC
+	STA $DBDD
 	RTS
 
 ; ------------------------------------------------------------

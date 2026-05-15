@@ -53,6 +53,7 @@
 #define COMMAND_END_TALKING         30
 #define COMMAND_EXIT_TO_MENU        31
 #define COMMAND_CHANGE_DIR_INDEX    33  // menu-only: change directory by visible entry index
+#define COMMAND_GET_MEMORY_STATUS   34  // menu-only: bottom status memory summary
 
 // ============================================================================
 // Seek direction constants
@@ -106,6 +107,7 @@ class CartApi {
   void HandleLongSeekFile();
   void HandleGetInfoForFile();
   void HandleGetPath();
+  void HandleGetMemoryStatus();
   void HandleReadDirectory();
   void HandleChangeDirectory();
   void HandleChangeDirectoryIndex();

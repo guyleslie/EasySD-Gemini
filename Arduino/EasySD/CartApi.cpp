@@ -12,6 +12,14 @@ extern SdFat  sd;
 extern DirFunction dirFunc;
 extern CartInterface cartInterface;
 
+#if defined(__AVR__)
+extern "C" char __data_load_end;
+#endif
+
+#ifndef EASYSD_AVR_SKETCH_FLASH_BYTES
+#define EASYSD_AVR_SKETCH_FLASH_BYTES 30720U
+#endif
+
 // Shared SRAM overlay — IO2 streaming, NI streaming, and command argument
 // parsing are mutually exclusive at runtime.  Their buffers live in one union
 // so only max(128, 400, 130) = 400 bytes are consumed instead of 658.
@@ -27,6 +35,10 @@ static union {
 } sharedBuf;
 volatile static uint16_t streamBufferIndex;
 volatile static unsigned long lastStreamRequestTime = 0;
+static const char kMemStatusPrefix[] PROGMEM = "   AVR ";
+static const char kMemStatusFlash[]  PROGMEM = "B FLASH ";
+static const char kMemStatusC64[]    PROGMEM = "B C64 ";
+static const char kMemStatusEnd[]    PROGMEM = "B";
 
 // Watermark state for HandleReadDirectory's O(N) two-pass sort.
 // s_wm_name / s_wm_isDir remember the full name and type of the last entry
@@ -90,6 +102,45 @@ static bool ReadAndPadFinalAware(File &file, uint8_t *buffer, uint16_t length, u
   // IO2 request that the CVD player correctly never sends after its size
   // counter reaches zero.
   return readCount < length || file.available() == 0;
+}
+
+static uint16_t FreeAvrSram() {
+#if defined(__AVR__)
+  const char* sp = reinterpret_cast<const char*>(SP);
+  return (sp > &__bss_end) ? (uint16_t)(sp - &__bss_end) : 0;
+#else
+  return 0;
+#endif
+}
+
+static uint16_t FreeSketchFlash() {
+#if defined(__AVR__)
+  const uintptr_t used = reinterpret_cast<uintptr_t>(&__data_load_end);
+  return (used < EASYSD_AVR_SKETCH_FLASH_BYTES) ? (uint16_t)(EASYSD_AVR_SKETCH_FLASH_BYTES - used) : 0;
+#else
+  return 0;
+#endif
+}
+
+static void TransmitProgmemText(const char* text) {
+  uint8_t ch;
+  while ((ch = pgm_read_byte(text++)) != 0) {
+    cartInterface.TransmitByteFast(ch);
+  }
+}
+
+static void TransmitUint16Width5(uint16_t value) {
+  bool started = false;
+  for (uint16_t divisor = 10000; divisor != 0; divisor /= 10) {
+    const uint8_t digit = value / divisor;
+    value %= divisor;
+    if (digit != 0 || started || divisor == 1) {
+      started = true;
+      cartInterface.TransmitByteFast('0' + digit);
+    } else {
+      cartInterface.TransmitByteFast(' ');
+    }
+  }
 }
 
 static bool OpenMenuFromSdRoot(File &outFile) {
@@ -463,6 +514,29 @@ void CartApi::HandleGetPath() {
     cartInterface.TransmitByteFast(path[i]);
   }
   for (uint8_t i = 0; i < 192; i++) {
+    cartInterface.TransmitByteFast(0);
+  }
+  interrupts();
+  delayMicroseconds(20);
+}
+
+void CartApi::HandleGetMemoryStatus() {
+  GetArgumentsStatic(0);
+  const uint16_t avrFreeSram = FreeAvrSram();
+  const uint16_t avrFreeFlash = FreeSketchFlash();
+  const uint16_t c64BasicFree = 38911;
+
+  HandleResponse(SUCCESSFUL, 1);
+  cartInterface.ResetIndex();
+  noInterrupts();
+  TransmitProgmemText(kMemStatusPrefix);
+  TransmitUint16Width5(avrFreeSram);
+  TransmitProgmemText(kMemStatusFlash);
+  TransmitUint16Width5(avrFreeFlash);
+  TransmitProgmemText(kMemStatusC64);
+  TransmitUint16Width5(c64BasicFree);
+  TransmitProgmemText(kMemStatusEnd);
+  for (uint16_t i = 37; i < 256; i++) {
     cartInterface.TransmitByteFast(0);
   }
   interrupts();
@@ -1649,6 +1723,7 @@ void CartApi::HandleApi() {
           case COMMAND_LONG_SEEK_FILE : HandleLongSeekFile(); break;
           case COMMAND_GET_INFO_FOR_FILE : HandleGetInfoForFile(); break;
           case COMMAND_GET_PATH : HandleGetPath(); break;
+          case COMMAND_GET_MEMORY_STATUS : HandleGetMemoryStatus(); break;
           case COMMAND_READ_DIR : HandleReadDirectory(); break;
           case COMMAND_CHANGE_DIR : HandleChangeDirectory(); break;
           case COMMAND_CHANGE_DIR_INDEX : HandleChangeDirectoryIndex(); break;

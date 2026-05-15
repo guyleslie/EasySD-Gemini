@@ -25,6 +25,7 @@ COMMAND_NI_STREAM 	  = 26
 COMMAND_END_TALKING  	  = 30
 COMMAND_EXIT_TO_MENU  	  = 31
 COMMAND_CHANGE_DIR_INDEX  = 33   ; Menu-only directory change by page + row index
+COMMAND_GET_MEMORY_STATUS = 34   ; Menu-only bottom status memory summary
 
 ; Other EasySD constants
 SOURCE_TYPE_SD  	  = 1
