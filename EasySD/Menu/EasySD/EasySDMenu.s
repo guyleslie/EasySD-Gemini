@@ -871,12 +871,18 @@ _paf_file
 	BEQ _paf_ext_cvd
 	JMP _paf_ext_unknown
 
-	; -- Print visible name (source = dest = Y, stop at 26 or null) --
+	; -- Print visible stem (source = dest = Y, stop at last dot, 26, or null) --
 _paf_stem
 	LDY #0
 _paf_sloop
 	CPY #26
 	BCS _paf_stem_done	; 26 chars written, stop
+	LDA $8B
+	BEQ _paf_no_dot_stop
+	TYA
+	CMP $8B			; reached visible extension dot?
+	BCS _paf_stem_done
+_paf_no_dot_stop
 	LDA (NAMELOW), Y
 	BEQ _paf_stem_done
 	JMP _paf_stem_write
@@ -928,39 +934,39 @@ _paf_tail
 	BEQ _paf_ret		; Y wrapped (impossible here, but safe)
 
 _paf_ext_prg
-	LDA #$70		; p
+	LDA #$50		; P
 	STA $8C
-	LDA #$72		; r
+	LDA #$52		; R
 	STA $8D
-	LDA #$67		; g
+	LDA #$47		; G
 	JMP _paf_ext_done
 _paf_ext_crt
-	LDA #$63		; c
+	LDA #$43		; C
 	STA $8C
-	LDA #$72		; r
+	LDA #$52		; R
 	STA $8D
-	LDA #$74		; t
+	LDA #$54		; T
 	JMP _paf_ext_done
 _paf_ext_koa
-	LDA #$6B		; k
+	LDA #$4B		; K
 	STA $8C
-	LDA #$6F		; o
+	LDA #$4F		; O
 	STA $8D
-	LDA #$61		; a
+	LDA #$41		; A
 	JMP _paf_ext_done
 _paf_ext_wav
-	LDA #$77		; w
+	LDA #$57		; W
 	STA $8C
-	LDA #$61		; a
+	LDA #$41		; A
 	STA $8D
-	LDA #$76		; v
+	LDA #$56		; V
 	JMP _paf_ext_done
 _paf_ext_cvd
-	LDA #$63		; c
+	LDA #$43		; C
 	STA $8C
-	LDA #$76		; v
+	LDA #$56		; V
 	STA $8D
-	LDA #$64		; d
+	LDA #$44		; D
 	JMP _paf_ext_done
 _paf_ext_unknown
 	LDA #$3F		; ?
@@ -970,6 +976,18 @@ _paf_ext_done
 	STA $8E
 	LDA #0
 	STA $8B
+	LDY #0
+_paf_dot_scan
+	LDA (NAMELOW), Y
+	BEQ _paf_dot_done
+	CMP #$2E		; '.'
+	BNE _paf_dot_next
+	STY $8B
+_paf_dot_next
+	INY
+	CPY #31			; scan visible name bytes only
+	BNE _paf_dot_scan
+_paf_dot_done
 	JMP _paf_stem
 
 	; --- ASCII to C64 screen code conversion ---
@@ -1775,6 +1793,7 @@ MSG_PLUGIN_MISSING
 	.TEXT "   PLUGIN MISSING"
 	.BYTE 0
 
+.enc "none"		; ASCII screen bytes for the custom mixed-case charset.
 MSG_UNSUPPORTED_FILE
 	.TEXT "   UNSUPPORTED FILE"
 	.BYTE 0
