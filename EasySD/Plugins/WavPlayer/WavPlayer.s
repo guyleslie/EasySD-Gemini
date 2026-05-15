@@ -1,4 +1,4 @@
-﻿; WavPlayer.s — C64 WAV audio plugin for EasySD cartridge
+; WavPlayer.s — C64 WAV audio plugin for EasySD cartridge
 ; Plays 8-bit unsigned PCM mono WAV files via CIA1 Timer A IRQ.
 ;
 ; Playback modes:
