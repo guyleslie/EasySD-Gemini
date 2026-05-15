@@ -82,7 +82,7 @@ python Tools/build.py release
 ```
 
 Build outputs:
-- `EasySD/build/release/sd-content/` — `EASYSD.PRG` + `PLUGINS/*.PRG` ready to copy to SD card
+- `EasySD/build/release/sd-content/` — `EASYSD.PRG` + `PLUGINS/*.PRG` ready to copy to SD card (`EASYSD.PRG`, `PLUGINS/`, and plugin PRGs are marked hidden on Windows)
 - `EasySD/build/IRQLoaderRom.bin` — image to program into the ROML chip
 - `EasySD/build/upload/` — Arduino firmware files
 
@@ -106,6 +106,8 @@ Write `EasySD/build/IRQLoaderRom.bin` to the AT27C512R-45PU or M27C512 using a T
 ```bash
 python Tools/build.py sd-deploy D:   # copy built files to SD card at drive D:
 ```
+
+On Windows, deploy keeps `EASYSD.PRG`, `PLUGINS/`, and plugin PRGs hidden after copying so normal users do not see or launch the runtime support files from the EasySD menu.
 
 ---
 

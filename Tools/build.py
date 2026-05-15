@@ -223,6 +223,7 @@ def ensure_dirs(ctx: Context) -> None:
 
 def reset_dir(path: Path) -> None:
     if path.exists():
+        clear_hidden_tree(path)
         try:
             shutil.rmtree(path)
         except PermissionError:
@@ -238,6 +239,78 @@ def reset_dir(path: Path) -> None:
                     except OSError:
                         pass
     path.mkdir(parents=True, exist_ok=True)
+
+
+def set_hidden_attr(path: Path, hidden: bool = True) -> None:
+    """Set or clear the Windows hidden attribute. No-op on other platforms."""
+    if not is_windows():
+        return
+
+    import ctypes
+
+    file_attribute_hidden = 0x02
+    invalid_file_attributes = 0xFFFFFFFF
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.GetFileAttributesW.argtypes = [ctypes.c_wchar_p]
+    kernel32.GetFileAttributesW.restype = ctypes.c_uint32
+    kernel32.SetFileAttributesW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32]
+    kernel32.SetFileAttributesW.restype = ctypes.c_int
+
+    path_str = str(path)
+    attrs = kernel32.GetFileAttributesW(path_str)
+    if attrs == invalid_file_attributes:
+        raise ctypes.WinError(ctypes.get_last_error())
+
+    new_attrs = (attrs | file_attribute_hidden) if hidden else (attrs & ~file_attribute_hidden)
+    if new_attrs != attrs and not kernel32.SetFileAttributesW(path_str, new_attrs):
+        raise ctypes.WinError(ctypes.get_last_error())
+
+
+def clear_hidden_tree(path: Path) -> None:
+    """Clear hidden bits before deleting or overwriting Windows build artifacts."""
+    if not is_windows() or not path.exists():
+        return
+
+    try:
+        set_hidden_attr(path, hidden=False)
+    except OSError:
+        pass
+
+    if path.is_dir():
+        for root, dirs, files in os.walk(path):
+            for name in [*dirs, *files]:
+                try:
+                    set_hidden_attr(Path(root) / name, hidden=False)
+                except OSError:
+                    pass
+
+
+def copyfile_for_bundle(src: Path, dst: Path, *, hidden: bool = False) -> None:
+    """
+    Copy a file and optionally mark the destination hidden.
+
+    Windows refuses some overwrites when the existing destination is hidden,
+    so clear only that bit first and restore the desired final state after copy.
+    """
+    if dst.exists():
+        set_hidden_attr(dst, hidden=False)
+    shutil.copyfile(src, dst)
+    if hidden:
+        set_hidden_attr(dst, hidden=True)
+
+
+def mark_sd_system_items_hidden(sd_root: Path) -> None:
+    """Hide the SD runtime files that should not appear in the EasySD menu."""
+    menu = sd_root / "EASYSD.PRG"
+    plugins_dir = sd_root / "PLUGINS"
+
+    if menu.exists():
+        set_hidden_attr(menu, hidden=True)
+
+    if plugins_dir.exists():
+        for plugin in plugins_dir.glob("*.PRG"):
+            set_hidden_attr(plugin, hidden=True)
+        set_hidden_attr(plugins_dir, hidden=True)
 
 
 def default_arduino_compile_dir(ctx: Context) -> Path:
@@ -285,7 +358,7 @@ def stage_sd_content_bundle(ctx: Context, preferred_menu_name: str, dst_root: Pa
 
     menu_src = _resolve_menu_artifact(ctx, preferred_menu_name)
     menu_dst = target_root / "EASYSD.PRG"
-    shutil.copyfile(menu_src, menu_dst)
+    copyfile_for_bundle(menu_src, menu_dst, hidden=True)
     print(f"[STAGE:SD] {menu_src.name} -> {menu_dst}")
 
     plugin_files = _collect_plugin_artifacts(ctx)
@@ -294,8 +367,10 @@ def stage_sd_content_bundle(ctx: Context, preferred_menu_name: str, dst_root: Pa
 
     for src in plugin_files:
         dst = plugins_dst / src.name.upper()
-        shutil.copyfile(src, dst)
+        copyfile_for_bundle(src, dst, hidden=True)
         print(f"[STAGE:SD] {src.name} -> {dst.name}")
+
+    mark_sd_system_items_hidden(target_root)
 
     manifest = target_root / "manifest.txt"
     manifest.write_text(
@@ -701,6 +776,7 @@ PLUGIN_MATRIX = [
 def clean(ctx: Context) -> None:
     if ctx.build_dir.exists():
         print("[CLEAN] Removing C64 build artifacts...")
+        clear_hidden_tree(ctx.build_dir)
         try:
             shutil.rmtree(ctx.build_dir)
         except PermissionError:
@@ -1272,7 +1348,7 @@ def main(argv: Sequence[str]) -> int:
         menu_src = (sd_bundle_root / "EASYSD.PRG") if use_bundle else (ctx.build_dir / expected_menu)
         if menu_src.exists():
             dst = drive_root / "EASYSD.PRG"
-            shutil.copyfile(menu_src, dst)
+            copyfile_for_bundle(menu_src, dst, hidden=True)
             print(f"[SD-DEPLOY] {menu_src.name} -> {dst}")
             copied += 1
         else:
@@ -1292,9 +1368,10 @@ def main(argv: Sequence[str]) -> int:
         print(f"[SD-DEPLOY] {src_dir} -> {plugins_dir}")
         for src in src_plugins:
             dst = plugins_dir / src.name.upper()
-            shutil.copyfile(src, dst)
+            copyfile_for_bundle(src, dst, hidden=True)
             print(f"  {src.name} -> {dst.name}")
             copied += 1
+        mark_sd_system_items_hidden(drive_root)
         print(f"[SD-DEPLOY] {copied} file(s) copied. OK")
         return 0
 
