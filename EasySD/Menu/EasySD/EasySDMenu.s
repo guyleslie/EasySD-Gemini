@@ -253,10 +253,11 @@ _enter_regular
 	; Reset page index after navigating to parent directory.
 	LDA #0
 	STA CURPAGEINDEX
+	;JMP NEWCONTENT
 	JMP DOREADDIRECTORY
 
 NOPREV
-	; Enter directory by name using the existing, widely-supported protocol.
+	; Enter directory (Arduino updates currentPath authoritatively)
 	JMP ENTERDIR
 
 ; ------------------------------------------------------------
@@ -391,8 +392,7 @@ _eld_done
 
 ENTERDIR
 	; Set filename from selected directory record and change directory by name.
-	; Keeping this on COMMAND_CHANGE_DIR avoids a menu/firmware lockstep where
-	; an older Arduino would not answer a newer directory-index command.
+	; This is the proven path used in the stable 5331f47 flow.
 	LDX NAMELOW
 	LDY NAMEHIGH
 	JSR PROT_SetNameZ
@@ -624,10 +624,10 @@ SPECIALCMD
 
 	; INVOKE PLUGIN
 
+	
 GOBACK
-	; Send ".." through the normal change-directory command. The Arduino
-	; handles parent navigation by deriving the parent from currentPath and
-	; walking from root, so it no longer relies on fragile sd.chdir("..").
+	; Send ".." to the Arduino. Arduino navigates one level up and updates
+	; its authoritative currentPath. C64 queries the new path via PROT_GetCurrentPath.
 	LDA #>PARENTDIR
 	TAY
 	LDA #<PARENTDIR
@@ -637,7 +637,8 @@ GOBACK
 	BCS CHANGEDIRFAIL
 	DELAYFRAMES 2
 	RTS
-
+	
+	
 ISPREVIOUSDIRECTORY
 	LDY #$00
 	LDA (NAMELOW), Y
@@ -652,7 +653,7 @@ ISPREVIOUSDIRECTORY
 +
 	SEC
 	RTS
-
+	
 NEWCONTENT
 ; Update the screen with the new content got from micro
 
@@ -1877,7 +1878,7 @@ COLORDATA
 ; ------------------------------------------------------------
 ; UI strings (0-terminated)
 ; ------------------------------------------------------------
-.enc "none"		; STATUS_LINE writes raw bytes into the custom ASCII-like charset.
+.enc "screen"		; .TEXT strings below use C64 screen code encoding (A=$01, etc.)
 MSG_PATH_TOO_LONG
 	.TEXT "   PATH TOO LONG"
 	.BYTE 0
@@ -1894,9 +1895,11 @@ MSG_PLUGIN_MISSING
 	.TEXT "   PLUGIN MISSING"
 	.BYTE 0
 
+.enc "none"		; ASCII screen bytes for the custom mixed-case charset.
 MSG_UNSUPPORTED_FILE
 	.TEXT "   UNSUPPORTED FILE"
 	.BYTE 0
+.enc "none"		; restore default encoding
 
 ; Protocol scratch buffer used by PROT_GetCurrentPath.
 PLUGIN_HEADER

@@ -177,10 +177,6 @@ File f = sd.open("FILE.DAT", FILE_READ);  // FILE_READ is the canonical alias
 while (f.openNext(&dir, O_READ)) { ... }  // 1-param openNext()
 m_dirFile.openCwd();                       // sync handle to vol's CWD
 
-// sharedBuf in CartApi.cpp is command-local scratch only.
-// Do not store cross-command state there; NI/sort/IO2 users overwrite it.
-// Persistent directory caches must use separate statics.
-
 // Write pattern
 File f = sd.open("FILE.DAT", O_WRONLY | O_CREAT);
 size_t wr = f.write(buf, len);         // returns 0 on failure (NOT -1, it's size_t)
