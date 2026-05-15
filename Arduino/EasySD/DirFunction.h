@@ -37,7 +37,10 @@ class DirFunction {
 
     bool ChangeDirectoryBasename(const char* basename);
     bool FindDirectoryNameByVisibleIndex(uint16_t visibleIndex, char* outName, size_t outSize);
-    bool NavigateToPath(const char* absPath);
+    // Walks segment-by-segment from root. May modify absPath in place
+    // (null-overwrites slashes during iteration); caller's buffer must be
+    // mutable.  No internal copy — saves 64 bytes of stack per call.
+    bool NavigateToPath(char* absPath);
     const char* GetCurrentPath() const;
     void ForceReset();
     void CloseDirHandle();

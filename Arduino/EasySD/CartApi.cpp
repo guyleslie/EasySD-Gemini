@@ -856,11 +856,6 @@ void CartApi::HandleChangeDirectory() {
 
   if (success) {
     InvalidatePageEntryCache();
-    // Restore the proven post-chdir refresh path: after a successful basename
-    // change, rebuild the directory handle/count before the menu asks for the
-    // next page. This matches the older stable flow more closely than relying
-    // on the deeper ChangeDirectory chain alone.
-    dirFunc.Prepare();
     HandleResponse(SUCCESSFUL, 1);
   } else {
     LOGE(DIR, "CD FAIL");

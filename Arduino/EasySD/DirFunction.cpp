@@ -141,47 +141,50 @@ void DirFunction::ToRoot() {
   LOGI(DIR, "Changed to ROOT");
 }
 
+// GoBack: navigate to parent of currentPath by walking from root.
+// Uses a file-scope static scratch buffer (s_goBackBuf) instead of stack
+// locals — the call chain GoBack → NavigateToPath → ChangeDirectory → SdFat
+// openCwd was peaking at ~350+ bytes against the ATmega328's ~470-byte free
+// SRAM, corrupting .bss and producing the C64 grey-screen symptom on 2-deep
+// back-navigation (e.g. /MUSIC/2SID → /MUSIC).
+//
+// No rollback: if NavigateToPath fails partway it leaves Arduino at root.
+// The C64 reports CD ERROR; user re-navigates. Avoids a second 64-byte path
+// copy that would re-introduce the stack pressure we are trying to remove.
+static char s_goBackBuf[64];
+
 bool DirFunction::GoBack() {
   if (pathDepth == 0) {
     return false;
   }
 
-  char savedPath[64];
-  strcpy(savedPath, currentPath);
+  // Build parent path in static scratch (no stack-local 64B buffer).
+  strncpy(s_goBackBuf, currentPath, sizeof(s_goBackBuf) - 1);
+  s_goBackBuf[sizeof(s_goBackBuf) - 1] = '\0';
 
-  char parentPath[64];
-  strcpy(parentPath, currentPath);
-
-  int len = strlen(parentPath);
+  int len = strlen(s_goBackBuf);
   if (len <= 1) {
     ToRoot();
     return true;
   }
 
-  // Strip trailing slash
-  if (parentPath[len-1] == '/') { parentPath[len-1] = '\0'; len--; }
-
-  // Strip last path component
+  // Strip trailing slash, then last path component.
+  if (s_goBackBuf[len-1] == '/') { s_goBackBuf[len-1] = '\0'; len--; }
   for (int i = len - 1; i >= 0; i--) {
-    if (parentPath[i] == '/') {
+    if (s_goBackBuf[i] == '/') {
       if (i == 0) {
-        parentPath[1] = '\0';
+        s_goBackBuf[1] = '\0';
         break;
       }
-      parentPath[i] = '\0';
+      s_goBackBuf[i] = '\0';
       break;
     }
   }
 
-  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(parentPath);
+  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(s_goBackBuf);
 
-  // Do not rely on sd.chdir(".."). On some exFAT/newly-created directories
-  // the parent entry is not usable, even though walking from root by basename
-  // works reliably through the same ChangeDirectory/SFN fallback used for
-  // normal folder entry.
-  if (!NavigateToPath(parentPath)) {
+  if (!NavigateToPath(s_goBackBuf)) {
     LOGE(DIR, "GoBack parent nav FAIL");
-    NavigateToPath(savedPath);
     return false;
   }
 
@@ -436,23 +439,20 @@ const char* DirFunction::GetCurrentPath() const {
 }
 
 // Navigate from root to an absolute path, segment by segment.
+// MODIFIES absPath in place (null-overwrites slashes); no internal copy.
+// Saves 64 bytes of stack — critical because GoBack's chain (GoBack →
+// NavigateToPath → ChangeDirectory → SdFat openCwd) approaches the
+// ATmega328's ~470-byte free SRAM budget and was overflowing into .bss.
 // Returns true on success, false if any segment fails (leaves at root).
-bool DirFunction::NavigateToPath(const char* absPath) {
+bool DirFunction::NavigateToPath(char* absPath) {
   if (!absPath || absPath[0] != '/' || absPath[1] == '\0') {
-    // Root or invalid — just go to root
     ToRoot();
     return true;
   }
 
   ToRoot();
 
-  char buf[64];
-  // Copy safely, null-terminate
-  uint8_t len = 0;
-  while (len < 63 && absPath[len]) { buf[len] = absPath[len]; len++; }
-  buf[len] = '\0';
-
-  char* p = buf + 1;  // skip leading '/'
+  char* p = absPath + 1;  // skip leading '/'
   while (*p) {
     char* slash = strchr(p, '/');
     if (slash) *slash = '\0';
