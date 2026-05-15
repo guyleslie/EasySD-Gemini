@@ -141,6 +141,7 @@ SKIPMUSIC
 	JMP INPUT_GET		; If other key then leave control to the main loop
 		  	
 UP
+	JSR STATUS_CLEAR
 	LDX #COMMANDENTERMASK
 	STX COMMANDBYTE
 	JSR GETCURRENTROW		; X = current row
@@ -164,6 +165,7 @@ UP_MOVE
 	JMP INPUT_GET
 
 DOWN
+	JSR STATUS_CLEAR
 	LDX #COMMANDENTERMASK
 	STX COMMANDBYTE
 	JSR GETCURRENTROW		; X = current row
@@ -196,6 +198,7 @@ DOWN_MOVE
 
 
 NEXTPAGE
+	JSR STATUS_CLEAR
 	LDX CURPAGEINDEX
 	INX
 	CPX PAGECOUNT
@@ -215,6 +218,7 @@ SPLAY
 	BVC ENTER
 	
 PREVPAGE  	  	  	
+	JSR STATUS_CLEAR
   	LDX CURPAGEINDEX
   	BNE EXECPREV
   	JMP INPUT_GET 
@@ -227,6 +231,7 @@ EXECPREV
 	
 ENTER  	  
 
+	JSR STATUS_CLEAR
 	JSR PROT_DisableDisplay
 	;Decide if it's a file selection or special command (previous / next)
 	LDA COMMANDBYTE
@@ -517,6 +522,17 @@ STATUS_LINE
 	JSR SL_WRITE
 	PLA				; restore color
 	JMP SL_COLOR
+
+; Clear bottom status text area, preserving the frame columns.
+STATUS_CLEAR
+	LDY #$03
+	LDA #$20
+_sclr_loop
+	STA $07C0, Y
+	INY
+	CPY #$25
+	BNE _sclr_loop
+	RTS
 
 SPECIALCMD
 
