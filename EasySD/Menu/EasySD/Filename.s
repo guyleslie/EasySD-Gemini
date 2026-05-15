@@ -1,6 +1,15 @@
 TYPE_PROGRAM = 0
 TYPE_CHECK_PLUGIN	= 1
 
+ENTRY_TYPE_FILE = $00
+ENTRY_TYPE_PRG  = $01
+ENTRY_TYPE_CRT  = $02
+ENTRY_TYPE_IRQ  = $03
+ENTRY_TYPE_DIR  = $04
+ENTRY_TYPE_KOA  = $08
+ENTRY_TYPE_WAV  = $09
+ENTRY_TYPE_CVD  = $0A
+
 ; ------------------------------------------------------------
 ; Filename / plugin-name helpers
 ;
@@ -110,6 +119,42 @@ _copy_suffix_prg
 	INY
 	BNE _copy_suffix_prg
 _done_prg
+	RTS
+
+SETEXT_KOA
+	LDA #3
+	STA EXT_LEN
+	LDA #$6B		; k
+	STA EXTBUF
+	LDA #$6F		; o
+	STA EXTBUF+1
+	LDA #$61		; a
+	STA EXTBUF+2
+	LDA #TYPE_CHECK_PLUGIN
+	RTS
+
+SETEXT_WAV
+	LDA #3
+	STA EXT_LEN
+	LDA #$77		; w
+	STA EXTBUF
+	LDA #$61		; a
+	STA EXTBUF+1
+	LDA #$76		; v
+	STA EXTBUF+2
+	LDA #TYPE_CHECK_PLUGIN
+	RTS
+
+SETEXT_CVD
+	LDA #3
+	STA EXT_LEN
+	LDA #$63		; c
+	STA EXTBUF
+	LDA #$76		; v
+	STA EXTBUF+1
+	LDA #$64		; d
+	STA EXTBUF+2
+	LDA #TYPE_CHECK_PLUGIN
 	RTS
 
 

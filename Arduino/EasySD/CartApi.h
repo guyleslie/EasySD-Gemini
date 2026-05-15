@@ -132,7 +132,7 @@ class CartApi {
   void TransferMenu();
   void ResetNoCartridge();
   void LoadAndLaunchFile(const char* path, bool expectPluginSession);
-  void LoadAndLaunchOpenedFile(const char* displayName, bool expectPluginSession);
+  void LoadAndLaunchOpenedFile(const char* displayName, bool expectPluginSession, uint8_t entryType);
 };
 
 #endif

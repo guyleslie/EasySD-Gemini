@@ -3,6 +3,15 @@
 
 #include <SdFat.h>
 
+#define ENTRY_TYPE_FILE 0x00
+#define ENTRY_TYPE_PRG  0x01
+#define ENTRY_TYPE_CRT  0x02
+#define ENTRY_TYPE_IRQ  0x03
+#define ENTRY_TYPE_DIR  0x04
+#define ENTRY_TYPE_KOA  0x08
+#define ENTRY_TYPE_WAV  0x09
+#define ENTRY_TYPE_CVD  0x0A
+
 class DirFunction {
 
   protected:
@@ -46,6 +55,7 @@ class DirFunction {
 
     // Open a directory entry by its FAT directory-entry index and retrieve its
     // full LFN name.  Used by HandleReadDirectory's O(N) two-pass sort.
+    bool GetEntryByDirIdx(uint16_t idx, char* outName, size_t outSize, uint8_t* outType);
     bool GetLFNByDirIdx(uint16_t idx, char* outName, size_t outSize, bool* outIsDir);
     bool OpenFileByDirIdx(uint16_t idx, File& outFile);
 

@@ -473,7 +473,7 @@ void CartApi::HandleGetPath() {
 // 19 bytes * 21 = 399 bytes <= NON_INTERRUPTED_BUFFER_SIZE (400).
 struct DirSortSlot {
   char     key[16];   // first 15 chars of LFN + NUL (sort key, may be truncated)
-  uint16_t dirIdx;    // FAT directory-entry index for pass-2 GetLFNByDirIdx
+  uint16_t dirIdx;    // FAT directory-entry index for pass-2 metadata/name lookup
   uint8_t  isDir;     // 1 = subdirectory, 0 = file
 };
 
@@ -686,12 +686,12 @@ void CartApi::HandleReadDirectory() {
     cartInterface.TransmitByteFast('.');
     cartInterface.TransmitByteFast('.');
     for (uint8_t i = 2; i < 31; i++) cartInterface.TransmitByteFast(0x00);
-    cartInterface.TransmitByteFast(0x04);  // directory type flag
+    cartInterface.TransmitByteFast(ENTRY_TYPE_DIR);
     actualTransferredBytes += 32;
   }
 
   // ---- Pass 2: retrieve full LFN via dirIdx then transmit ----
-  // GetLFNByDirIdx does random-access SD reads (cacheDir + seekSet +
+  // GetEntryByDirIdx does random-access SD reads (cacheDir + seekSet +
   // openNext).  Those reads must happen with interrupts ENABLED: SdFat
   // Timeout uses millis() which is frozen under noInterrupts(), and the
   // SD SPI bus should not be held while NMI timing is unrelated.
@@ -700,20 +700,20 @@ void CartApi::HandleReadDirectory() {
   // spinning in PROT_ReceiveFragment's WAIT_TRANSFER_DONE loop, so
   // re-enabling interrupts here is safe (no IO2 bytes in flight).
   char    fullName[32];
-  bool    entIsDir = false;
+  uint8_t entType = ENTRY_TYPE_FILE;
   for (uint8_t i = 0; i < numSlots; i++) {
     if (actualTransferredBytes + 32 > maxBytesToTransfer) break;
 
     // SD read — interrupts enabled so millis() / SdFat timeouts work.
     interrupts();
-    const bool ok = dirFunc.GetLFNByDirIdx(slots[i].dirIdx, fullName, sizeof(fullName), &entIsDir);
+    const bool ok = dirFunc.GetEntryByDirIdx(slots[i].dirIdx, fullName, sizeof(fullName), &entType);
     noInterrupts();
 
     if (!ok) {
       // Fallback: use the truncated sort key so the slot is not silently lost.
       strncpy(fullName, slots[i].key, 15);
       fullName[15] = '\0';
-      entIsDir = (slots[i].isDir != 0);
+      entType = slots[i].isDir ? ENTRY_TYPE_DIR : ENTRY_TYPE_FILE;
     }
 
     uint8_t flen = (uint8_t)strlen(fullName);
@@ -722,13 +722,13 @@ void CartApi::HandleReadDirectory() {
       cartInterface.TransmitByteFast((uint8_t)fullName[j]);
     for (uint8_t j = flen; j < 31; j++)
       cartInterface.TransmitByteFast(0x00);
-    cartInterface.TransmitByteFast(entIsDir ? 0x04 : 0x00);
+    cartInterface.TransmitByteFast(entType);
     actualTransferredBytes += 32;
 
     // Update watermark to the full name of the entry just sent.
     strncpy(s_wm_name, fullName, 31);
     s_wm_name[31] = '\0';
-    s_wm_isDir = entIsDir ? 1 : 0;
+    s_wm_isDir = (entType == ENTRY_TYPE_DIR) ? 1 : 0;
   }
 
   ClearCachedPageDirIdx();
@@ -917,6 +917,16 @@ static bool EndsWithIgnoreCase(const char* value, const char* suffix) {
     if (a != b) return false;
   }
   return true;
+}
+
+static uint8_t DetectEntryTypeFromName(const char* value) {
+  if (EndsWithIgnoreCase(value, ".prg")) return ENTRY_TYPE_PRG;
+  if (EndsWithIgnoreCase(value, ".crt")) return ENTRY_TYPE_CRT;
+  if (EndsWithIgnoreCase(value, ".irq")) return ENTRY_TYPE_IRQ;
+  if (EndsWithIgnoreCase(value, ".koa")) return ENTRY_TYPE_KOA;
+  if (EndsWithIgnoreCase(value, ".wav")) return ENTRY_TYPE_WAV;
+  if (EndsWithIgnoreCase(value, ".cvd")) return ENTRY_TYPE_CVD;
+  return ENTRY_TYPE_FILE;
 }
 
 static inline char LowerAscii(char c) {
@@ -1252,8 +1262,9 @@ void CartApi::HandleInvokeWithIndex() {
   }
 
   char selectedName[32];
-  bool isDir = false;
-  if (!dirFunc.GetLFNByDirIdx(dirIdx, selectedName, sizeof(selectedName), &isDir) || isDir) {
+  uint8_t selectedType = ENTRY_TYPE_FILE;
+  if (!dirFunc.GetEntryByDirIdx(dirIdx, selectedName, sizeof(selectedName), &selectedType) ||
+      selectedType == ENTRY_TYPE_DIR) {
     HandleResponse(FILE_NOT_FOUND, 0);
     return;
   }
@@ -1267,13 +1278,13 @@ void CartApi::HandleInvokeWithIndex() {
 
   // KOA files require a two-file transfer (media + KOAPLUGIN.PRG).
   // workingFile is already open; HandleKoalaInvokeFromOpenFile uses it directly.
-  if (EndsWithIgnoreCase(selectedName, ".koa")) {
+  if (selectedType == ENTRY_TYPE_KOA) {
     HandleKoalaInvokeFromOpenFile(nullptr);
     return;
   }
 
   HandleResponse(SUCCESSFUL, 0);
-  LoadAndLaunchOpenedFile(selectedName, false);
+  LoadAndLaunchOpenedFile(selectedName, false, selectedType);
 }
 
 void CartApi::HandleEndTalking() {
@@ -1821,7 +1832,7 @@ void CartApi::TransferMenu() {
 }
 
 
-void CartApi::LoadAndLaunchOpenedFile(const char* selectedFileName, bool expectPluginSession) {
+void CartApi::LoadAndLaunchOpenedFile(const char* selectedFileName, bool expectPluginSession, uint8_t entryType) {
   const size_t BUF_SIZE = 16;
   uint8_t buf[BUF_SIZE];
   cartInterface.EndListening();
@@ -1834,11 +1845,11 @@ void CartApi::LoadAndLaunchOpenedFile(const char* selectedFileName, bool expectP
     contentLength = workingFile.size();
     LOG_LOAD_LAUNCH(selectedFileName, contentLength);
 
-    if (strcmp(selectedFileName, "keybooter.prg") == 0 || ( IsMatchLast(selectedFileName, ".irq") || IsMatchLast(selectedFileName, ".IRQ") ) ) {
+    if (strcmp(selectedFileName, "keybooter.prg") == 0 || entryType == ENTRY_TYPE_IRQ) {
       booter = 1;
       LOGI(PRG, "BOOTER!");
     }
-    if ( IsMatchLast(selectedFileName, ".crt") || IsMatchLast(selectedFileName, ".CRT") ) {
+    if (entryType == ENTRY_TYPE_CRT) {
       crtFile = 1;
       LOGI(PRG, "CRT");
     }
@@ -1927,7 +1938,7 @@ void CartApi::LoadAndLaunchOpenedFile(const char* selectedFileName, bool expectP
 void CartApi::LoadAndLaunchFile(const char* selectedFileName, bool expectPluginSession) {
   if (workingFile && workingFile.isOpen()) workingFile.close();
   workingFile = sd.open(selectedFileName, FILE_READ);
-  LoadAndLaunchOpenedFile(selectedFileName, expectPluginSession);
+  LoadAndLaunchOpenedFile(selectedFileName, expectPluginSession, DetectEntryTypeFromName(selectedFileName));
 }
 
 void CartApi::ResetNoCartridge() {

@@ -48,6 +48,37 @@ static void CaptureFileNamePreview(File& file, char* outName, size_t outSize) {
   file.printName(&sink);
 }
 
+static inline char LowerAscii(char c) {
+  return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a') : c;
+}
+
+static bool EndsWithIgnoreCase(const char* value, const char* suffix) {
+  size_t valueLen = strlen(value);
+  size_t suffixLen = strlen(suffix);
+  if (valueLen < suffixLen) return false;
+
+  value += valueLen - suffixLen;
+  for (size_t i = 0; i < suffixLen; i++) {
+    if (LowerAscii(value[i]) != LowerAscii(suffix[i])) return false;
+  }
+  return true;
+}
+
+static uint8_t DetectEntryType(File& file) {
+  if (file.isDir()) return ENTRY_TYPE_DIR;
+
+  char sfn[16];
+  sfn[0] = '\0';
+  file.getSFN(sfn, sizeof(sfn));
+  if (EndsWithIgnoreCase(sfn, ".prg")) return ENTRY_TYPE_PRG;
+  if (EndsWithIgnoreCase(sfn, ".crt")) return ENTRY_TYPE_CRT;
+  if (EndsWithIgnoreCase(sfn, ".irq")) return ENTRY_TYPE_IRQ;
+  if (EndsWithIgnoreCase(sfn, ".koa")) return ENTRY_TYPE_KOA;
+  if (EndsWithIgnoreCase(sfn, ".wav")) return ENTRY_TYPE_WAV;
+  if (EndsWithIgnoreCase(sfn, ".cvd")) return ENTRY_TYPE_CVD;
+  return ENTRY_TYPE_FILE;
+}
+
 static bool PrefixMatchesCaseInsensitive(const char* candidate,
                                          const char* prefix,
                                          uint8_t len) {
@@ -294,12 +325,19 @@ unsigned int DirFunction::GetCount() {
 // Used by HandleReadDirectory pass 2 so full names are delivered without a
 // second forward scan.  After open(dirFile, index) SdFat scans backward for
 // the LFN chain, so printName() returns the complete long filename.
-bool DirFunction::GetLFNByDirIdx(uint16_t idx, char* outName, size_t outSize, bool* outIsDir) {
+bool DirFunction::GetEntryByDirIdx(uint16_t idx, char* outName, size_t outSize, uint8_t* outType) {
   File f;
   if (!f.open(&m_dirFile, idx, O_RDONLY)) return false;
   CaptureFileNamePreview(f, outName, outSize);
-  if (outIsDir) *outIsDir = f.isDir();
+  if (outType) *outType = DetectEntryType(f);
   f.close();
+  return true;
+}
+
+bool DirFunction::GetLFNByDirIdx(uint16_t idx, char* outName, size_t outSize, bool* outIsDir) {
+  uint8_t entryType = ENTRY_TYPE_FILE;
+  if (!GetEntryByDirIdx(idx, outName, outSize, &entryType)) return false;
+  if (outIsDir) *outIsDir = (entryType == ENTRY_TYPE_DIR);
   return true;
 }
 

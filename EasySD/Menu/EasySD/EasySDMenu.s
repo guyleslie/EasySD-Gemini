@@ -373,11 +373,26 @@ NODIRECTORY
 	JSR GETCURRENTROW				; We have current row in X
 	
 	LDA NAMESLO, X
-	TAY
+	STA NAMELOW
 	LDA NAMESHI, X
-	TAX
-	TYA
+	STA NAMEHIGH
+	LDY #31
+	LDA (NAMELOW), Y
+	CMP #ENTRY_TYPE_PRG
+	BEQ PROGRAM
+	CMP #ENTRY_TYPE_CRT
+	BEQ PROGRAM
+	CMP #ENTRY_TYPE_IRQ
+	BEQ PROGRAM
+	CMP #ENTRY_TYPE_KOA
+	BEQ META_KOA
+	CMP #ENTRY_TYPE_WAV
+	BEQ META_WAV
+	CMP #ENTRY_TYPE_CVD
+	BEQ META_CVD
 
+	LDA NAMELOW
+	LDX NAMEHIGH
 	JSR CHECKFILENAME
 	JSR ISPRG
 	BCC PROGRAM
@@ -390,6 +405,15 @@ NODIRECTORY
 -	
 	INC $D020
 	JMP - 
+META_KOA
+	JSR SETEXT_KOA
+	JMP PLUGIN
+META_WAV
+	JSR SETEXT_WAV
+	JMP PLUGIN
+META_CVD
+	JSR SETEXT_CVD
+	JMP PLUGIN
 PLUGIN	
 	JSR ISKOA
 	BCS PLUGIN_PRG_PATH
@@ -616,7 +640,7 @@ ISDIRECTORY
 	STA NAMELOW
 	LDA NAMESHI, X
 	STA NAMEHIGH
-	LDY #31			; byte 31 = type flag (0x04=dir, 0x00=file)
+	LDY #31			; byte 31 = metadata type, ENTRY_TYPE_DIR is $04
 	LDA (NAMELOW), Y
 	CMP #$04
 	RTS
@@ -843,6 +867,22 @@ _paf_ret
 
 	; === FILE: find last dot, split into stem (21) + gap (2) + ext (3) ===
 _paf_file
+	; Prefer Arduino-provided full-name/SFN metadata. The visible name may be
+	; truncated before ".prg", so parsing bytes 0-30 is only a fallback.
+	LDY #31
+	LDA (NAMELOW), Y
+	CMP #ENTRY_TYPE_PRG
+	BEQ _paf_ext_prg
+	CMP #ENTRY_TYPE_CRT
+	BEQ _paf_ext_crt
+	CMP #ENTRY_TYPE_IRQ
+	BEQ _paf_ext_irq
+	CMP #ENTRY_TYPE_KOA
+	BEQ _paf_ext_koa
+	CMP #ENTRY_TYPE_WAV
+	BEQ _paf_ext_wav
+	CMP #ENTRY_TYPE_CVD
+	BEQ _paf_ext_cvd
 	; -- Pass 1: scan for last dot, pre-load up to 3 ext chars --
 	LDA #$20		; default: spaces (no extension)
 	STA $8C
@@ -955,6 +995,53 @@ _paf_tail
 	INY
 	BNE _paf_tail
 	BEQ _paf_ret		; Y wrapped (impossible here, but safe)
+
+_paf_ext_prg
+	LDA #$70		; p
+	STA $8C
+	LDA #$72		; r
+	STA $8D
+	LDA #$67		; g
+	JMP _paf_ext_done
+_paf_ext_crt
+	LDA #$63		; c
+	STA $8C
+	LDA #$72		; r
+	STA $8D
+	LDA #$74		; t
+	JMP _paf_ext_done
+_paf_ext_irq
+	LDA #$69		; i
+	STA $8C
+	LDA #$72		; r
+	STA $8D
+	LDA #$71		; q
+	JMP _paf_ext_done
+_paf_ext_koa
+	LDA #$6B		; k
+	STA $8C
+	LDA #$6F		; o
+	STA $8D
+	LDA #$61		; a
+	JMP _paf_ext_done
+_paf_ext_wav
+	LDA #$77		; w
+	STA $8C
+	LDA #$61		; a
+	STA $8D
+	LDA #$76		; v
+	JMP _paf_ext_done
+_paf_ext_cvd
+	LDA #$63		; c
+	STA $8C
+	LDA #$76		; v
+	STA $8D
+	LDA #$64		; d
+_paf_ext_done
+	STA $8E
+	LDA #0
+	STA $8B
+	JMP _paf_stem
 
 	; --- ASCII to C64 screen code conversion ---
 	; Input/Output: A    Changes: A only
