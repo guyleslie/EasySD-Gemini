@@ -168,8 +168,7 @@ LFN support is on by default in this build.
 // Directory navigation — MUST use relative paths from root
 sd.chdir();           // return to root first
 sd.chdir("DIRNAME");  // then relative step
-// GoBack derives the parent from currentPath, then walks from root.
-// Do not rely on sd.chdir("..") for exFAT/newly-created directories.
+sd.chdir("..");       // GoBack — never sd.chdir(absolutePath) for parent
 // NEVER: sd.chdir("/DIRNAME") — fails on nested paths in 2.x
 
 // File open/read

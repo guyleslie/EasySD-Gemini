@@ -89,33 +89,6 @@ static bool PrefixMatchesCaseInsensitive(const char* candidate,
   return true;
 }
 
-static void MakeParentPath(const char* source, char* target, size_t targetSize) {
-  if (!source || targetSize == 0) return;
-
-  strncpy(target, source, targetSize - 1);
-  target[targetSize - 1] = '\0';
-
-  size_t len = strlen(target);
-  if (len <= 1) {
-    target[0] = '/';
-    if (targetSize > 1) target[1] = '\0';
-    return;
-  }
-
-  while (len > 1 && target[len - 1] == '/') {
-    target[--len] = '\0';
-  }
-  while (len > 1 && target[len - 1] != '/') {
-    len--;
-  }
-
-  if (len <= 1) {
-    target[1] = '\0';
-  } else {
-    target[len - 1] = '\0';
-  }
-}
-
 }  // namespace
 
 // Canonical way to synchronize m_dirFile with the CWD after any sd.chdir().
@@ -173,21 +146,57 @@ bool DirFunction::GoBack() {
     return false;
   }
 
+  int len = strlen(currentPath);
+  if (len <= 1) {
+    ToRoot();
+    return true;
+  }
+
+  // Save for rollback
   char savedPath[64];
   strcpy(savedPath, currentPath);
-  char parentPath[64];
-  MakeParentPath(currentPath, parentPath, sizeof(parentPath));
+  uint8_t savedDepth = pathDepth;
 
-  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(parentPath);
+  // Strip trailing slash
+  if (currentPath[len-1] == '/') { currentPath[len-1] = '\0'; len--; }
 
-  if (!NavigateToPathBuffer(parentPath)) {
-    LOGE(DIR, "GoBack parent navigation FAIL");
-    if (!NavigateToPathBuffer(savedPath)) {
-      LOGE(DIR, "GoBack rollback FAIL");
-      ToRoot();
+  // Strip last path component
+  for (int i = len - 1; i >= 0; i--) {
+    if (currentPath[i] == '/') {
+      if (i == 0) {
+        ToRoot();
+        return true;
+      }
+      currentPath[i] = '\0';
+      break;
     }
+  }
+
+  pathDepth--;
+  if (pathDepth == 0) InSubDir = 0;
+
+  LOGI(DIR, "GoBack to: "); LOG_PRINTLN(currentPath);
+
+  // Use chdir("..") instead of chdir(absolutePath): SdFat 2.x absolute LFN
+  // paths are unreliable, while ".." reads the parent entry directly from
+  // the current dir's metadata regardless of LFN content in the path.
+  if (!sd.chdir("..")) {
+    LOGE(DIR, "GoBack chdir FAIL");
+    strcpy(currentPath, savedPath);
+    pathDepth = savedDepth;
+    InSubDir = (pathDepth > 0) ? 1 : 0;
     return false;
   }
+
+  if (!ResyncDirFromCwd()) {
+    LOGE(DIR, "GoBack ResyncDirFromCwd FAIL");
+    strcpy(currentPath, savedPath);
+    pathDepth = savedDepth;
+    InSubDir = (pathDepth > 0) ? 1 : 0;
+    return false;
+  }
+
+  CountEntries();
   return true;
 }
 
@@ -447,23 +456,15 @@ bool DirFunction::NavigateToPath(const char* absPath) {
     return true;
   }
 
+  ToRoot();
+
   char buf[64];
   // Copy safely, null-terminate
   uint8_t len = 0;
   while (len < 63 && absPath[len]) { buf[len] = absPath[len]; len++; }
   buf[len] = '\0';
-  return NavigateToPathBuffer(buf);
-}
 
-bool DirFunction::NavigateToPathBuffer(char* absPath) {
-  if (!absPath || absPath[0] != '/' || absPath[1] == '\0') {
-    ToRoot();
-    return true;
-  }
-
-  ToRoot();
-
-  char* p = absPath + 1;  // skip leading '/'
+  char* p = buf + 1;  // skip leading '/'
   while (*p) {
     char* slash = strchr(p, '/');
     if (slash) *slash = '\0';
