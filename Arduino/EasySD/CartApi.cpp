@@ -35,9 +35,9 @@ static union {
 } sharedBuf;
 volatile static uint16_t streamBufferIndex;
 volatile static unsigned long lastStreamRequestTime = 0;
-static const char kMemStatusPrefix[] PROGMEM = "   AVR ";
-static const char kMemStatusFlash[]  PROGMEM = "B FLASH ";
-static const char kMemStatusC64[]    PROGMEM = "B C64 ";
+static const char kMemStatusPrefix[] PROGMEM = "   AVR:";
+static const char kMemStatusFlash[]  PROGMEM = "B FLASH:";
+static const char kMemStatusC64[]    PROGMEM = "B C64:";
 static const char kMemStatusEnd[]    PROGMEM = "B";
 
 // Watermark state for HandleReadDirectory's O(N) two-pass sort.
@@ -122,25 +122,29 @@ static uint16_t FreeSketchFlash() {
 #endif
 }
 
-static void TransmitProgmemText(const char* text) {
+static uint16_t TransmitProgmemText(const char* text) {
+  uint16_t count = 0;
   uint8_t ch;
   while ((ch = pgm_read_byte(text++)) != 0) {
     cartInterface.TransmitByteFast(ch);
+    count++;
   }
+  return count;
 }
 
-static void TransmitUint16Width5(uint16_t value) {
+static uint8_t TransmitUint16(uint16_t value) {
   bool started = false;
+  uint8_t count = 0;
   for (uint16_t divisor = 10000; divisor != 0; divisor /= 10) {
     const uint8_t digit = value / divisor;
     value %= divisor;
     if (digit != 0 || started || divisor == 1) {
       started = true;
       cartInterface.TransmitByteFast('0' + digit);
-    } else {
-      cartInterface.TransmitByteFast(' ');
+      count++;
     }
   }
+  return count;
 }
 
 static bool OpenMenuFromSdRoot(File &outFile) {
@@ -529,14 +533,15 @@ void CartApi::HandleGetMemoryStatus() {
   HandleResponse(SUCCESSFUL, 1);
   cartInterface.ResetIndex();
   noInterrupts();
-  TransmitProgmemText(kMemStatusPrefix);
-  TransmitUint16Width5(avrFreeSram);
-  TransmitProgmemText(kMemStatusFlash);
-  TransmitUint16Width5(avrFreeFlash);
-  TransmitProgmemText(kMemStatusC64);
-  TransmitUint16Width5(c64BasicFree);
-  TransmitProgmemText(kMemStatusEnd);
-  for (uint16_t i = 37; i < 256; i++) {
+  uint16_t sent = 0;
+  sent += TransmitProgmemText(kMemStatusPrefix);
+  sent += TransmitUint16(avrFreeSram);
+  sent += TransmitProgmemText(kMemStatusFlash);
+  sent += TransmitUint16(avrFreeFlash);
+  sent += TransmitProgmemText(kMemStatusC64);
+  sent += TransmitUint16(c64BasicFree);
+  sent += TransmitProgmemText(kMemStatusEnd);
+  for (; sent < 256; sent++) {
     cartInterface.TransmitByteFast(0);
   }
   interrupts();

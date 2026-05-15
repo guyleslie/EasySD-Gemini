@@ -303,8 +303,8 @@ _gcp_error
 
 ; ------------------------------------------------------------
 ; SHOW_MEMORY_STATUS
-;   Requests the already formatted 37-byte status string from the Arduino:
-;   "   AVR #####B FLASH #####B C64 #####B".
+;   Requests the formatted status string from the Arduino:
+;   "   AVR:<bytes>B FLASH:<bytes>B C64:<bytes>B".
 ;   The leading three spaces align with STATUS_LINE's framed row layout.
 ; ------------------------------------------------------------
 SHOW_MEMORY_STATUS
@@ -320,7 +320,7 @@ SHOW_MEMORY_STATUS
 	STA ZP_IRQ_API_DATA_LENGTH
 	LDY #$00
 	JSR PROT_ReceiveFragmentNoCallback
-	LDA #$05			; green values
+	LDA #$0B			; dark grey labels/delimiters
 	LDX #<PLUGIN_HEADER
 	LDY #>PLUGIN_HEADER
 	JSR STATUS_LINE
@@ -329,20 +329,32 @@ _sms_done
 	RTS
 
 STATUS_MEMORY_COLORS
-	LDA #$03			; cyan: AVR
-	STA $DBC3
-	STA $DBC4
-	STA $DBC5
-	LDA #$07			; yellow: FLASH
-	STA $DBCE
-	STA $DBCF
-	STA $DBD0
-	STA $DBD1
-	STA $DBD2
-	LDA #$0E			; light blue: C64
-	STA $DBDB
-	STA $DBDC
-	STA $DBDD
+	LDX #$00			; 0 = label, 1 = numeric value
+	LDY #$03			; skip frame decoration/hidden alignment bytes
+_smc_loop
+	LDA ($06),Y
+	BEQ _smc_done
+	CMP #$3A			; ':'
+	BEQ _smc_value
+	CPX #$00
+	BEQ _smc_next
+	CMP #$42			; 'B' stays dark grey like the label text
+	BEQ _smc_label
+	PHA
+	LDA #$03			; cyan: numeric values
+	STA $DBC0,Y
+	PLA
+	BNE _smc_next
+_smc_value
+	LDX #$01
+	BNE _smc_next
+_smc_label
+	LDX #$00
+_smc_next
+	INY
+	CPY #$25			; 37 = same bound as STATUS_LINE
+	BNE _smc_loop
+_smc_done
 	RTS
 
 ; ------------------------------------------------------------
