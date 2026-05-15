@@ -1014,20 +1014,23 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
 
     if debug_mode:
         # Log categories enabled in debug build (deploy-serial-debug.bat workflow):
-        #   LOAD=1  high-level activity ([LOAD] open / size / read / launch / done)
         #   SYS=1   protocol/state errors (Unknown cmd, Stale ident reset, Cmd timeout, HS OK)
         #   SD=1    SD card errors (SD FAIL, SD recover FAIL)
         #   DIR=1   directory navigation issues
-        #   FILE=1  per-file open/close ([INFO][FILE] File opened / closed / open failed)
-        #   NI=1    CVD NI stream start/block/exit diagnostics
-        #   RAW=1   numeric variable prints (cmd byte values, sizes, etc.)
+        #   LOAD=0  high-level [LOAD] events — disabled to fit ATmega328 flash budget
+        #   FILE=0  per-file open/close — disabled to fit ATmega328 flash budget
+        #   NI=0    CVD NI stream diagnostics — disabled to fit ATmega328 flash budget
+        #   RAW=0   numeric variable prints — disabled to fit ATmega328 flash budget
         #   PRG=0   PRG-loader internal traces (verbose; not needed for KOA debugging)
         #   PROTO=0 reserved category, no log calls in code
         # See Arduino/EasySD/EasySDLog.h for the full list of LOG_ENABLE_* flags.
+        # With all categories enabled the debug build was ~32.4 KB (105%) and
+        # would not link.  The remaining DIR+SD+SYS+ERR set is sufficient for
+        # the navigation/protocol debugging workflow.
         log_flags = (
-            "-DLOG_ENABLE_LOAD=1 -DLOG_ENABLE_SYS=1 -DLOG_ENABLE_SD=1 "
-            "-DLOG_ENABLE_DIR=1 -DLOG_ENABLE_FILE=1 -DLOG_ENABLE_RAW=1 "
-            "-DLOG_ENABLE_NI=1 -DLOG_ENABLE_PRG=0 -DLOG_ENABLE_PROTO=0"
+            "-DLOG_ENABLE_SYS=1 -DLOG_ENABLE_SD=1 -DLOG_ENABLE_DIR=1 "
+            "-DLOG_ENABLE_LOAD=0 -DLOG_ENABLE_FILE=0 -DLOG_ENABLE_NI=0 "
+            "-DLOG_ENABLE_RAW=0 -DLOG_ENABLE_PRG=0 -DLOG_ENABLE_PROTO=0"
         )
         common_flags = f"{serial_buffer_flags} {log_flags}"
     else:
