@@ -72,7 +72,6 @@ static uint8_t DetectEntryType(File& file) {
   file.getSFN(sfn, sizeof(sfn));
   if (EndsWithIgnoreCase(sfn, ".prg")) return ENTRY_TYPE_PRG;
   if (EndsWithIgnoreCase(sfn, ".crt")) return ENTRY_TYPE_CRT;
-  if (EndsWithIgnoreCase(sfn, ".irq")) return ENTRY_TYPE_IRQ;
   if (EndsWithIgnoreCase(sfn, ".koa")) return ENTRY_TYPE_KOA;
   if (EndsWithIgnoreCase(sfn, ".wav")) return ENTRY_TYPE_WAV;
   if (EndsWithIgnoreCase(sfn, ".cvd")) return ENTRY_TYPE_CVD;

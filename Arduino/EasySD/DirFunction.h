@@ -6,7 +6,6 @@
 #define ENTRY_TYPE_FILE 0x00
 #define ENTRY_TYPE_PRG  0x01
 #define ENTRY_TYPE_CRT  0x02
-#define ENTRY_TYPE_IRQ  0x03
 #define ENTRY_TYPE_DIR  0x04
 #define ENTRY_TYPE_KOA  0x08
 #define ENTRY_TYPE_WAV  0x09

@@ -382,8 +382,6 @@ NODIRECTORY
 	BEQ PROGRAM
 	CMP #ENTRY_TYPE_CRT
 	BEQ PROGRAM
-	CMP #ENTRY_TYPE_IRQ
-	BEQ PROGRAM
 	CMP #ENTRY_TYPE_KOA
 	BEQ META_KOA
 	CMP #ENTRY_TYPE_WAV
@@ -875,8 +873,6 @@ _paf_file
 	BEQ _paf_ext_prg
 	CMP #ENTRY_TYPE_CRT
 	BEQ _paf_ext_crt
-	CMP #ENTRY_TYPE_IRQ
-	BEQ _paf_ext_irq
 	CMP #ENTRY_TYPE_KOA
 	BEQ _paf_ext_koa
 	CMP #ENTRY_TYPE_WAV
@@ -1009,13 +1005,6 @@ _paf_ext_crt
 	LDA #$72		; r
 	STA $8D
 	LDA #$74		; t
-	JMP _paf_ext_done
-_paf_ext_irq
-	LDA #$69		; i
-	STA $8C
-	LDA #$72		; r
-	STA $8D
-	LDA #$71		; q
 	JMP _paf_ext_done
 _paf_ext_koa
 	LDA #$6B		; k

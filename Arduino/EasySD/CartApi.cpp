@@ -922,7 +922,6 @@ static bool EndsWithIgnoreCase(const char* value, const char* suffix) {
 static uint8_t DetectEntryTypeFromName(const char* value) {
   if (EndsWithIgnoreCase(value, ".prg")) return ENTRY_TYPE_PRG;
   if (EndsWithIgnoreCase(value, ".crt")) return ENTRY_TYPE_CRT;
-  if (EndsWithIgnoreCase(value, ".irq")) return ENTRY_TYPE_IRQ;
   if (EndsWithIgnoreCase(value, ".koa")) return ENTRY_TYPE_KOA;
   if (EndsWithIgnoreCase(value, ".wav")) return ENTRY_TYPE_WAV;
   if (EndsWithIgnoreCase(value, ".cvd")) return ENTRY_TYPE_CVD;
@@ -1838,17 +1837,12 @@ void CartApi::LoadAndLaunchOpenedFile(const char* selectedFileName, bool expectP
   cartInterface.EndListening();
 
   unsigned char crtFile = 0;
-  unsigned char booter = 0;
   uint16_t contentLength = 0;
 
   if (workingFile ) {
     contentLength = workingFile.size();
     LOG_LOAD_LAUNCH(selectedFileName, contentLength);
 
-    if (strcmp(selectedFileName, "keybooter.prg") == 0 || entryType == ENTRY_TYPE_IRQ) {
-      booter = 1;
-      LOGI(PRG, "BOOTER!");
-    }
     if (entryType == ENTRY_TYPE_CRT) {
       crtFile = 1;
       LOGI(PRG, "CRT");
@@ -1881,7 +1875,7 @@ void CartApi::LoadAndLaunchOpenedFile(const char* selectedFileName, bool expectP
     }
     
     noInterrupts();
-    SendHeader(low, high, transferPages, transferLength, (crtFile ? TYPE_CARTRIDGE : (booter ? TYPE_BOOTER : TYPE_STANDARD_PRG)), cartInterface.TransferMode); 
+    SendHeader(low, high, transferPages, transferLength, (crtFile ? TYPE_CARTRIDGE : TYPE_STANDARD_PRG), cartInterface.TransferMode); 
 
     #ifdef  USERAMLAUNCHER
     SendLoaderStub();

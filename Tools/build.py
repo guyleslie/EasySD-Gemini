@@ -387,7 +387,7 @@ def stage_release_bundle(ctx: Context, preferred_menu_name: str, mode_label: str
     menu_src = _resolve_menu_artifact(ctx, preferred_menu_name)
     shutil.copyfile(menu_src, c64_dir / menu_src.name)
 
-    core_optional = ["keybooter.prg", "warning.prg", "IRQLoaderRom.bin", "FlashLib.h", "defaultmenu.h", "LoaderStub.h"]
+    core_optional = ["warning.prg", "IRQLoaderRom.bin", "FlashLib.h", "defaultmenu.h", "LoaderStub.h"]
     for name in core_optional:
         src = ctx.build_dir / name
         if src.exists():
@@ -753,12 +753,6 @@ def build_core(ctx: Context, *, build_arduino: bool, arduino_debug: int, menu_pr
     )
 
     if build_arduino:
-        # KeyBooter (if it exists)
-        key_src = ctx.irq_root / "Menu" / "Keybooter" / "KeyBooter.s"
-        if key_src.exists():
-            print(f"[CORE] 64tass: {key_src.relative_to(ctx.irq_root)}")
-            run_cmd([tass, "-c", "--long-branch", str(key_src), "-o", str(ctx.build_dir / "keybooter.prg"), "--labels", str(ctx.sym_dir / "KeyBooter.txt")], cwd=ctx.irq_root)
-
         # Loader stub + IRQLoader + Warning
         stub_src = ctx.irq_root / "Loader" / "LoaderStub.65s"
         stub_bin = ctx.build_dir / "LoaderStub.65s.bin"

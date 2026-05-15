@@ -11,7 +11,6 @@
 TYPE_MENU			= 0
 TYPE_STANDARD_PRG 	= 1
 TYPE_CARTRIDGE		= 2
-TYPE_BOOTER			= 3
 
 
 DATA_LOW		= $69
@@ -77,9 +76,6 @@ BORDER			= $D020
 	LDA #$08					;Initialize current device number as 8
 	STA $BA
 	
-	LDA TYPE
-	CMP #TYPE_BOOTER
-	BEQ LAUNCH
 	LDA #$81					;%10000001 ; Enable CIA interrupts
 	STA $DC0D	
 		
