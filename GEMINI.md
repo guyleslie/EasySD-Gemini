@@ -177,6 +177,13 @@ File f = sd.open("FILE.DAT", FILE_READ);  // FILE_READ is the canonical alias
 while (f.openNext(&dir, O_READ)) { ... }  // 1-param openNext()
 m_dirFile.openCwd();                       // sync handle to vol's CWD
 
+// Directory listing transport
+// Keep READ_DIR on the proven legacy path: response first, then one fixed
+// 768-byte page stream. Do not delay the response for an O(N) pre-scan, and
+// do not perform extra SD opens during the C64 receive burst. The only
+// sharedBuf.ni directory-listing cache is the current-page dirIdx table used
+// later by INVOKE_WITH_INDEX.
+
 // Write pattern
 File f = sd.open("FILE.DAT", O_WRONLY | O_CREAT);
 size_t wr = f.write(buf, len);         // returns 0 on failure (NOT -1, it's size_t)

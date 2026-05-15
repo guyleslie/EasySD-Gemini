@@ -40,21 +40,11 @@ static const char kMemStatusFlash[]  PROGMEM = "B FLASH:";
 static const char kMemStatusC64[]    PROGMEM = "B C64:";
 static const char kMemStatusEnd[]    PROGMEM = "B";
 
-// Watermark state for HandleReadDirectory's O(N) two-pass sort.
-// s_wm_name / s_wm_isDir remember the full name and type of the last entry
-// sent on the previous page so pass-1 can skip all already-sent entries in
-// a single forward scan rather than repeating M full directory passes.
-// Declared here (before Init()) so Init() can reset them after a PRG launch.
-static char    s_wm_name[32]      = {'\0'}; // full LFN of last sent entry
-static uint8_t s_wm_isDir         = 1;      // isDir of last sent entry (1=dir,0=file)
-static uint8_t s_sortCachedPage   = 0xFF;   // page whose end is in s_wm_*
-// Two-level history so backward-by-1 navigation hits the cache instead of rebuilding.
-// s_wm_prev = W_in for page s_sortCachedPage   (= end of s_sortCachedPage-1)
-// s_wm_pp   = W_in for page s_sortCachedPage-1 (= end of s_sortCachedPage-2)
-static char    s_wm_prev_name[32]  = {'\0'};
-static uint8_t s_wm_prev_isDir     = 1;
-static char    s_wm_pp_name[32]    = {'\0'};
-static uint8_t s_wm_pp_isDir       = 1;
+// Sorted-scan state for HandleReadDirectory. Keep this deliberately simple:
+// the C64 receives directory bytes on the proven legacy command path while the
+// Arduino scans for the next visible item between emitted records.
+static char s_sortLastName[32];
+static char s_sortFoundName[32];
 static const uint16_t INVALID_DIR_IDX = 0xFFFF;
 static const uint16_t PAGE_DIRIDX_CACHE_OFFSET = NON_INTERRUPTED_BUFFER_SIZE - (21u * 2u);
 static uint8_t  s_pageEntryCount = 0;
@@ -171,16 +161,8 @@ void CartApi::Init() {
   m_argsOk = true;
   cartInterface.SetPage(0);
 
-  // Invalidate the sort-page watermark cache.  After a PRG launch, chdir,
-  // or SD error the directory context has changed; stale watermarks would
-  // cause the next multi-page scan to skip or duplicate entries.  The first
-  // HandleReadDirectory for page 0 resets the chain anyway, but resetting
-  // here guards against any edge-case where a non-zero page is requested
-  // before page 0 (e.g. after an unusual recovery path).
-  s_sortCachedPage  = 0xFF;
-  s_wm_name[0]      = '\0'; s_wm_isDir      = 1;
-  s_wm_prev_name[0] = '\0'; s_wm_prev_isDir = 1;
-  s_wm_pp_name[0]   = '\0'; s_wm_pp_isDir   = 1;
+  s_sortLastName[0] = '\0';
+  s_sortFoundName[0] = '\0';
   InvalidatePageEntryCache();
 
   dirFunc.ReInit();
@@ -548,59 +530,10 @@ void CartApi::HandleGetMemoryStatus() {
   delayMicroseconds(20);
 }
 
-// One slot in the in-place sort buffer overlaid on sharedBuf.ni.
-// 19 bytes * 21 = 399 bytes <= NON_INTERRUPTED_BUFFER_SIZE (400).
-struct DirSortSlot {
-  char     key[16];   // first 15 chars of LFN + NUL (sort key, may be truncated)
-  uint16_t dirIdx;    // FAT directory-entry index for pass-2 metadata/name lookup
-  uint8_t  isDir;     // 1 = subdirectory, 0 = file
-};
-
-// Compare two directory entries in EasySD display order:
-//   subdirectories before files, then alphabetically case-insensitive.
-// Returns < 0 if (isDir_a, name_a) sorts before (isDir_b, name_b).
-static int cmpDirEntry(uint8_t isDir_a, const char* name_a,
-                       uint8_t isDir_b, const char* name_b) {
-  if (isDir_a != isDir_b) return isDir_a ? -1 : 1;  // dirs sort first
-  return strcasecmp(name_a, name_b);
-}
-
-// Insert one entry into a sorted DirSortSlot array (ascending order).
-// The array keeps only the 'cap' best (smallest) entries seen so far.
-static void sortSlotInsert(DirSortSlot* slots, uint8_t& numSlots, uint8_t cap,
-                           const char* key, uint16_t dIdx, uint8_t isDir) {
-  if (numSlots < cap) {
-    // Shift existing larger entries right, then insert at correct position.
-    uint8_t pos = numSlots;
-    while (pos > 0 && cmpDirEntry(isDir, key, slots[pos-1].isDir, slots[pos-1].key) < 0) {
-      slots[pos] = slots[pos-1];
-      pos--;
-    }
-    memcpy(slots[pos].key, key, 16);
-    slots[pos].dirIdx = dIdx;
-    slots[pos].isDir  = isDir;
-    numSlots++;
-  } else if (cmpDirEntry(isDir, key, slots[cap-1].isDir, slots[cap-1].key) < 0) {
-    // Buffer full but this entry beats the worst: evict last and re-insert.
-    uint8_t pos = cap - 1;
-    while (pos > 0 && cmpDirEntry(isDir, key, slots[pos-1].isDir, slots[pos-1].key) < 0) {
-      slots[pos] = slots[pos-1];
-      pos--;
-    }
-    memcpy(slots[pos].key, key, 16);
-    slots[pos].dirIdx = dIdx;
-    slots[pos].isDir  = isDir;
-  }
-}
+static uint8_t DetectEntryTypeFromName(const char* value);
 
 void CartApi::HandleReadDirectory() {
-  // Clear the bank register immediately so the C64's WAITFOR loop sees 0
-  // while we run pass 1 (SD scan).  HandleResponse() sets it to SUCCESSFUL
-  // after the scan completes, and the C64 proceeds instantly.
-  cartInterface.SetPage(0);
-
   GetArgumentsStatic(3);
-  // Copy args to locals before sharedBuf is repurposed for the sort buffer.
   const uint8_t numberOfEntries = Arguments[0];
   const uint8_t dataLength      = Arguments[1];
   const uint8_t startPage       = Arguments[2];
@@ -615,6 +548,8 @@ void CartApi::HandleReadDirectory() {
     return;
   }
 
+  HandleResponse(SUCCESSFUL, 1);
+  uint16_t actualTransferredBytes = 0;
   const uint16_t maxBytesToTransfer = (uint16_t)dataLength * 256;
   const uint16_t startingIndex = (uint16_t)numberOfEntries * startPage;
 
@@ -633,192 +568,94 @@ void CartApi::HandleReadDirectory() {
   LOG_PRINT_F(" items="); LOG_PRINT(currentItemsCount);
   LOG_PRINT_F(" pages="); LOG_PRINTLN(pageCount);
 
-  // ".." occupies sorted position 0 when in a subdirectory.
-  const bool dotdotOnThisPage = (dirFunc.InSubDir != 0 && startingIndex == 0);
-  // Number of real (non-"..") entries the sort scan must collect.
-  const uint8_t scanTarget = currentItemsCount - (dotdotOnThisPage ? 1 : 0);
+  uint16_t sentSoFar = 0;
+  uint8_t sortPhase = 0;    // 0 = directories, 1 = files
+  uint8_t curItemIndex = 0;
+  s_sortLastName[0] = '\0';
+  ClearCachedPageDirIdx();
 
-  // ----- Watermark setup -----
-  // Three-level chain remembers the last three page boundaries:
-  //   s_wm_name     = end of page s_sortCachedPage   → watermark for page +1 (forward)
-  //   s_wm_prev_name = end of page s_sortCachedPage-1 → watermark for page  0 (same-page reload)
-  //   s_wm_pp_name   = end of page s_sortCachedPage-2 → watermark for page -1 (backward-by-1)
-  // Each path below sets s_wm_name to the correct scan watermark and shifts
-  // s_wm_prev / s_wm_pp so they reflect the page being loaded.
-  if (startPage == 0) {
-    // First page: reset entire chain.
-    s_wm_name[0]      = '\0'; s_wm_isDir      = 1;
-    s_wm_prev_name[0] = '\0'; s_wm_prev_isDir = 1;
-    s_wm_pp_name[0]   = '\0'; s_wm_pp_isDir   = 1;
-  } else if (startPage == (uint8_t)(s_sortCachedPage + 1)) {
-    // Sequential forward: s_wm_name is already the correct scan watermark.
-    // Shift chain: pp <- prev <- name (name stays for scan, overwritten by pass 2).
-    memcpy(s_wm_pp_name,   s_wm_prev_name, 32); s_wm_pp_isDir   = s_wm_prev_isDir;
-    memcpy(s_wm_prev_name, s_wm_name,      32); s_wm_prev_isDir = s_wm_isDir;
-    LOGI(DIR, "RD wm fwd hit");
-  } else if (s_sortCachedPage != 0xFF && startPage == s_sortCachedPage) {
-    // Same-page reload: use the watermark that was used to enter this page.
-    memcpy(s_wm_pp_name, s_wm_prev_name, 32); s_wm_pp_isDir = s_wm_prev_isDir;
-    memcpy(s_wm_name,    s_wm_prev_name, 32); s_wm_isDir    = s_wm_prev_isDir;
-    // s_wm_prev unchanged (still the correct incoming watermark for this page).
-  } else if (s_sortCachedPage > 0 && s_sortCachedPage != 0xFF &&
-             startPage == (uint8_t)(s_sortCachedPage - 1)) {
-    // Backward by one page: s_wm_pp holds the watermark for startPage.
-    // Copy pp -> name first (saves W_in before chain shift overwrites pp).
-    memcpy(s_wm_name,      s_wm_pp_name,   32); s_wm_isDir      = s_wm_pp_isDir;
-    memcpy(s_wm_pp_name,   s_wm_prev_name, 32); s_wm_pp_isDir   = s_wm_prev_isDir;
-    memcpy(s_wm_prev_name, s_wm_name,      32); s_wm_prev_isDir = s_wm_isDir;
-    LOGI(DIR, "RD wm back hit");
-  } else {
-    // Non-sequential (random / large jump) page access.
-    // Rebuild watermark by re-scanning pages 0 .. startPage-1.
-    LOGI(DIR, "RD wm rebuild");
-    s_wm_name[0] = '\0'; s_wm_isDir = 1;
-
-    // Re-use sharedBuf.ni as the sort buffer during rebuild passes too.
-    DirSortSlot* const slots = reinterpret_cast<DirSortSlot*>(sharedBuf.ni);
-
-    // Track two history levels to populate prev/pp after the rebuild.
-    char    rb_prev[32]; rb_prev[0] = '\0';
-    uint8_t rb_prev_isDir = 1;
-
-    for (uint8_t p = 0; p < startPage; p++) {
-      // Save current watermark (end of p-1) before advancing to end of p.
-      memcpy(rb_prev, s_wm_name, 32); rb_prev_isDir = s_wm_isDir;
-
-      const bool   ddOnP  = (dirFunc.InSubDir != 0 && p == 0);
-      const uint16_t sidxP = (uint16_t)numberOfEntries * p;
-      uint8_t cntP;
-      if      (sidxP >= (uint16_t)dirFunc.GetCount())                      cntP = 0;
-      else if ((uint16_t)dirFunc.GetCount() >= sidxP + numberOfEntries)    cntP = numberOfEntries;
-      else                                                                   cntP = (uint8_t)(dirFunc.GetCount() - sidxP);
-      const uint8_t stP = cntP - (ddOnP ? 1 : 0);
-      if (stP == 0) break;
-
-      // One O(N) forward scan to collect the 'stP' best entries > watermark.
-      uint8_t ns = 0;
-      dirFunc.Rewind();
-      while (dirFunc.Iterate() && !dirFunc.IsFinished) {
-        const char*   name  = dirFunc.currentFileName;
-        const uint8_t isDir = dirFunc.IsDirectory ? 1 : 0;
-        if (name[0]=='.' && name[1]=='.' && name[2]=='\0') continue;
-        if (cmpDirEntry(isDir, name, s_wm_isDir, s_wm_name) <= 0) continue;
-        char key[16]; strncpy(key, name, 15); key[15] = '\0';
-        sortSlotInsert(slots, ns, stP, key, dirFunc.currentDirIdx, isDir);
-      }
-      // Retrieve the full LFN of the last slot for an accurate watermark.
-      if (ns > 0) {
-        bool wm_id = false;
-        if (dirFunc.GetLFNByDirIdx(slots[ns-1].dirIdx, s_wm_name, sizeof(s_wm_name), &wm_id)) {
-          s_wm_name[31] = '\0';
-          s_wm_isDir = wm_id ? 1 : 0;
-        } else {
-          // Fallback: truncated key (slightly less precise but functional).
-          strncpy(s_wm_name, slots[ns-1].key, 15);
-          s_wm_name[15] = '\0';
-          s_wm_isDir = slots[ns-1].isDir;
-        }
-      }
-    }
-    // Populate the chain from the rebuild history so the next navigation
-    // (forward or backward) from this page can hit the cache.
-    memcpy(s_wm_pp_name,   rb_prev,   32); s_wm_pp_isDir   = rb_prev_isDir;
-    memcpy(s_wm_prev_name, s_wm_name, 32); s_wm_prev_isDir = s_wm_isDir;
-    // s_wm_name already holds the scan watermark (end of startPage-1).
-  }
-
-  // ---- Pass 1: single O(N) forward scan (interrupts enabled) ----
-  // Collect the 'scanTarget' smallest entries strictly greater than the
-  // watermark into the sort buffer overlaid on sharedBuf.ni.
-  DirSortSlot* const slots = reinterpret_cast<DirSortSlot*>(sharedBuf.ni);
-  uint8_t numSlots = 0;
-  if (scanTarget > 0) {
-    dirFunc.Rewind();
-    while (dirFunc.Iterate() && !dirFunc.IsFinished) {
-      const char*   name  = dirFunc.currentFileName;
-      const uint8_t isDir = dirFunc.IsDirectory ? 1 : 0;
-      // ".." is emitted separately; exclude it from the sort.
-      if (name[0]=='.' && name[1]=='.' && name[2]=='\0') continue;
-      // Only entries strictly greater than the watermark belong on this page.
-      if (cmpDirEntry(isDir, name, s_wm_isDir, s_wm_name) <= 0) continue;
-      char key[16]; strncpy(key, name, 15); key[15] = '\0';
-      sortSlotInsert(slots, numSlots, scanTarget, key, dirFunc.currentDirIdx, isDir);
-    }
-  }
-
-  // ---- Send response AFTER pass 1 so data follows immediately ----
-  // The C64's WAITFOR loop has been watching bank=0 since the top of this
-  // function.  Setting it to SUCCESSFUL here unblocks the C64, and pass 2
-  // transmits all 768 bytes in one burst (~46 ms).
-  HandleResponse(SUCCESSFUL, 1);
   cartInterface.ResetIndex();
-
-  uint16_t actualTransferredBytes = 0;
   noInterrupts();
 
   cartInterface.TransmitByteFast(currentItemsCount);
   cartInterface.TransmitByteFast(pageCount);
   actualTransferredBytes = 2;
 
-  // ".." entry (always first in a subdirectory, always on page 0).
-  if (dotdotOnThisPage) {
-    cartInterface.TransmitByteFast('.');
-    cartInterface.TransmitByteFast('.');
-    for (uint8_t i = 2; i < 31; i++) cartInterface.TransmitByteFast(0x00);
-    cartInterface.TransmitByteFast(ENTRY_TYPE_DIR);
-    actualTransferredBytes += 32;
+  if (dirFunc.InSubDir) {
+    if (sentSoFar >= startingIndex && curItemIndex < currentItemsCount &&
+        actualTransferredBytes + 32 <= maxBytesToTransfer) {
+      cartInterface.TransmitByteFast('.');
+      cartInterface.TransmitByteFast('.');
+      for (uint8_t i = 2; i < 31; i++) cartInterface.TransmitByteFast(0x00);
+      cartInterface.TransmitByteFast(ENTRY_TYPE_DIR);
+      SetCachedPageDirIdx(curItemIndex, INVALID_DIR_IDX);
+      actualTransferredBytes += 32;
+      curItemIndex++;
+    }
+    sentSoFar++;
   }
 
-  // ---- Pass 2: retrieve full LFN via dirIdx then transmit ----
-  // GetEntryByDirIdx does random-access SD reads (cacheDir + seekSet +
-  // openNext).  Those reads must happen with interrupts ENABLED: SdFat
-  // Timeout uses millis() which is frozen under noInterrupts(), and the
-  // SD SPI bus should not be held while NMI timing is unrelated.
-  // Strategy: toggle interrupts per entry — SD read with IRQ on, NMI
-  // byte-burst with IRQ off.  Between bursts NMI is HIGH and the C64 is
-  // spinning in PROT_ReceiveFragment's WAIT_TRANSFER_DONE loop, so
-  // re-enabling interrupts here is safe (no IO2 bytes in flight).
-  char    fullName[32];
-  uint8_t entType = ENTRY_TYPE_FILE;
-  for (uint8_t i = 0; i < numSlots; i++) {
-    if (actualTransferredBytes + 32 > maxBytesToTransfer) break;
+  while (curItemIndex < currentItemsCount) {
+    bool found = false;
+    uint8_t foundIsDir = 0;
+    uint8_t foundType = ENTRY_TYPE_FILE;
+    uint16_t foundDirIdx = INVALID_DIR_IDX;
+    s_sortFoundName[0] = '\0';
 
-    // SD read — interrupts enabled so millis() / SdFat timeouts work.
-    interrupts();
-    const bool ok = dirFunc.GetEntryByDirIdx(slots[i].dirIdx, fullName, sizeof(fullName), &entType);
-    noInterrupts();
+    dirFunc.Rewind();
+    while (dirFunc.Iterate() && !dirFunc.IsFinished) {
+      if (dirFunc.currentFileName[0] == '.' &&
+          dirFunc.currentFileName[1] == '.' &&
+          dirFunc.currentFileName[2] == '\0') continue;
 
-    if (!ok) {
-      // Fallback: use the truncated sort key so the slot is not silently lost.
-      strncpy(fullName, slots[i].key, 15);
-      fullName[15] = '\0';
-      entType = slots[i].isDir ? ENTRY_TYPE_DIR : ENTRY_TYPE_FILE;
+      const uint8_t isDir = dirFunc.IsDirectory ? 1 : 0;
+      if (sortPhase == 0 && !isDir) continue;
+      if (sortPhase == 1 && isDir) continue;
+
+      if (strcasecmp(dirFunc.currentFileName, s_sortLastName) > 0) {
+        if (!found || strcasecmp(dirFunc.currentFileName, s_sortFoundName) < 0) {
+          strncpy(s_sortFoundName, dirFunc.currentFileName, 31);
+          s_sortFoundName[31] = '\0';
+          foundIsDir = isDir;
+          foundType = isDir ? ENTRY_TYPE_DIR : DetectEntryTypeFromName(s_sortFoundName);
+          foundDirIdx = dirFunc.currentDirIdx;
+          found = true;
+        }
+      }
     }
 
-    uint8_t flen = (uint8_t)strlen(fullName);
-    if (flen > 31) flen = 31;
-    for (uint8_t j = 0; j < flen; j++)
-      cartInterface.TransmitByteFast((uint8_t)fullName[j]);
-    for (uint8_t j = flen; j < 31; j++)
-      cartInterface.TransmitByteFast(0x00);
-    cartInterface.TransmitByteFast(entType);
-    actualTransferredBytes += 32;
+    if (!found) {
+      if (sortPhase == 0) {
+        sortPhase = 1;
+        s_sortLastName[0] = '\0';
+        continue;
+      }
+      break;
+    }
 
-    // Update watermark to the full name of the entry just sent.
-    strncpy(s_wm_name, fullName, 31);
-    s_wm_name[31] = '\0';
-    s_wm_isDir = (entType == ENTRY_TYPE_DIR) ? 1 : 0;
+    if (sentSoFar >= startingIndex) {
+      if (actualTransferredBytes + 32 <= maxBytesToTransfer) {
+        uint8_t flen = (uint8_t)strlen(s_sortFoundName);
+        if (flen > 31) flen = 31;
+        for (uint8_t i = 0; i < flen; i++) {
+          cartInterface.TransmitByteFast((uint8_t)s_sortFoundName[i]);
+        }
+        for (uint8_t i = flen; i < 31; i++) {
+          cartInterface.TransmitByteFast(0x00);
+        }
+        cartInterface.TransmitByteFast(foundType);
+        SetCachedPageDirIdx(curItemIndex, foundDirIdx);
+        actualTransferredBytes += 32;
+        curItemIndex++;
+      }
+    }
+
+    strncpy(s_sortLastName, s_sortFoundName, 31);
+    s_sortLastName[31] = '\0';
+    sentSoFar++;
   }
 
-  ClearCachedPageDirIdx();
-  uint8_t pageCacheRow = 0;
-  if (dotdotOnThisPage) {
-    SetCachedPageDirIdx(pageCacheRow++, INVALID_DIR_IDX);
-  }
-  for (uint8_t i = 0; i < numSlots && pageCacheRow < 21; i++) {
-    SetCachedPageDirIdx(pageCacheRow++, slots[i].dirIdx);
-  }
-  s_pageEntryCount = pageCacheRow;
+  s_pageEntryCount = curItemIndex;
   s_pageEntryPage = startPage;
 
   // Pad the transfer to the exact page size expected by the C64.
@@ -827,10 +664,6 @@ void CartApi::HandleReadDirectory() {
   }
 
   interrupts();
-
-  // Cache this page so the next sequential NEXTPAGE request reuses the
-  // watermark already stored in s_wm_name / s_wm_isDir.
-  s_sortCachedPage = startPage;
   delayMicroseconds(20);
 }
 
