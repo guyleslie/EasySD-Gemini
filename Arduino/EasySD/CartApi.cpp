@@ -20,11 +20,21 @@ extern "C" char __data_load_end;
 #define EASYSD_AVR_SKETCH_FLASH_BYTES 30720U
 #endif
 
-// Shared SRAM overlay — IO2 streaming, NI streaming, and command argument
-// parsing are mutually exclusive at runtime.  Their buffers live in one union
-// so only max(128, 400, 130) = 400 bytes are consumed instead of 658.
-// Safety: every Handle*() copies Arguments to locals BEFORE touching stream/NI
-// buffers, so the overlap never causes data loss.
+static const uint8_t DIR_PAGE_ROWS = 21;  // C64 menu renders 21 directory rows.
+
+// Shared SRAM overlay for transient command data only.
+//
+// Ownership rules:
+//   - sharedBuf.args is valid only until the command handler copies its inputs.
+//   - sharedBuf.ni may be reused as scratch inside one command handler.
+//   - sharedBuf.io2 is owned by the IO2 streaming handlers while streaming.
+//   - Never store cross-command state in sharedBuf. Persistent state belongs in
+//     separate statics (for example s_pageDirIdx), otherwise later NI/sort/IO2
+//     use can overwrite it and corrupt directory navigation.
+//
+// IO2 streaming, NI streaming, and command argument parsing are mutually
+// exclusive at runtime, so the union costs max(128, 400, 130) = 400 bytes
+// instead of 658 bytes.
 static union {
   struct {
     volatile uint8_t stream1[DOUBLE_BUFFER_SIZE];
@@ -56,31 +66,39 @@ static uint8_t s_wm_prev_isDir     = 1;
 static char    s_wm_pp_name[32]    = {'\0'};
 static uint8_t s_wm_pp_isDir       = 1;
 static const uint16_t INVALID_DIR_IDX = 0xFFFF;
-static const uint16_t PAGE_DIRIDX_CACHE_OFFSET = NON_INTERRUPTED_BUFFER_SIZE - (21u * 2u);
 static uint8_t  s_pageEntryCount = 0;
 static uint8_t  s_pageEntryPage = 0xFF;
+// Directory page cache persists between COMMAND_READ_DIR and
+// COMMAND_CHANGE_DIR_INDEX, so it must not live in sharedBuf.ni.
+static uint16_t s_pageDirIdx[DIR_PAGE_ROWS];
 // Shared SFN resolution buffer — only one command handler runs at a time,
 // so a single file-scope buffer replaces four separate static locals (-48 B SRAM).
 static char s_sfnBuf[16];
 
 static void SetCachedPageDirIdx(uint8_t row, uint16_t dirIdx) {
-  uint16_t offset = PAGE_DIRIDX_CACHE_OFFSET + (uint16_t)row * 2u;
-  sharedBuf.ni[offset] = (uint8_t)(dirIdx & 0xFF);
-  sharedBuf.ni[offset + 1] = (uint8_t)(dirIdx >> 8);
+  if (row < DIR_PAGE_ROWS) s_pageDirIdx[row] = dirIdx;
 }
 
 static uint16_t GetCachedPageDirIdx(uint8_t row) {
-  uint16_t offset = PAGE_DIRIDX_CACHE_OFFSET + (uint16_t)row * 2u;
-  return (uint16_t)sharedBuf.ni[offset] | ((uint16_t)sharedBuf.ni[offset + 1] << 8);
+  return (row < DIR_PAGE_ROWS) ? s_pageDirIdx[row] : INVALID_DIR_IDX;
 }
 
 static void ClearCachedPageDirIdx() {
-  for (uint8_t i = 0; i < 21; i++) SetCachedPageDirIdx(i, INVALID_DIR_IDX);
+  for (uint8_t i = 0; i < DIR_PAGE_ROWS; i++) SetCachedPageDirIdx(i, INVALID_DIR_IDX);
 }
 
 static void InvalidatePageEntryCache() {
   s_pageEntryCount = 0;
   s_pageEntryPage = 0xFF;
+  ClearCachedPageDirIdx();
+}
+
+static void InvalidateDirectoryViewCache() {
+  s_sortCachedPage  = 0xFF;
+  s_wm_name[0]      = '\0'; s_wm_isDir      = 1;
+  s_wm_prev_name[0] = '\0'; s_wm_prev_isDir = 1;
+  s_wm_pp_name[0]   = '\0'; s_wm_pp_isDir   = 1;
+  InvalidatePageEntryCache();
 }
 
 static uint16_t ReadAndPadBuffer(File &file, uint8_t *buffer, uint16_t length, uint8_t padValue) {
@@ -171,17 +189,9 @@ void CartApi::Init() {
   m_argsOk = true;
   cartInterface.SetPage(0);
 
-  // Invalidate the sort-page watermark cache.  After a PRG launch, chdir,
-  // or SD error the directory context has changed; stale watermarks would
-  // cause the next multi-page scan to skip or duplicate entries.  The first
-  // HandleReadDirectory for page 0 resets the chain anyway, but resetting
-  // here guards against any edge-case where a non-zero page is requested
-  // before page 0 (e.g. after an unusual recovery path).
-  s_sortCachedPage  = 0xFF;
-  s_wm_name[0]      = '\0'; s_wm_isDir      = 1;
-  s_wm_prev_name[0] = '\0'; s_wm_prev_isDir = 1;
-  s_wm_pp_name[0]   = '\0'; s_wm_pp_isDir   = 1;
-  InvalidatePageEntryCache();
+  // After a PRG launch, chdir, or SD error the directory context has changed;
+  // stale sort watermarks or row caches would skip/duplicate entries.
+  InvalidateDirectoryViewCache();
 
   dirFunc.ReInit();
   dirFunc.Prepare();
@@ -549,12 +559,16 @@ void CartApi::HandleGetMemoryStatus() {
 }
 
 // One slot in the in-place sort buffer overlaid on sharedBuf.ni.
-// 19 bytes * 21 = 399 bytes <= NON_INTERRUPTED_BUFFER_SIZE (400).
+// This is scratch for HandleReadDirectory only; do not append persistent
+// metadata to sharedBuf.ni.
 struct DirSortSlot {
   char     key[16];   // first 15 chars of LFN + NUL (sort key, may be truncated)
   uint16_t dirIdx;    // FAT directory-entry index for pass-2 metadata/name lookup
   uint8_t  isDir;     // 1 = subdirectory, 0 = file
 };
+
+static_assert(sizeof(DirSortSlot) * DIR_PAGE_ROWS <= NON_INTERRUPTED_BUFFER_SIZE,
+              "DirSortSlot page buffer must fit in sharedBuf.ni");
 
 // Compare two directory entries in EasySD display order:
 //   subdirectories before files, then alphabetically case-insensitive.
@@ -610,7 +624,7 @@ void CartApi::HandleReadDirectory() {
   LOG_PRINT_F(" cnt="); LOG_PRINT(dirFunc.GetCount());
   LOG_PRINT_F(" sub="); LOG_PRINTLN(dirFunc.InSubDir);
 
-  if (numberOfEntries == 0 || dataLength == 0) {
+  if (numberOfEntries == 0 || numberOfEntries > DIR_PAGE_ROWS || dataLength == 0) {
     HandleResponse(INVALID_ARGUMENT, 1);
     return;
   }
@@ -636,7 +650,8 @@ void CartApi::HandleReadDirectory() {
   // ".." occupies sorted position 0 when in a subdirectory.
   const bool dotdotOnThisPage = (dirFunc.InSubDir != 0 && startingIndex == 0);
   // Number of real (non-"..") entries the sort scan must collect.
-  const uint8_t scanTarget = currentItemsCount - (dotdotOnThisPage ? 1 : 0);
+  const uint8_t scanTarget =
+      (dotdotOnThisPage && currentItemsCount > 0) ? currentItemsCount - 1 : currentItemsCount;
 
   // ----- Watermark setup -----
   // Three-level chain remembers the last three page boundaries:
@@ -815,7 +830,7 @@ void CartApi::HandleReadDirectory() {
   if (dotdotOnThisPage) {
     SetCachedPageDirIdx(pageCacheRow++, INVALID_DIR_IDX);
   }
-  for (uint8_t i = 0; i < numSlots && pageCacheRow < 21; i++) {
+  for (uint8_t i = 0; i < numSlots && pageCacheRow < DIR_PAGE_ROWS; i++) {
     SetCachedPageDirIdx(pageCacheRow++, slots[i].dirIdx);
   }
   s_pageEntryCount = pageCacheRow;
@@ -855,7 +870,7 @@ void CartApi::HandleChangeDirectory() {
   bool success = dirFunc.ChangeDirectoryBasename(fileName);
 
   if (success) {
-    InvalidatePageEntryCache();
+    InvalidateDirectoryViewCache();
     // Restore the proven post-chdir refresh path: after a successful basename
     // change, rebuild the directory handle/count before the menu asks for the
     // next page. This matches the older stable flow more closely than relying
@@ -870,9 +885,16 @@ void CartApi::HandleChangeDirectory() {
 
 void CartApi::HandleChangeDirectoryIndex() {
   GetArgumentsStatic(2);
+  if (!m_argsOk) {
+    HandleResponse(INVALID_ARGUMENT, 1);
+    return;
+  }
 
   const uint8_t pageIndex = Arguments[0];
   const uint8_t rowIndex = Arguments[1];
+  char* selectedName = reinterpret_cast<char*>(&Arguments[2]);
+  const size_t selectedNameSize = MAX_ARGUMENTS_LENGTH;
+  selectedName[0] = '\0';
 
   LOGI(DIR, "CDI");
   LOG_PRINT_F(" pg="); LOG_PRINT(pageIndex);
@@ -880,30 +902,49 @@ void CartApi::HandleChangeDirectoryIndex() {
   LOG_PRINT_F(" cnt="); LOG_PRINT(dirFunc.GetCount());
   LOG_PRINT_F(" sub="); LOG_PRINTLN(dirFunc.InSubDir);
 
-  if (rowIndex >= 21) {
-    LOGE(DIR, "CDI row>=21");
+  if (rowIndex >= DIR_PAGE_ROWS) {
+    LOGE(DIR, "CDI row>=rows");
     HandleResponse(INVALID_ARGUMENT, 1);
     return;
   }
 
-  const uint16_t visibleIndex = static_cast<uint16_t>(pageIndex) * 21u + rowIndex;
+  const uint16_t visibleIndex = static_cast<uint16_t>(pageIndex) * DIR_PAGE_ROWS + rowIndex;
+  bool success = false;
 
-  // Two-step process to avoid stack overflow: FindDirectoryNameByVisibleIndex
-  // has a local File object (~32B); calling ChangeDirectoryBasename from within
-  // it would keep that object on the stack during the deep ChangeDirectory →
-  // sd.chdir → ResyncDirFromCwd → CountEntries chain (~280B total).  By
-  // splitting, the File is released before the chdir chain starts.
-  char* selectedName = reinterpret_cast<char*>(&Arguments[2]);
-  const size_t selectedNameSize = MAX_ARGUMENTS_LENGTH;
-
-  bool success = dirFunc.FindDirectoryNameByVisibleIndex(
-      visibleIndex, selectedName, selectedNameSize);
-  if (success) {
+  if (dirFunc.InSubDir != 0 && pageIndex == 0 && rowIndex == 0) {
+    strcpy(selectedName, "..");
     success = dirFunc.ChangeDirectoryBasename(selectedName);
+  } else {
+    uint16_t cachedDirIdx = INVALID_DIR_IDX;
+    bool resolvedName = false;
+    if (pageIndex == s_pageEntryPage && rowIndex < s_pageEntryCount) {
+      cachedDirIdx = GetCachedPageDirIdx(rowIndex);
+    }
+
+    if (cachedDirIdx != INVALID_DIR_IDX) {
+      uint8_t entryType = ENTRY_TYPE_FILE;
+      resolvedName = dirFunc.GetEntryByDirIdx(
+          cachedDirIdx, selectedName, selectedNameSize, &entryType);
+      resolvedName = resolvedName && entryType == ENTRY_TYPE_DIR;
+    }
+
+    if (!resolvedName) {
+      // Cache miss fallback: resolve by the same visible sort order used for
+      // directory rendering.  The lookup is intentionally separate from the
+      // chdir call so any local File object is released before the deeper
+      // ChangeDirectory stack is entered.
+      resolvedName = dirFunc.FindDirectoryNameByVisibleIndex(
+          visibleIndex, selectedName, selectedNameSize);
+    }
+
+    if (resolvedName) {
+      success = dirFunc.ChangeDirectoryBasename(selectedName);
+    }
   }
 
   if (success) {
-    InvalidatePageEntryCache();
+    InvalidateDirectoryViewCache();
+    dirFunc.Prepare();
     LOGI(DIR, "CDI OK: ");
     LOG_PRINTLN(dirFunc.currentPath);
     HandleResponse(SUCCESSFUL, 1);

@@ -18,6 +18,7 @@ class DirFunction {
     bool ResyncDirFromCwd();
     void CountEntries();
     bool FindEntrySFN(const char* prefix, uint8_t len, char* outSFN, size_t outSize, bool wantDir);
+    bool NavigateToPathBuffer(char* absPath);
 
   public:
     char currentPath[64];

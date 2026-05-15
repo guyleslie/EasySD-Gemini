@@ -168,13 +168,18 @@ LFN support is on by default in this build.
 // Directory navigation — MUST use relative paths from root
 sd.chdir();           // return to root first
 sd.chdir("DIRNAME");  // then relative step
-sd.chdir("..");       // GoBack — never sd.chdir(absolutePath) for parent
+// GoBack derives the parent from currentPath, then walks from root.
+// Do not rely on sd.chdir("..") for exFAT/newly-created directories.
 // NEVER: sd.chdir("/DIRNAME") — fails on nested paths in 2.x
 
 // File open/read
 File f = sd.open("FILE.DAT", FILE_READ);  // FILE_READ is the canonical alias
 while (f.openNext(&dir, O_READ)) { ... }  // 1-param openNext()
 m_dirFile.openCwd();                       // sync handle to vol's CWD
+
+// sharedBuf in CartApi.cpp is command-local scratch only.
+// Do not store cross-command state there; NI/sort/IO2 users overwrite it.
+// Persistent directory caches must use separate statics.
 
 // Write pattern
 File f = sd.open("FILE.DAT", O_WRONLY | O_CREAT);

@@ -247,17 +247,6 @@ _enter_regular
 	BNE NODIRECTORY	
 
 	JSR PROT_DisableDisplay
-	JSR ISPREVIOUSDIRECTORY
-	BCS NOPREV
-	JSR GOBACK
-	; Reset page index after navigating to parent directory.
-	LDA #0
-	STA CURPAGEINDEX
-	;JMP NEWCONTENT
-	JMP DOREADDIRECTORY
-
-NOPREV
-	; Enter directory (Arduino updates currentPath authoritatively)
 	JMP ENTERDIR
 
 ; ------------------------------------------------------------
@@ -391,12 +380,12 @@ _eld_done
 
 
 ENTERDIR
-	; Set filename from selected directory record and change directory by name.
-	; This is the proven path used in the stable 5331f47 flow.
-	LDX NAMELOW
-	LDY NAMEHIGH
-	JSR PROT_SetNameZ
-	JSR PROT_ChangeDirectory
+	; Change directory by the visible page/row selection.  The Arduino owns
+	; the sorted directory view and resolves row 0 on page 0 to ".." when
+	; inside a subdirectory, so the menu never sends truncated names here.
+	JSR GETCURRENTROW
+	LDA CURPAGEINDEX
+	JSR PROT_ChangeDirectoryIndex
 	BCS CHANGEDIRFAIL
 	; Reset page index — new directory always starts at page 0.
 	; Without this, a stale CURPAGEINDEX causes startingIndex > count on
@@ -624,36 +613,6 @@ SPECIALCMD
 
 	; INVOKE PLUGIN
 
-	
-GOBACK
-	; Send ".." to the Arduino. Arduino navigates one level up and updates
-	; its authoritative currentPath. C64 queries the new path via PROT_GetCurrentPath.
-	LDA #>PARENTDIR
-	TAY
-	LDA #<PARENTDIR
-	TAX
-	JSR PROT_SetNameZ
-	JSR PROT_ChangeDirectory
-	BCS CHANGEDIRFAIL
-	DELAYFRAMES 2
-	RTS
-	
-	
-ISPREVIOUSDIRECTORY
-	LDY #$00
-	LDA (NAMELOW), Y
-	CMP #$2E
-	BNE +
-	INY
-	LDA (NAMELOW), Y
-	CMP #$2E
-	BNE +
-	CLC
-	RTS
-+
-	SEC
-	RTS
-	
 NEWCONTENT
 ; Update the screen with the new content got from micro
 
@@ -1790,10 +1749,6 @@ MAXDIRITEMS = 21
 NAMESLO   .byte <(-)
 NAMESHI   .byte >(-)
 
-PARENTDIR
-	.TEXT ".."
-	.FILL 30,0
-
 SID
 .include "../../Loader/CartLibStream.s"
 .include "Filename.s"
@@ -1878,7 +1833,7 @@ COLORDATA
 ; ------------------------------------------------------------
 ; UI strings (0-terminated)
 ; ------------------------------------------------------------
-.enc "screen"		; .TEXT strings below use C64 screen code encoding (A=$01, etc.)
+.enc "none"		; STATUS_LINE writes raw bytes into the custom ASCII-like charset.
 MSG_PATH_TOO_LONG
 	.TEXT "   PATH TOO LONG"
 	.BYTE 0
@@ -1895,11 +1850,9 @@ MSG_PLUGIN_MISSING
 	.TEXT "   PLUGIN MISSING"
 	.BYTE 0
 
-.enc "none"		; ASCII screen bytes for the custom mixed-case charset.
 MSG_UNSUPPORTED_FILE
 	.TEXT "   UNSUPPORTED FILE"
 	.BYTE 0
-.enc "none"		; restore default encoding
 
 ; Protocol scratch buffer used by PROT_GetCurrentPath.
 PLUGIN_HEADER
