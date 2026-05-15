@@ -389,20 +389,7 @@ NODIRECTORY
 	CMP #ENTRY_TYPE_CVD
 	BEQ META_CVD
 
-	LDA NAMELOW
-	LDX NAMEHIGH
-	JSR CHECKFILENAME
-	JSR ISPRG
-	BCC PROGRAM
-	CMP #TYPE_PROGRAM
-	BEQ PROGRAM
-	CMP #TYPE_CHECK_PLUGIN
-	BEQ PLUGIN
-	
-	; ERROR
--	
-	INC $D020
-	JMP - 
+	JMP UNKNOWNFILE
 META_KOA
 	JSR SETEXT_KOA
 	JMP PLUGIN
@@ -436,14 +423,19 @@ PLUGIN_PRG_PATH
 	LDX #01		; Flags=read
 	JSR PROT_OpenFile
 	BCC PRGPLUGINEXISTS
-	JSR ISDIRECTLAUNCH
-	BCC PROGRAM
 	JMP PLUGINMISSING
 
 PLUGINMISSING
 	LDA #$02			; red
 	LDX #<MSG_PLUGIN_MISSING
 	LDY #>MSG_PLUGIN_MISSING
+	JSR STATUS_LINE
+	JSR PROT_EnableDisplay
+	JMP INPUT_GET
+UNKNOWNFILE
+	LDA #$02			; red
+	LDX #<MSG_UNSUPPORTED_FILE
+	LDY #>MSG_UNSUPPORTED_FILE
 	JSR STATUS_LINE
 	JSR PROT_EnableDisplay
 	JMP INPUT_GET
@@ -800,7 +792,7 @@ GETCURRENTROW	; Input : None, Output : X (current row)
 ;
 ; Entry format (32 bytes per GAMELIST slot):
 ;   bytes 0-30 : null-terminated ASCII filename
-;   byte  31   : 0x04 = directory, 0x00 = file
+;   byte  31   : Arduino-provided ENTRY_TYPE_* metadata
 ;
 ; Input:  NAMELOW/HIGH = pointer to 32-byte entry
 ;         COLLOW/HIGH  = pointer to screen memory (col 4 of row)
@@ -863,10 +855,8 @@ _paf_dtail
 _paf_ret
 	RTS
 
-	; === FILE: find last dot, split into stem (21) + gap (2) + ext (3) ===
+	; === FILE: metadata type -> label; unknown files show "???" ===
 _paf_file
-	; Prefer Arduino-provided full-name/SFN metadata. The visible name may be
-	; truncated before ".prg", so parsing bytes 0-30 is only a fallback.
 	LDY #31
 	LDA (NAMELOW), Y
 	CMP #ENTRY_TYPE_PRG
@@ -879,72 +869,17 @@ _paf_file
 	BEQ _paf_ext_wav
 	CMP #ENTRY_TYPE_CVD
 	BEQ _paf_ext_cvd
-	; -- Pass 1: scan for last dot, pre-load up to 3 ext chars --
-	LDA #$20		; default: spaces (no extension)
-	STA $8C
-	STA $8D
-	STA $8E
-	LDA #0
-	STA $8B			; $8B = last dot position (0 = not found)
-	LDY #0
-_paf_scan
-	LDA (NAMELOW), Y
-	BEQ _paf_scan_done
-	CMP #$2E		; '.'?
-	BNE _paf_scan_next
-	STY $8B
-_paf_scan_next
-	INY
-	CPY #31			; scan bytes 0-30 only (byte 31 is type flag)
-	BNE _paf_scan
-_paf_scan_done
-	; If a dot was found and exactly 3 visible extension chars follow, read them.
-	LDA $8B
-	BEQ _paf_stem		; no dot -> no extension
-	CMP #28			; dot after pos 27 cannot fit a 3-char extension
-	BCS _paf_invalid_ext
-	CLC
-	ADC #1			; first ext char index = dot_pos + 1
-	TAY
-	LDA (NAMELOW), Y	; ext char 0
-	BEQ _paf_invalid_ext
-	STA $8C
-	INY
-	LDA (NAMELOW), Y	; ext char 1
-	BEQ _paf_invalid_ext
-	STA $8D
-	INY
-	LDA (NAMELOW), Y	; ext char 2
-	BEQ _paf_invalid_ext
-	STA $8E
-	JMP _paf_stem
+	JMP _paf_ext_unknown
 
-_paf_invalid_ext
-	LDA #0
-	STA $8B			; print as no-extension, do not strip at partial dot
-	LDA #$20
-	STA $8C
-	STA $8D
-	STA $8E
-
-	; -- Pass 2: print stem (source = dest = Y, stop at dot, 26, or null) --
+	; -- Print visible name (source = dest = Y, stop at 26 or null) --
 _paf_stem
 	LDY #0
 _paf_sloop
 	CPY #26
 	BCS _paf_stem_done	; 26 chars written, stop
-	LDA $8B
-	BNE _paf_check_dot	; dot exists: check if Y has reached it
-	; No dot in name: stop stem at null terminator
 	LDA (NAMELOW), Y
 	BEQ _paf_stem_done
 	JMP _paf_stem_write
-_paf_check_dot
-	TYA
-	CMP $8B			; Y >= dot position?
-	BCS _paf_stem_done	; yes, stem ends here
-	LDA (NAMELOW), Y
-	BEQ _paf_stem_done	; null safety
 _paf_stem_write
 	JSR _paf_conv		; ASCII -> screen code
 	STA (COLLOW), Y
@@ -1026,6 +961,11 @@ _paf_ext_cvd
 	LDA #$76		; v
 	STA $8D
 	LDA #$64		; d
+	JMP _paf_ext_done
+_paf_ext_unknown
+	LDA #$3F		; ?
+	STA $8C
+	STA $8D
 _paf_ext_done
 	STA $8E
 	LDA #0
@@ -1833,6 +1773,10 @@ MSG_CD_ERROR
 
 MSG_PLUGIN_MISSING
 	.TEXT "   PLUGIN MISSING"
+	.BYTE 0
+
+MSG_UNSUPPORTED_FILE
+	.TEXT "   UNSUPPORTED FILE"
 	.BYTE 0
 .enc "none"		; restore default encoding
 
