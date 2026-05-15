@@ -338,18 +338,17 @@ _smc_loop
 	BEQ _smc_value
 	CPX #$00
 	BEQ _smc_next
-	CMP #$42			; 'B' stays dark grey like the label text
-	BEQ _smc_label
 	PHA
-	LDA #$03			; cyan: numeric values
+	LDA #$03			; cyan: numeric values plus B suffix
 	STA $DBC0,Y
 	PLA
+	CMP #$42			; 'B' ends the value field
 	BNE _smc_next
+	LDX #$00
+	BEQ _smc_next
 _smc_value
 	LDX #$01
 	BNE _smc_next
-_smc_label
-	LDX #$00
 _smc_next
 	INY
 	CPY #$25			; 37 = same bound as STATUS_LINE
