@@ -51,6 +51,9 @@
 FAT_FILE_LENGTH_INDEX = 28
 LOAD_START_LO         = $AE
 LOAD_START_HI         = $AF
+IRQ_LO                = $0314
+IRQ_HI                = $0315
+DEFAULT_IRQ_HANDLER   = $EA31
 
 ; DEBUG mode - defined from command line (-D DEBUG=1 or -D DEBUG=0)
 ; Load DEBUG macros BEFORE first use
@@ -95,20 +98,20 @@ ADD16	.macro
 ;-----------------------------------------------
 
 P3_TAIL_CODE
-	; 39 bytes: copy TAIL_BUF ($03BB-$03C0) → $FFFA-$FFFF, then jump to Launcher
-	.BYTE $AD, $BB, $03, $8D, $FA, $FF  ; LDA $03BB : STA $FFFA
-	.BYTE $AD, $BC, $03, $8D, $FB, $FF  ; LDA $03BC : STA $FFFB
-	.BYTE $AD, $BD, $03, $8D, $FC, $FF  ; LDA $03BD : STA $FFFC
-	.BYTE $AD, $BE, $03, $8D, $FD, $FF  ; LDA $03BE : STA $FFFD
-	.BYTE $AD, $BF, $03, $8D, $FE, $FF  ; LDA $03BF : STA $FFFE
-	.BYTE $AD, $C0, $03, $8D, $FF, $FF  ; LDA $03C0 : STA $FFFF
-	.BYTE $4C, $34, $03                 ; JMP $0334  (Launcher)
+	; 39 bytes: copy TAIL_BUF ($0400-$0405) → $FFFA-$FFFF, then jump to Launcher
+	.BYTE $AD, $00, $04, $8D, $FA, $FF  ; LDA $0400 : STA $FFFA
+	.BYTE $AD, $01, $04, $8D, $FB, $FF  ; LDA $0401 : STA $FFFB
+	.BYTE $AD, $02, $04, $8D, $FC, $FF  ; LDA $0402 : STA $FFFC
+	.BYTE $AD, $03, $04, $8D, $FD, $FF  ; LDA $0403 : STA $FFFD
+	.BYTE $AD, $04, $04, $8D, $FE, $FF  ; LDA $0404 : STA $FFFE
+	.BYTE $AD, $05, $04, $8D, $FF, $FF  ; LDA $0405 : STA $FFFF
+	.BYTE $4C, $9E, $03                 ; JMP $039E  (Launcher)
 
 P3_HANDLER
 	; 52-byte NMI handler (installed at $036A).
 	; X = pages remaining (NMI page counter); Y = byte index within page.
 	; For non-last pages (X > 1): behaves identically to CartLib.s TransferHandler.
-	; For last page (X = 1), Y >= $FA: saves byte to TAIL_BUF[$03BB + Y-$FA] instead
+	; For last page (X = 1), Y >= $FA: saves byte to TAIL_BUF[$0400 + Y-$FA] instead
 	; of writing to $FFFA+, preventing corruption of the active NMI vector.
 	;
 	; Offsets (relative to $036A):
@@ -138,7 +141,7 @@ P3_HANDLER
 	;  +37 E9 FA      SBC #$FA           compute TAIL_BUF offset (0..5)
 	;  +39 A8         TAY
 	;  +40 8A         TXA                restore byte
-	;  +41 99 BB 03   STA $03BB,Y        save to TAIL_BUF
+	;  +41 99 00 04   STA $0400,Y        save to TAIL_BUF
 	;  +44 A4 77      LDY $77            restore Y
 	;  +46 A2 01      LDX #$01           restore X (still last page)
 	;  +48 C8         INY                advance byte counter
@@ -170,19 +173,68 @@ P3_HANDLER
 	.BYTE $E9, $FA       ; +37 SBC #$FA
 	.BYTE $A8            ; +39 TAY
 	.BYTE $8A            ; +40 TXA
-	.BYTE $99, $BB, $03  ; +41 STA $03BB,Y
+	.BYTE $99, $00, $04  ; +41 STA $0400,Y
 	.BYTE $A4, $77       ; +44 LDY $77
 	.BYTE $A2, $01       ; +46 LDX #$01
 	.BYTE $C8            ; +48 INY
 	.BYTE $F0, $DA       ; +49 BEQ -38 → .endofblock
 	.BYTE $40            ; +51 RTI
 
+P2TK_LAUNCHER_CODE
+	; Relocated launcher copied to $039E-$03FD.
+	; Patched immediates:
+	;   END_LO/END_HI     = BASIC end pointers after load
+	;   START_LO/START_HI = PRG entry point and BASIC/RUN decision
+	.BYTE $A9, $37, $85, $01                    ; LDA #$37 : STA $01
+	.BYTE $A9, <DEFAULT_NMI_HANDLER
+	.BYTE $8D, <NMI_LO, >NMI_LO
+	.BYTE $A9, >DEFAULT_NMI_HANDLER
+	.BYTE $8D, <NMI_HI, >NMI_HI
+	.BYTE $A9, <DEFAULT_IRQ_HANDLER
+	.BYTE $8D, <IRQ_LO, >IRQ_LO
+	.BYTE $A9, >DEFAULT_IRQ_HANDLER
+	.BYTE $8D, <IRQ_HI, >IRQ_HI
+	.BYTE $A2, $FB, $9A                         ; LDX #$FB : TXS
+	.BYTE $A0
+P2TK_LAUNCHER_END_LO
+	.BYTE $00
+	.BYTE $84, $2D, $84, $2F, $84, LOAD_START_LO
+	.BYTE $A9
+P2TK_LAUNCHER_END_HI
+	.BYTE $00
+	.BYTE $85, $2E, $85, $30, $85, LOAD_START_HI
+	.BYTE $A9, $1B, $8D, $11, $D0               ; LDA #$1B : STA $D011
+	.BYTE $A9, $08, $85, $BA                    ; LDA #$08 : STA $BA
+	.BYTE $A9, $81, $8D, $0D, $DC               ; LDA #$81 : STA $DC0D
+	.BYTE $58                                  ; CLI
+	.BYTE $A9
+P2TK_LAUNCHER_START_HI_CMP
+	.BYTE $00
+	.BYTE $C9, $08, $D0, $0F                    ; CMP #$08 : BNE machine
+	.BYTE $A9
+P2TK_LAUNCHER_START_LO_CMP
+	.BYTE $00
+	.BYTE $C9, $01, $F0, $14                    ; CMP #$01 : BEQ basic
+	.BYTE $B0, $07                              ; start > $0801: machine
+	.BYTE $AD, $05, $08, $C9, $9E, $F0, $0C     ; $0800 hybrid with SYS token
+	.BYTE $A9
+P2TK_LAUNCHER_START_LO_JMP
+	.BYTE $00
+	.BYTE $85, $FB
+	.BYTE $A9
+P2TK_LAUNCHER_START_HI_JMP
+	.BYTE $00
+	.BYTE $85, $FC, $6C, $FB, $00               ; JMP ($00FB)
+	.BYTE $20, $59, $A6                         ; basic: JSR $A659 ("CLR")
+	.BYTE $4C, $AE, $A7                         ; JMP $A7AE ("RUN")
+P2TK_LAUNCHER_END
+
 ;-----------------------------------------------
-; Data variables in KernalBridge gap ($C060–$C17D).
+; Data variables in KernalBridge gap ($C0C0–$C1DD).
 ; MUST stay below $D000: reads from $D000+ on real hardware
 ; return VIC-II register values instead of RAM content.
 ;-----------------------------------------------
-	*=$C060
+	*=$C0C0
 
 HEXTOSCREEN
 	.BYTE 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 1, 2, 3, 4, 5, 6
@@ -365,7 +417,7 @@ RESUMEFULLLOAD
 	LDA #$81					;%10000001 ; Enable CIA interrupts
 	STA $DC0D
 
-	JMP $0840
+	JMP LAUNCH
 
 LAUNCH
 	LDA #$08
@@ -537,7 +589,7 @@ FD
 ;             and let TransferHandler at $80AF fill $C000+ via NMI pulses.
 ;   Phase 3 — if Phase2_pages = 64 (data fills $FF00-$FFFF), swap in a special NMI
 ;             handler (P3_HANDLER at $036A) that intercepts tail bytes $FFFA-$FFFF and
-;             saves them to TAIL_BUF ($03BB-$03C0) to prevent mid-transfer corruption
+;             saves them to TAIL_BUF ($0400-$0405) to prevent mid-transfer corruption
 ;             of the active NMI vector. After transfer, P3_TAIL_CODE ($0343) copies
 ;             TAIL_BUF → $FFFA-$FFFF and falls through to Launcher.
 ;
@@ -546,9 +598,9 @@ FD
 ;   ZP_IRQ_API_DATA_LO/HI = STARTADDRESSLO/HI (set at "Step 2: Parse load address")
 ;   Active PROT_StartTalking session; file open, position at start of data.
 ;
-; Exit (normal, <64 pages): JMP $033B → poll ZP_IRQ_STATE_WAITHANDLE → JMP $0334 (Launcher)
+; Exit (normal, <64 pages): JMP $033B → poll ZP_IRQ_STATE_WAITHANDLE → JMP $039E (Launcher)
 ; Exit (Phase3, 64 pages): JMP $033B → poll → JMP $0343 (P3_TAIL_CODE) → copy $FFFA-$FFFF →
-;                          JMP $0334 (Launcher) → LDA #$37 / STA $01 / JMP STARTADDR
+;                          JMP $039E (Launcher) → BASIC RUN or JMP STARTADDR
 ;
 ; Note: CLOSEFILE / PROT_EndTalking are NOT called — intentional protocol leak.
 ;       The Arduino returns to SoftStartListening; all state resets on next C64
@@ -594,11 +646,11 @@ p2tk_no_partial:
 	; MUST live below $C000.  The FILE_PATH_BUF area ($0334-$03FB) is safe as long as
 	; STARTADDR >= $0800 (true for all BASIC and typical machine-code programs).
 	; Byte values are identical to the old $E000 stub; relative BVC offset (-4) is
-	; address-independent and the absolute JMP target ($0334) is unchanged.
+	; address-independent and the absolute JMP target is the relocated launcher.
 	;   $033B: B8          CLV
 	;   $033C: 24 64       BIT ZP_IRQ_STATE_WAITHANDLE
 	;   $033E: 50 FC       BVC $033C   (loop)
-	;   $0340: 4C 34 03    JMP $0334   (Launcher)
+	;   $0340: 4C 9E 03    JMP $039E   (Launcher)
 	LDA #$B8
 	STA $033B                    ; CLV
 	LDA #$24
@@ -611,27 +663,28 @@ p2tk_no_partial:
 	STA $033F                    ;   offset: -4 -> loops back to BIT at $033C
 	LDA #$4C
 	STA $0340                    ; JMP abs
-	LDA #$34
-	STA $0341                    ;   lo: $0334
+	LDA #$9E
+	STA $0341                    ;   lo: $039E
 	LDA #$03
-	STA $0342                    ;   hi: $0334
+	STA $0342                    ;   hi: $039E
 
-	; Write Launcher to $0334 (FILE_PATH_BUF area — safe at this stage, 7 bytes)
-	; On invocation: restores normal memory map and jumps to PRG entry point
-	LDA #$A9
-	STA $0334                    ; LDA #imm
-	LDA #$37
-	STA $0335                    ;   $37 = PP_CONFIG_DEFAULT (KERNAL+BASIC visible)
-	LDA #$85
-	STA $0336                    ; STA zp
-	LDA #$01
-	STA $0337                    ;   $01 = PROCESSOR_PORT
-	LDA #$4C
-	STA $0338                    ; JMP abs
-	LDA STARTADDRESSLO
-	STA $0339                    ;   PRG entry point lo
+	; Copy the compact launcher template to $039E and patch the address immediates.
+	LDX #P2TK_LAUNCHER_END - P2TK_LAUNCHER_CODE - 1
+-	LDA P2TK_LAUNCHER_CODE, X
+	STA $039E, X
+	DEX
+	BPL -
+
+	LDA ENDADDRESSLO
+	STA $039E + P2TK_LAUNCHER_END_LO - P2TK_LAUNCHER_CODE
+	LDA ENDADDRESSHI
+	STA $039E + P2TK_LAUNCHER_END_HI - P2TK_LAUNCHER_CODE
 	LDA STARTADDRESSHI
-	STA $033A                    ;   PRG entry point hi
+	STA $039E + P2TK_LAUNCHER_START_HI_CMP - P2TK_LAUNCHER_CODE
+	STA $039E + P2TK_LAUNCHER_START_HI_JMP - P2TK_LAUNCHER_CODE
+	LDA STARTADDRESSLO
+	STA $039E + P2TK_LAUNCHER_START_LO_CMP - P2TK_LAUNCHER_CODE
+	STA $039E + P2TK_LAUNCHER_START_LO_JMP - P2TK_LAUNCHER_CODE
 
 	; --- Phase 3: protection when Phase2_pages = 64 (last page fills $FF00-$FFFF) ---
 	; Without protection, TransferHandler writes to $FFFA/$FFFB mid-transfer, corrupting
@@ -656,7 +709,7 @@ p2tk_no_partial:
 	DEX
 	BPL -
 
-	; Override BVC loop JMP lo: $0341 ← $43 (target $0343 tail write, not $0334 Launcher)
+	; Override BVC loop JMP lo: $0341 ← $43 (target $0343 tail write, not $039E Launcher)
 	LDA #$43
 	STA $0341
 
