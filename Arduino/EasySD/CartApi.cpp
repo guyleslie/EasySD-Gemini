@@ -12,14 +12,6 @@ extern SdFat  sd;
 extern DirFunction dirFunc;
 extern CartInterface cartInterface;
 
-#if defined(__AVR__)
-extern "C" char __data_load_end;
-#endif
-
-#ifndef EASYSD_AVR_SKETCH_FLASH_BYTES
-#define EASYSD_AVR_SKETCH_FLASH_BYTES 30720U
-#endif
-
 // Shared SRAM overlay — IO2 streaming, NI streaming, and command argument
 // parsing are mutually exclusive at runtime.  Their buffers live in one union
 // so only max(128, 400, 130) = 400 bytes are consumed instead of 658.
@@ -35,10 +27,8 @@ static union {
 } sharedBuf;
 volatile static uint16_t streamBufferIndex;
 volatile static unsigned long lastStreamRequestTime = 0;
-static const char kMemStatusPrefix[] PROGMEM = "   AVR:";
-static const char kMemStatusFlash[]  PROGMEM = "B FLASH:";
-static const char kMemStatusC64[]    PROGMEM = "B C64:";
-static const char kMemStatusEnd[]    PROGMEM = "B";
+static const char kMemStatusPrefix[] PROGMEM = "   MCU SRAM:";
+static const char kMemStatusC64Stk[] PROGMEM = "B C64 STK:";
 
 // Watermark state for HandleReadDirectory's O(N) two-pass sort.
 // s_wm_name / s_wm_isDir remember the full name and type of the last entry
@@ -113,26 +103,22 @@ static uint16_t FreeAvrSram() {
 #endif
 }
 
-static uint16_t FreeSketchFlash() {
-#if defined(__AVR__)
-  const uintptr_t used = reinterpret_cast<uintptr_t>(&__data_load_end);
-  return (used < EASYSD_AVR_SKETCH_FLASH_BYTES) ? (uint16_t)(EASYSD_AVR_SKETCH_FLASH_BYTES - used) : 0;
-#else
-  return 0;
-#endif
-}
-
-static uint16_t TransmitProgmemText(const char* text) {
+// Copy a NUL-terminated PROGMEM string into dst.  Returns bytes written.
+// Used to build the GET_MEMORY_STATUS response in RAM before tight-loop
+// transmit — interleaving pgm_read_byte / arithmetic with TransmitByteFast
+// produced intermittent byte loss on the C64.
+static uint16_t CopyProgmemText(uint8_t* dst, const char* text) {
   uint16_t count = 0;
   uint8_t ch;
   while ((ch = pgm_read_byte(text++)) != 0) {
-    cartInterface.TransmitByteFast(ch);
-    count++;
+    dst[count++] = ch;
   }
   return count;
 }
 
-static uint8_t TransmitUint16(uint16_t value) {
+// Write the decimal representation of value into dst (no NUL).  Returns the
+// number of digits written.  '0' itself becomes "0" (one byte).
+static uint8_t WriteUint16(uint8_t* dst, uint16_t value) {
   bool started = false;
   uint8_t count = 0;
   for (uint16_t divisor = 10000; divisor != 0; divisor /= 10) {
@@ -140,8 +126,7 @@ static uint8_t TransmitUint16(uint16_t value) {
     value %= divisor;
     if (digit != 0 || started || divisor == 1) {
       started = true;
-      cartInterface.TransmitByteFast('0' + digit);
-      count++;
+      dst[count++] = '0' + digit;
     }
   }
   return count;
@@ -527,22 +512,26 @@ void CartApi::HandleGetPath() {
 void CartApi::HandleGetMemoryStatus() {
   GetArgumentsStatic(0);
   const uint16_t avrFreeSram = FreeAvrSram();
-  const uint16_t avrFreeFlash = FreeSketchFlash();
-  const uint16_t c64BasicFree = 38911;
+
+  // Build the full 256-byte response in RAM first, then transmit with a
+  // tight loop.  Mirrors HandleGetPath's pattern.  Interleaving compute
+  // (16-bit divide for digit conversion, pgm_read_byte, function-call overhead)
+  // with TransmitByteFast was inducing intermittent byte loss on the C64.
+  // The C64 appends its own stack headroom after the "C64 STK:" label.
+  uint8_t* buf = sharedBuf.ni;
+  memset(buf, 0, 256);
+
+  uint16_t pos = 0;
+  pos += CopyProgmemText(buf + pos, kMemStatusPrefix);
+  pos += WriteUint16(buf + pos, avrFreeSram);
+  pos += CopyProgmemText(buf + pos, kMemStatusC64Stk);
+  // Bytes pos..255 are already zero from memset above.
 
   HandleResponse(SUCCESSFUL, 1);
   cartInterface.ResetIndex();
   noInterrupts();
-  uint16_t sent = 0;
-  sent += TransmitProgmemText(kMemStatusPrefix);
-  sent += TransmitUint16(avrFreeSram);
-  sent += TransmitProgmemText(kMemStatusFlash);
-  sent += TransmitUint16(avrFreeFlash);
-  sent += TransmitProgmemText(kMemStatusC64);
-  sent += TransmitUint16(c64BasicFree);
-  sent += TransmitProgmemText(kMemStatusEnd);
-  for (; sent < 256; sent++) {
-    cartInterface.TransmitByteFast(0);
+  for (uint16_t i = 0; i < 256; i++) {
+    cartInterface.TransmitByteFast(buf[i]);
   }
   interrupts();
   delayMicroseconds(20);

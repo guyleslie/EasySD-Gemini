@@ -304,28 +304,131 @@ _gcp_error
 ; ------------------------------------------------------------
 ; SHOW_MEMORY_STATUS
 ;   Requests the formatted status string from the Arduino:
-;   "   AVR:<bytes>B FLASH:<bytes>B C64:<bytes>B".
-;   The leading three spaces align with STATUS_LINE's framed row layout.
+;   "   MCU SRAM:<bytes>B C64 STK:".
+;   The C64 appends its live TSX stack headroom as "<bytes>B FREE".
 ; ------------------------------------------------------------
 SHOW_MEMORY_STATUS
 	LDA #<PLUGIN_HEADER
 	STA ZP_IRQ_API_DATA_LO
 	LDA #>PLUGIN_HEADER
 	STA ZP_IRQ_API_DATA_HI
+	JSR PROT_DisableDisplay		; NMI page receive is only stable with display off
 	LDA #COMMAND_GET_MEMORY_STATUS
 	JSR PROT_Send
 	JSR PROT_WaitProcessing
-	BPL _sms_done
+	BPL _sms_enable_done
 	LDA #$01
 	STA ZP_IRQ_API_DATA_LENGTH
 	LDY #$00
 	JSR PROT_ReceiveFragmentNoCallback
+	TSX				; C64 stack headroom at the display point
+	TXA
+	JSR APPEND_STACK_HEADROOM
+	JSR PROT_EnableDisplay
 	LDA #$0B			; dark grey labels/delimiters
 	LDX #<PLUGIN_HEADER
 	LDY #>PLUGIN_HEADER
 	JSR STATUS_LINE
 	JSR STATUS_MEMORY_COLORS
 _sms_done
+	RTS
+_sms_enable_done
+	JSR PROT_EnableDisplay
+	RTS
+
+; Append a fixed-width decimal stack headroom and "B FREE\0" to PLUGIN_HEADER.
+; Input: A = SP from TSX. Free push capacity is SP+1 bytes. Uses no stack.
+APPEND_STACK_HEADROOM
+	CMP #$FF
+	BNE _ash_plus_one
+	LDY #$00
+	JMP _ash_find_end_256
+_ash_plus_one
+	CLC
+	ADC #$01
+	STA STACKTMP
+	LDY #$00
+_ash_find_end
+	LDA PLUGIN_HEADER,Y
+	BEQ _ash_digits
+	INY
+	BNE _ash_find_end
+	RTS
+_ash_find_end_256
+	LDY #$00
+_ash_find_end_256_loop
+	LDA PLUGIN_HEADER,Y
+	BEQ _ash_digits_256
+	INY
+	BNE _ash_find_end_256_loop
+	RTS
+_ash_digits_256
+	LDA #$32			; '2'
+	STA PLUGIN_HEADER,Y
+	INY
+	LDA #$35			; '5'
+	STA PLUGIN_HEADER,Y
+	INY
+	LDA #$36			; '6'
+	STA PLUGIN_HEADER,Y
+	INY
+	JMP _ash_suffix
+_ash_digits
+	LDA STACKTMP
+	LDX #$00
+_ash_hundreds
+	CMP #100
+	BCC _ash_hundreds_done
+	SEC
+	SBC #100
+	INX
+	BNE _ash_hundreds
+_ash_hundreds_done
+	STA STACKTMP
+	TXA
+	ORA #$30
+	STA PLUGIN_HEADER,Y
+	INY
+	LDA STACKTMP
+	LDX #$00
+_ash_tens
+	CMP #10
+	BCC _ash_tens_done
+	SEC
+	SBC #10
+	INX
+	BNE _ash_tens
+_ash_tens_done
+	STA STACKTMP
+	TXA
+	ORA #$30
+	STA PLUGIN_HEADER,Y
+	INY
+	LDA STACKTMP
+	ORA #$30
+	STA PLUGIN_HEADER,Y
+	INY
+_ash_suffix
+	LDA #$42			; 'B'
+	STA PLUGIN_HEADER,Y
+	INY
+	LDA #$20			; ' '
+	STA PLUGIN_HEADER,Y
+	INY
+	LDA #$46			; 'F'
+	STA PLUGIN_HEADER,Y
+	INY
+	LDA #$52			; 'R'
+	STA PLUGIN_HEADER,Y
+	INY
+	LDA #$45			; 'E'
+	STA PLUGIN_HEADER,Y
+	INY
+					; second 'E'
+	STA PLUGIN_HEADER,Y
+	INY
+	LDA #$00
+	STA PLUGIN_HEADER,Y
 	RTS
 
 STATUS_MEMORY_COLORS
@@ -1772,6 +1875,7 @@ CURSOR_GOTO_LAST .BYTE 0	; 1 = place cursor at last item after page load (UP acr
 CURPAGENAMELOW	.BYTE <GAMELIST
 CURPAGENAMEHIGH .BYTE >GAMELIST
 BITPOS		.BYTE 0
+STACKTMP	.BYTE 0
 ISMUSICPLAYING	.BYTE 0
 
 
