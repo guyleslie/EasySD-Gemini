@@ -86,6 +86,7 @@ LAUNCH
 	LDA #00					
 	STA BORDER
 	
+	JSR $A533 ; Relink BASIC line chain, matching the ROM LOAD finalization
 	JSR $A659 ;"CLR" 	
 	JMP $A7AE ;"RUN" 
 

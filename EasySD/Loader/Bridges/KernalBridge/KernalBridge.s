@@ -386,11 +386,8 @@ RESUMEFULLLOAD
 	JSR SETVECTORS
 	CLI							; Re-enable IRQ interrupts
 
-;	BASIC RESET  Routine
-
-	JSR $E453					; Init BASIC RAM vectors
-	JSR $E3BF					; Main BASIC RAM Init routine
-	JSR $E422					; Power-up message / NEW command
+	; Do not run the BASIC cold-start/NEW path here: the target PRG is
+	; already loaded, and NEW overwrites a freshly loaded $0801 BASIC program.
 	LDX #$FB
 	TXS
 
@@ -427,6 +424,7 @@ LAUNCH
 	CMP #$01
 	BNE MACHINELANG
 
+	JSR $A533 ; Relink BASIC line chain, matching the ROM LOAD finalization
 	JSR $A659 ;"CLR"
 	JMP $A7AE ;"RUN"
 

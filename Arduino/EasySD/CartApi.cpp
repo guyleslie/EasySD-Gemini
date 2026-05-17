@@ -1795,7 +1795,7 @@ void CartApi::SendLoaderStub() {
 }
 
 void CartApi::SendHeader(unsigned char startLow, unsigned char startHigh, unsigned char transferPages, long dataLength, unsigned char type, unsigned char transferMode) {
-  long endAddress = (startLow + startHigh*256) + dataLength + 1;
+  long endAddress = (startLow + startHigh*256) + dataLength;
 
   unsigned char endHigh = endAddress/256;
   unsigned char endLow = endAddress%256;
