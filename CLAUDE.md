@@ -60,7 +60,7 @@ deploy-serial-debug.bat
 **Arduino upload notes:**
 - `arduino-upload-isp` uses USBtinyISP programmer (ISP only — no bootloader). USB serial upload is intentionally unsupported because any bootloader's startup window breaks the EasySD cold-boot sequence.
 - ISP SCK speed: `--isp-sck 2` (500 kHz, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
-- **Debug flash budget:** `--debug` ≈ 27.0 KB / 30.7 KB (88%, ~3.7 KB free). EASYSD_DEBUG_SERIAL gates all log output; the `h`/`m` interactive console and the standalone self-test/protocol-test suites have been removed. `Tools/build.py` enables LOAD/SYS/SD/DIR/FILE/RAW log categories for debug builds (PRG/PROTO stay off).
+- **Debug flash budget:** `--debug` = 28428 B / 30720 B (92%, 2292 B free), RAM 1572 B (476 B free). EASYSD_DEBUG_SERIAL gates all log output; the `h`/`m` interactive console and the standalone self-test/protocol-test suites have been removed. `Tools/build.py` enables SYS/SD/DIR (plus ERR) for debug builds; LOAD/FILE/NI/RAW/PRG/PROTO stay off. Logging goes through a polled TX-only UART (`EasySDLog.cpp`), not HardwareSerial — the silent release build does not link HardwareSerial at all, so using it would charge the debug build ~600 B flash and ~65 B RAM for the Print vtable, both USART ISRs and the ring buffers.
 
 ## Architecture
 
@@ -142,7 +142,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **Cartridge idle state must be truly BASIC-safe:** hide cartridge (`EXROM` HIGH), reset receive/session state, and tristate the data bus without leaving AVR pull-ups latched on D4-D7/A0-A3. Use the centralized `ReleaseToBasic()` / `EnterBasicSafeMode()` path instead of re-creating this sequence ad hoc.
 - **No active EEPROM persistence:** the current firmware does not use the Nano's internal EEPROM for boot, menu navigation, or last-directory restore. Treat any remaining EEPROM references as stale or legacy code unless reintroduced deliberately.
 - **SRAM overlay:** IO2 streaming, NI streaming, and command argument buffers share a single union (`sharedBuf` in CartApi.cpp). These are mutually exclusive at runtime, so `max(128, 400, 130) = 400 B` instead of `658 B`. Never add a new static buffer without checking the SRAM budget.
-- **Flash budget:** Release ≈ 24.0 KB / 30.7 KB (78%, ~6.7 KB free). Debug ≈ 29.0 KB / 30.7 KB (94%, ~1.7 KB free). Debug is tight — the SdFat 2.3.0 LFN code is ≈4 KB heavier than the legacy 1.x copy that used to ship in `Arduino/libraries/`.
+- **Flash budget** (measured, 2026-09-26): Release 26678 B / 30720 B (86%, 4042 B free), RAM 1568 B (480 B free). Debug 28428 B (92%, 2292 B free), RAM 1572 B (476 B free). Debug is the tight one — the SdFat 2.3.0 LFN code is ≈4 KB heavier than the legacy 1.x copy that used to ship in `Arduino/libraries/`. Re-measure with `python Tools/build.py arduino-compile [--debug]` rather than trusting this line.
 
 ## Key File Locations
 
@@ -160,10 +160,13 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 | `Arduino/EasySD/CartApi.cpp` | Command routing (register new commands here) |
 | `Arduino/EasySD/DirFunction.cpp` | Directory navigation, `currentPath[64]` |
 | `Arduino/EasySD/EasySDLog.h` | Logging macros, category enable flags (`LOG_ENABLE_*`) |
+| `Arduino/EasySD/EasySDLog.cpp` | Log backend: polled TX-only UART + shared `[LEVEL][CAT]` tag table |
 | `Tools/build.py` | Unified build system |
 | `GEMINI.md` | Detailed AI developer guide (SdFat patterns, error codes, ZP rules) |
-| `docs/arduino/PCB_BRINGUP_NOTES.md` | PCB hardware bringup findings (power, caps, ISP upload) |
+| `docs/DEBUG_TOOLING.md` | Serial-log wiring, USB back-power hazard, logic-analyzer capture plans |
 
 ## Serial Debug
 
-Baud rate: 57600. Log format: `[LEVEL][CATEGORY] message` (e.g. `[INFO][SD] SD OK`, `[ERR][DIR] chdir failed`). Categories: `SYS`, `SD`, `DIR`, `FILE`, `PROTO`, `PRG`, `ERR`. Enable with `arduino-compile --debug` (or `arduino-upload-isp --debug`). Category compilation controlled by `LOG_ENABLE_*` flags in `EasySDLog.h` — `PRG` and `PROTO` are OFF by default to save flash. Real-hardware serial debug is the supported workflow: run `deploy-serial-debug.bat`, then `python Tools/build.py arduino-monitor COM4` to view live logs while testing the cartridge in a C64. The previous `h` (help) and `m` (memory) interactive serial commands and the on-device self-test/protocol-test suites have been removed; RAM budget is observed via the event-driven `logRamBudget()` calls on boot/ready.
+Baud rate: 57600. Log format: `[LEVEL][CATEGORY] message` (e.g. `[INFO][SD] SD OK`, `[ERR ][DIR] chdir failed`). Categories: `SYS`, `SD`, `DIR`, `FILE`, `PROTO`, `PRG`, `ERR`. Enable with `arduino-compile --debug` (or `arduino-upload-isp --debug`). Category compilation is controlled by `LOG_ENABLE_*` flags in `EasySDLog.h`, and `Tools/build.py` overrides them for debug builds: only SYS/SD/DIR (plus ERR) are on. Real-hardware serial debug is the supported workflow: run `deploy-serial-debug.bat`, then `python Tools/build.py arduino-monitor COM4`.
+
+**Do not use the Nano USB port for cold-boot testing.** Cartridge port pin 2 (+5V) is tied directly to the Nano `5V` pin, so USB VBUS back-powers the whole C64 5V rail and the machine half-starts (ghost screen) even with its own PSU off. Use an external USB-TTL adapter on TX + GND only, VCC not connected. See `docs/DEBUG_TOOLING.md`.
