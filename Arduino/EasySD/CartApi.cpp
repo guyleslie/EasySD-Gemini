@@ -1831,14 +1831,6 @@ void CartApi::TransferMenu() {
     }
   }
   interrupts();
-//  #ifdef EASYSD_DEBUG_SERIAL
-//  Serial.print(F("CNT:"));Serial.println(dirFunc.GetCount());
-//
-//  Serial.print(F("PG ITEM CNT:"));Serial.println(CurrentItemsCount);
-//  Serial.print(F("PG CNT:"));Serial.println(PageCount);
-//
-//  TransferInfo(transferLength, padBytes, transferPages);
-//  #endif
 
   delayMicroseconds(30);
   cartInterface.DisableCartridge();

@@ -2,17 +2,21 @@
 
 #define _CARTINTERFACE_
 #include "Arduino.h"
-#include "HardwareSerial.h"
 #include "EasySD.h"
 #include <ByteQueue.h>
 
-#define PORT_MANIPULATION
-#define NMI_OPENCOLLECTORSTYLE
-
-#define IO2 3    // D3 → C64 /IO2 (INPUT, INT1, $DF00-$DFFF trigger detect)
-#define EXROM 2  // D2 → C64 /EXROM (OUTPUT, controls ROM visibility)
-#define NMI 8
-#define RESET 9        // D9 → C64 cartridge port /RESET (OUTPUT)
+// How a byte reaches the C64: the AVR does not touch the C64 data bus at all.
+// D4-D7 and A0-A3 drive the EPROM address lines A8-A15, i.e. they select which
+// 256-byte EPROM page the C64 sees; the C64 supplies A0-A7 and reads the EPROM
+// outputs. SetPage() is therefore the data path, and "releasing the bus" means
+// releasing those page-select pins, not the C64 data lines.
+//
+// /NMI and /RESET are shared, open-collector lines: the firmware drives them LOW
+// and releases them to INPUT with the internal pull-up, never HIGH push-pull.
+#define IO2 3    // D3 <- C64 /IO2 (INPUT, INT1, $DF00-$DFFF trigger detect)
+#define EXROM 2  // D2 -> C64 /EXROM (push-pull OUTPUT, controls ROM visibility)
+#define NMI 8    // D8 -> C64 /NMI (open-collector: LOW = drive, HIGH = release)
+#define RESET 9  // D9 -> C64 /RESET (open-collector: LOW = drive, HIGH = release)
 #define SEL A6         // A6 — analog-only local MENU button input; 10k pull-up to +5V, switch to GND
 #define PHI2 A4        // A4 <- C64 PHI2 clock (INPUT, optional; not used by default)
 // A7 (pin 21): NC on PCB — not driven by firmware
@@ -95,7 +99,6 @@ class CartInterface {
   void ResetReceiveNoStateChange();
   void StartListening();
   void EndListening();
-  bool WaitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs);
 
   void SoftStartListening();
   void SoftEndListening();

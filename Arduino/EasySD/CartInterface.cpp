@@ -26,19 +26,23 @@ static unsigned long lastStaleIdentLogMs = 0;
 
 namespace {
 
-void syncBusChangeToPhi2Low() {
-  // Match the original IRQHack64 boot path: PHI2 is not used as a firmware
-  // gate for cartridge visibility or bus-drive changes.
+// Settling delay between cartridge state changes. Named after PHI2 historically:
+// an earlier version gated these transitions on the PHI2 clock (A4). That gate
+// was removed to match the original IRQHack64 boot path, which does not read
+// PHI2 at all, and only the delay remained.
+void settleBusChange() {
   delayMicroseconds(1);
 }
 
-void tristateDataBus() {
-  // Clear the output latches before switching to INPUT so the AVR does not
-  // leave weak pull-ups on the C64 data bus while "tristated".
-  PORTD &= 0x0F;  // D4-D7 low, keep D0-D3 untouched
-  PORTC &= 0xF0;  // A0-A3 low, keep A4-A7 untouched
-  DDRD &= ~0xF0;  // D4-D7 input
-  DDRC &= ~0x0F;  // A0-A3 input
+// Release the EPROM page-select lines (D4-D7 = A12-A15, A0-A3 = A8-A11).
+// These are not C64 data lines; see the pin map in CartInterface.h.
+// Clear the output latches before switching to INPUT, so the AVR does not leave
+// weak pull-ups driving the EPROM address inputs while "released".
+void releasePageSelectPins() {
+  PORTD &= 0x0F;  // D4-D7 latch low, keep D0-D3 untouched
+  PORTC &= 0xF0;  // A0-A3 latch low, keep A4-A7 untouched
+  DDRD &= ~0xF0;  // D4-D7 back to input
+  DDRC &= ~0x0F;  // A0-A3 back to input
 }
 
 }
@@ -196,16 +200,11 @@ uint8_t CartInterface::ReceiveHandler() {
     return receiveState;
 }
 
+// Drive the EPROM page-select lines (see CartInterface.h).
 void CartInterface::SetAddressPinsOutput() {
   #ifdef __AVR__
-    #ifdef PORT_MANIPULATION  
-    DDRD = DDRD | B11110000; // Set Pin 4..7 as outputs. A12, A13, A14, A15
-    DDRC = DDRC | B00001111; // Set Analog pin 0..3 as outputs A8, A9, A10, A11
-    #else
-    for (int i=0;i<8;i++) {
-      pinMode(dataPins[i], OUTPUT);
-    }  
-    #endif
+  DDRD = DDRD | B11110000; // D4-D7 as outputs: EPROM A12, A13, A14, A15
+  DDRC = DDRC | B00001111; // A0-A3 as outputs: EPROM A8, A9, A10, A11
   #endif
 }
 
@@ -269,12 +268,6 @@ void CartInterface::SoftEndListening() {
   ResetReceiveNoStateChange();
 }
 
-bool CartInterface::WaitForStablePhi2(uint16_t minEdges, unsigned long timeoutMs) {
-  (void)minEdges;
-  (void)timeoutMs;
-  return true;
-}
-
 void CartInterface::Init() {
   IOSetup();
   SetAddressPinsOutput();
@@ -282,18 +275,12 @@ void CartInterface::Init() {
 }
 
 
+// Select the EPROM page the C64 reads from. This is how a byte is handed to the
+// C64: the page number is the payload.
 void CartInterface::SetPage(unsigned char value) {
-  #ifdef PORT_MANIPULATION
-  // FIX: Read PORT registers (output state), not PIN registers (external signals)
+  // Read the PORT registers (output latch state), not PIN (external signals).
   PORTD = (PORTD & 0x0F) | (value & 0xF0);
   PORTC = (PORTC & 0xF0) | (value & 0x0F);
-  #else
-  unsigned char mask = 1;
-  for (int i=0;i<8;i++) {
-    digitalWrite(dataPins[i], value & mask);
-    mask = mask<<1;
-  }    
-  #endif   
 }
 
 void CartInterface::ResetC64() {
@@ -323,7 +310,7 @@ void CartInterface::ResetIndex() {
 }
 
 void CartInterface::EnableCartridge() {
-  syncBusChangeToPhi2Low();
+  settleBusChange();
   DDRD |= 0xF0;          // D4-D7: OUTPUT (drive data bus)
   DDRC |= 0x0F;          // A0-A3: OUTPUT (drive data bus)
   PORTD &= ~_BV (PD2);   // EXROM LOW — cartridge visible to C64
@@ -337,15 +324,15 @@ void CartInterface::EnableExromOnly() {
   // $8004-$8008: if data pins were OUTPUT(0x00) here, ATmega's 40mA sink would
   // override the chip's 4mA source and CBM80 detection would fail even with
   // the chip installed.
-  syncBusChangeToPhi2Low();
-  tristateDataBus();
+  settleBusChange();
+  releasePageSelectPins();
   PORTD &= ~_BV (PD2);
 }
 
 void CartInterface::EnableDataBus() {
   // Switch data bus pins to OUTPUT — call after delay(300) CBM80 window,
   // immediately before NMI data transfers begin (SendHeader / TransmitByte*).
-  syncBusChangeToPhi2Low();
+  settleBusChange();
   DDRD |= 0xF0;   // D4-D7: OUTPUT
   DDRC |= 0x0F;   // A0-A3: OUTPUT
 }
@@ -353,7 +340,7 @@ void CartInterface::EnableDataBus() {
 
 
 void CartInterface::DisableCartridge() {
-  syncBusChangeToPhi2Low();
+  settleBusChange();
   PORTD |= _BV (PD2);    // EXROM HIGH — cartridge hidden from C64
 }
 
@@ -383,22 +370,15 @@ void CartInterface::ResetHigh() {
   PORTB |= _BV(PB1);  // weak pull-up only, matching original IRQHack64 style
 }
 
+// Open-collector drive: /NMI is shared with the C64, never driven HIGH.
 void CartInterface::NmiLow() {
-  #ifdef NMI_OPENCOLLECTORSTYLE
-   PORTB &= ~_BV(PB0); // turn off internal resistor 
-   DDRB |= _BV(PB0);   // set to output       
-  #else
-    PORTB &= ~_BV (PB0);
-  #endif
+  PORTB &= ~_BV(PB0); // turn off internal pull-up
+  DDRB |= _BV(PB0);   // drive LOW
 }
 
 void CartInterface::NmiHigh() {
-  #ifdef NMI_OPENCOLLECTORSTYLE
-    DDRB &= ~_BV(PB0); //switch to input while port is low. 
-    PORTB |= _BV(PB0); //turn on internal resistor to Vcc 
-  #else      
-    PORTB |= _BV (PB0);
-  #endif
+  DDRB &= ~_BV(PB0); // switch to input while the latch is still low
+  PORTB |= _BV(PB0); // then enable the internal pull-up
 }
 
 void CartInterface::TransmitByteFast(unsigned char val)
