@@ -1825,8 +1825,9 @@ void CartApi::TransferMenu() {
     readFromFile = 1;
   }
 
-  //int menu_data_length = (readFromFile? workingFile.size() : data_len) ;
-  int menu_data_length = (readFromFile? workingFile.size() : data_len) ;
+  // uint32_t, not int: File::size() is 32-bit and a menu PRG larger than 32 KB
+  // would wrap an int negative, making the transfer loops below do nothing.
+  uint32_t menu_data_length = (readFromFile ? workingFile.size() : (uint32_t)data_len);
 
   cartInterface.EnableCartridge();
   cartInterface.ResetC64();
@@ -1844,7 +1845,7 @@ void CartApi::TransferMenu() {
     high = workingFile.read();
   }
 
-  long transferLength = menu_data_length - 2;
+  long transferLength = (long)menu_data_length - 2;
   long padBytes = (transferLength%256==0) ? 0 : 256 - transferLength%256;
   byte transferPages = (byte)(transferLength/256 + (padBytes>0 ? 1 : 0));
 
@@ -1857,12 +1858,12 @@ void CartApi::TransferMenu() {
 
   noInterrupts();
   if (!readFromFile) {
-    for (int i=2;i<menu_data_length;i++) {
+    for (uint32_t i=2;i<menu_data_length;i++) {
      unsigned char value = pgm_read_byte(cartridgeData+i);    
      cartInterface.TransmitByteFast(value); 
     }  
   } else {
-    for (int i=2;i<menu_data_length;i++) {
+    for (uint32_t i=2;i<menu_data_length;i++) {
      unsigned char value = workingFile.read();   
      cartInterface.TransmitByteFast(value); 
     }     
