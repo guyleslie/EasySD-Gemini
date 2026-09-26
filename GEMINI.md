@@ -6,7 +6,7 @@ constraints that are not obvious from the code. Always check the code itself —
 
 - **Current Version**: Post-v3.1.3 / v0.5-era firmware baseline (BASIC-first cold boot, PCB v3, 2026-04-18)
 - **Current stable hardware baseline**: boot to BASIC ✅, SEL -> menu ✅, directory navigation ✅, PRG loading ✅
-- **Current plugin status note**: the remaining known hardware fault is the plugin-class return path. Current bench tests for `CVID` clear the screen and fall through to top-line `READY.` instead of returning cleanly to the EasySD menu. Other non-PRG plugins should still be treated as not yet re-verified on the present hardware baseline. EasySD does not support multi-disk games.
+- **Current plugin status note**: the remaining known hardware fault is the plugin-class return path — WavPlayer and CvdPlayer fall through to `READY.` instead of returning to the menu, while KoalaDisplayer, which returns by a different route, works. PetsciiDisplayer was removed from the tree (`41b6a8f`). EasySD does not support multi-disk games. For current status, the ranked backlog and what to do next, `docs/NEXT_STEPS.md` is the plan of record; this file describes patterns, not status.
 
 ---
 
@@ -47,7 +47,7 @@ All ZP labels use `ZP_` prefix. Never invent ZP addresses — always use the lab
 |-----------|-------------|-------|
 | `$64-$77` | Low-level communication | ZP_IRQ_DATA_LOW/HIGH, ZP_IRQ_STATUS |
 | `$80-$87` | LoadFileBySize — **strictly reserved** | ZP_LF_SIZE0..3, ZP_LF_PAYLOAD_LO/HI — NEVER reuse |
-| `$8B-$8E` | Handler scratch (copy ptr lo/hi, end addr temps) | Safe to use in plugins if not in handler context |
+| `$8B-$8E` | Menu filename/extension temps | `ZP_MENU_EXT_DOTPOS`, `ZP_MENU_EXT_CH0..CH2` — owned by `PRINTASCIIFILENAME`. No handler touches this range; plugins may reuse it |
 | `$90-$95` | StreamLargeFile | ZP_STREAM_TARGET_ADDR_LO/HI, ZP_STREAM_BYTES_REMAIN_0..3 |
 | `$FB/$FC` | NAMELOW/NAMEHIGH — nav indirect pointer | **NEVER use as temp** (SL_COLOR bug precedent) |
 | `$FD/$FE` | COLLOW/COLHIGH — color RAM indirect pointer | **NEVER use as temp** |

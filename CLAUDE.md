@@ -60,7 +60,7 @@ deploy-serial-debug.bat
 **Arduino upload notes:**
 - `arduino-upload-isp` uses USBtinyISP programmer (ISP only — no bootloader). USB serial upload is intentionally unsupported because any bootloader's startup window breaks the EasySD cold-boot sequence.
 - ISP SCK speed: `--isp-sck 2` (500 kHz, default) for chips with existing firmware; `--isp-sck 100` (10 kHz, ~8 min) for blank/bricked chips
-- **Debug flash budget:** `--debug` = 28428 B / 30720 B (92%, 2292 B free), RAM 1572 B (476 B free). EASYSD_DEBUG_SERIAL gates all log output; the `h`/`m` interactive console and the standalone self-test/protocol-test suites have been removed. `Tools/build.py` enables SYS/SD/DIR (plus ERR) for debug builds; LOAD/FILE/NI/RAW/PRG/PROTO stay off. Logging goes through a polled TX-only UART (`EasySDLog.cpp`), not HardwareSerial — the silent release build does not link HardwareSerial at all, so using it would charge the debug build ~600 B flash and ~65 B RAM for the Print vtable, both USART ISRs and the ring buffers.
+- **Debug flash budget:** `--debug` = 28474 B / 30720 B (92%, 2246 B free), RAM 1572 B (476 B free). EASYSD_DEBUG_SERIAL gates all log output; the `h`/`m` interactive console and the standalone self-test/protocol-test suites have been removed. `Tools/build.py` enables SYS/SD/DIR (plus ERR) for debug builds; LOAD/FILE/NI/RAW/PRG/PROTO stay off. Logging goes through a polled TX-only UART (`EasySDLog.cpp`), not HardwareSerial — the silent release build does not link HardwareSerial at all, so using it would charge the debug build ~600 B flash and ~65 B RAM for the Print vtable, both USART ISRs and the ring buffers.
 
 ## Architecture
 
@@ -98,7 +98,7 @@ Single source of truth for all ZP allocation. All labels use `ZP_` prefix.
 |-----------|---------|
 | `$64-$77` | Low-level communication (ZP_IRQ_DATA_LOW/HIGH, ZP_IRQ_STATUS, etc.) |
 | `$80-$87` | LoadFileBySize API — strictly reserved, never reuse |
-| `$8B-$8E` | **Free** (SafeStream params removed — Arduino ignored them) |
+| `$8B-$8E` | Menu filename/extension display temps (`ZP_MENU_EXT_DOTPOS`, `ZP_MENU_EXT_CH0..CH2`) — owned by `PRINTASCIIFILENAME`; free for plugins, which run after the menu is gone |
 | `$90-$95` | StreamLargeFile (ZP_STREAM_TARGET_ADDR_LO/HI, ZP_STREAM_BYTES_REMAIN_0..3) |
 | `$FB/$FC` | NAMELOW/NAMEHIGH — navigation indirect pointer — **never use as temp** |
 | `$FD/$FE` | COLLOW/COLHIGH — color RAM indirect pointer — **never use as temp** |
@@ -141,7 +141,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 - **Cartridge idle state must be truly BASIC-safe:** hide cartridge (`EXROM` HIGH), reset receive/session state, and tristate the data bus without leaving AVR pull-ups latched on D4-D7/A0-A3. Use the centralized `ReleaseToBasic()` / `EnterBasicSafeMode()` path instead of re-creating this sequence ad hoc.
 - **No active EEPROM persistence:** the current firmware does not use the Nano's internal EEPROM for boot, menu navigation, or last-directory restore. Treat any remaining EEPROM references as stale or legacy code unless reintroduced deliberately.
 - **SRAM overlay:** IO2 streaming, NI streaming, and command argument buffers share a single union (`sharedBuf` in CartApi.cpp). These are mutually exclusive at runtime, so `max(128, 400, 130) = 400 B` instead of `658 B`. Never add a new static buffer without checking the SRAM budget.
-- **Flash budget** (measured, 2026-09-26): Release 26678 B / 30720 B (86%, 4042 B free), RAM 1568 B (480 B free). Debug 28428 B (92%, 2292 B free), RAM 1572 B (476 B free). Debug is the tight one — the SdFat 2.3.0 LFN code is ≈4 KB heavier than the legacy 1.x copy that used to ship in `Arduino/libraries/`. Re-measure with `python Tools/build.py arduino-compile [--debug]` rather than trusting this line.
+- **Flash budget** (measured, 2026-09-26): Release 26722 B / 30720 B (86%, 3998 B free), RAM 1568 B (480 B free). Debug 28474 B (92%, 2246 B free), RAM 1572 B (476 B free). Debug is the tight one — the SdFat 2.3.0 LFN code is ≈4 KB heavier than the legacy 1.x copy that used to ship in `Arduino/libraries/`. Re-measure with `python Tools/build.py arduino-compile [--debug]` rather than trusting this line.
 
 ## Key File Locations
 
