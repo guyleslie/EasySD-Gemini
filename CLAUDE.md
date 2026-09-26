@@ -36,6 +36,9 @@ python Tools/build.py plugins
 # Clean all build artifacts
 python Tools/build.py clean
 
+# Host-side unit tests (no hardware, no C64 — needs any g++ on PATH)
+python Tools/build.py test
+
 # Arduino-specific commands
 python Tools/build.py arduino-compile [--debug]
 python Tools/build.py arduino-upload-isp [--debug] [--isp-sck USEC]

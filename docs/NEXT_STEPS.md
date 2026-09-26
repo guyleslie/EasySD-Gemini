@@ -10,8 +10,8 @@ Working plan, last updated 2026-09-26. Companion documents: `docs/DEBUG_TOOLING.
 
 | | Flash | RAM |
 |---|---|---|
-| release | 26678 / 30720 B (86%, 4042 B free) | 1568 / 2048 B (480 B free) |
-| debug | 28428 / 30720 B (92%, 2292 B free) | 1572 / 2048 B (476 B free) |
+| release | 26722 / 30720 B (86%, 3998 B free) | 1568 / 2048 B (480 B free) |
+| debug | 28474 / 30720 B (92%, 2246 B free) | 1572 / 2048 B (476 B free) |
 
 `python Tools/build.py release` is green. SD bundle: `EASYSD.PRG` 11 KB plus
 PRG/KOA/WAV/CVD plugins.
@@ -52,7 +52,7 @@ debug profile compiles out (`LOG_ENABLE_RAW=0`). So `Unknown cmd` never shows
 the command byte, `chdir FAILED:` never shows the name, `RD` never shows the
 page index. That is the main reason the log does not help.
 
-Budget: 2292 B free, estimated cost 700-1000 B.
+Budget: 2246 B free, estimated cost 700-1000 B.
 
 - **2.1 Make values first-class.** Typed emitters sharing one backend function,
   for example `LOGS(cat, "msg", str)` and `LOGN(cat, "msg", num)`, so every line
@@ -218,30 +218,38 @@ now a fairer place to observe the symptom.
 
 ## Backlog, ranked (from the 2026-09-26 audit)
 
-- **B1 — Directory sort key truncation (correctness).** `DirSortSlot.key` holds
-  only the first 15 characters of the LFN (`CartApi.cpp:523`, written at 695 and
-  733), but the watermark filter compares full names (`CartApi.cpp:732`). Two
-  entries sharing a 15-character prefix make the two passes disagree, which can
-  drop or duplicate a row at a page boundary. This is the area with five
-  revert/restore commits in the history.
+- **B1 — Directory sort key truncation (correctness). REPRODUCED.**
+  `DirSortSlot.key` (now in `DirSort.h`) holds only the first 15 characters of
+  the LFN, but the watermark filter compares full names. `python Tools/build.py
+  test` demonstrates the consequence: with two files named
+  `MEGAGAME PART 01 - INTRO.PRG` and `MEGAGAME PART 01 - MUSIC.PRG`, pass 1 sees
+  one key and keeps whichever the directory happens to list first; the other is
+  then filtered out as "already sent" and **never appears in the menu at all**.
+  The same directory in the other on-disk order lists correctly, which is why
+  this has been so hard to pin down — and why five revert/restore commits went
+  through this area without finding it.
+  Fix sketch: when two keys compare equal, resolve the tie on the full name
+  (`GetLFNByDirIdx`) instead of on arrival order. That costs SD reads only on
+  actual collisions. Needs hardware verification, so it is not done yet.
 - **B2 — Page rebuild cost.** A non-sequential page request rescans pages
   `0..startPage-1`, each a full directory iteration plus `GetLFNByDirIdx`
   (`CartApi.cpp:663-717`). Noticeable above ~200 entries. Measure, then bound it.
 - **B3 — 16-bit size arithmetic.** `int menu_data_length = workingFile.size()`
   (`CartApi.cpp:1833`) overflows above 32 KB. The menu is 11 KB today, so this is
   latent; the fix is one `long`.
-- **B4 — No regression safety net.** `Tools/build.py` has a single check
-  (`validate_cvd_memory_layout`). `cmpDirEntry`, `sortSlotInsert` and the
-  pagination logic are plain C++ and could be unit-tested on the host. Highest
-  long-term value of anything in this list.
+- **B4 — Regression safety net. STARTED.** `python Tools/build.py test` compiles
+  and runs `Tests/*_test.cpp` on the host with any g++ on PATH. `DirSort.h` holds
+  the extracted display-order primitives, included by both `CartApi.cpp` and the
+  tests; the release firmware was verified byte-identical after the extraction.
+  Worth extending next: `DirFunction` path handling (the `GoBack` / `ChangeDirectory`
+  rollback rules) and the `LFN -> SFN` fallback, both of which are also pure logic
+  wrapped around SdFat calls.
 - **B5 — Remaining doc drift.** `GEMINI.md` describes ZP `$8B-$8E` as handler
   scratch while `CLAUDE.md` calls it free, and `CartZpMap.inc:15-16` says both.
   Pick one truth. `GEMINI.md` also still carries an older plugin-status
   paragraph.
 - **B6 — WavPlayer rewrite unverified.** The full rewrite in `c4e90db` has not
   been tested on hardware. Do not start it before step 4, or the symptoms mix.
-- **B7 — `Arduino/EasySD/DebugLog.h` is dead.** Nothing includes it; it
-  documents itself as replaced by `EasySDLog.h`. Delete it.
 
 ---
 
