@@ -163,12 +163,23 @@ decoded result, never the waveform that produced it.
 **C. NMI byte transfer / streaming.**
 `PHI2, /NMI, /IO2, D0, D1, D2, D3, TRACE`
 Byte cadence, handshake latency and data-bus contention during WAV/CVD
-streaming.
+streaming. The cheapest trigger for this set is the menu memory-status footer:
+it is the only UI element that transfers a full 256-byte page, over the same
+path the streaming plugins use, and a truncated footer line means bytes were
+lost. See `docs/NEXT_STEPS.md` section 6.
 
 **D. Cold boot** (from `Archive/docs/archive/COLD_BOOT_FAILURE_RETROSPECTIVE.md`).
 `/RESET, /EXROM, PHI2, /IRQ, /NMI, D0, AVR D9, SD CS`
 Trigger on the /RESET rising edge, 100 ms pre / 1 s post. /IRQ pulsing every
 ~16.6 ms proves the C64 reached the BASIC cursor-blink loop.
+
+For this set the decisive channel is **/EXROM during the first ~100 ms**. The
+AVR does not drive it until `IOSetup()` runs, roughly 65 ms after power-on
+(16K CK + 65 ms start-up), and nothing else on the EasySD board pulls it up. If
+/EXROM is undefined while /RESET has already been released, the C64 spends its
+KERNAL reset sequence with an unknown cartridge mapping. That is the open
+hypothesis in `docs/NEXT_STEPS.md` section 5; arm the capture before switching
+the C64 on, since the whole event is over before any firmware exists.
 
 ### 3.4 TRACE pin — correlating firmware state with the waveform (PLAN)
 

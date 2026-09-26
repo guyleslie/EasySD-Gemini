@@ -99,6 +99,123 @@ paths on the Koala-style return is the likely fix.
 
 ---
 
+## 5. Open hypothesis: /EXROM floats during the AVR startup window
+
+Status: unverified, cheap to falsify. This is the first idea about the
+machine-specific cold-boot symptom that lives *outside* the firmware, which is
+why it is worth testing before anything else.
+
+**Mechanism.** After power-on the ATmega328P holds every pin as an input with no
+pull-up until `setup()` runs. The first thing that drives /EXROM HIGH is
+`IOSetup()` (`CartInterface.cpp:227`), and the stock Arduino low fuse gives a
+start-up delay of 16K CK + 65 ms. The C64 own 556 reset pulse is about 50 ms. So
+the C64 can already be executing while /EXROM is still undefined, and EasySD has
+no pull-up on that line — `Schematic EasySD v3.png` shows cartridge port pin 9
+going straight to Nano D2, nothing else.
+
+If the PLA samples that floating line as asserted, $8000-$9FFF maps to the
+cartridge during the KERNAL reset sequence, while the EPROM page-select lines
+(A8-A15, also AVR pins, also undefined at that moment) present garbage. Whether
+this actually bites depends on the host board own EXROM pull-up strength and its
+reset timing — exactly the "works on another machine" pattern this bug has
+always had.
+
+**Why it was missed.** `Tools/build.py` already documents this precise failure
+mode, but only for bootloaders: "Optiboot is intentionally unsupported — its
+~1-2s boot window leaves /RESET and EXROM floating, which breaks the EasySD
+cold-boot sequence". Optiboot was banned for it. The same window exists without
+any bootloader, 20x shorter, on every single power-up — that connection was
+never made. All 39 commits touching cold boot / reset / cursor stayed inside the
+firmware, and the retrospective own verdict was "every firmware change was a
+hypothesis without evidence".
+
+**Falsifiable predictions, cheapest first.**
+
+1. **Read the C64 BASIC banner when it fails.** This is the machine own startup
+   screen above `READY.`, not the EasySD menu footer. If EXROM was asserted
+   while the KERNAL RAMTAS routine probed for the top of RAM, RAMTAS stops at
+   $8000 instead of $A000 and the banner reads **30719 BASIC BYTES FREE**
+   instead of 38911. Costs nothing, needs no instrument. A normal 38911 with the
+   symptom present falsifies this hypothesis outright.
+2. **10k from Nano D2 to Nano 5V.** One resistor between two header pins on the
+   existing board, no PCB change, fully reversible. It defines /EXROM HIGH from
+   the microsecond power arrives, independent of the AVR. If cold boot becomes
+   reliable on the problem machine, the hypothesis is confirmed.
+3. **Capture set D** in `docs/DEBUG_TOOLING.md` section 3.3, armed before
+   power-on: watch /EXROM during the first 100 ms and compare its rise against
+   the /RESET release and the start of PHI2.
+
+**If confirmed, the fix is passive**: a pull-up on /EXROM on the next PCB
+revision. /NMI and /RESET deserve the same treatment — both are released with
+nothing but the AVR weak internal pull-up, and only after those 65 ms. No
+firmware change can substitute for this, because the whole window exists before
+any firmware is running. The same floating window also lasts for *seconds*
+during ISP programming, while the programmer holds the AVR in reset.
+
+**Secondary, only after measurement.** `arduino_upload_isp` writes only hfuse
+(`0xDB`, BOOTRST) and never touches lfuse, so the stock 16K CK + 65 ms start-up
+is in force. The SUT bits offer shorter options. That narrows the window but
+never closes it, so it ranks below the resistor. Read the exact bit pattern from
+the datasheet before programming anything.
+
+**Note on PHI2.** PHI2 gating cannot address this. Cold boot is the mirror image
+of the USB back-power case: there the AVR is alive while the C64 is dead and
+firmware can decide, here the C64 is alive while the AVR is not yet running at
+all. PHI2 remains useful here only as *instrumentation* — logging whether PHI2
+was already toggling when the AVR woke up, and pulsing the TRACE pin at
+`IOSetup()` entry so the analyzer shows the AVR wake-up against the C64
+timeline. Also note `WaitForStablePhi2()` (`CartInterface.cpp:272`) and
+`syncBusChangeToPhi2Low()` (`CartInterface.cpp:29`) are deliberate stubs today —
+a `return true` and a 1 us delay — neutered during the IRQHack64-style revert.
+
+---
+
+## 6. Open lead: memory-status footer truncation = byte loss on the 256-byte page transfer
+
+Reported symptom: the footer line sometimes renders only half, a quarter, or a
+few characters.
+
+**What the footer contains** (`EasySDMenu.s:305`, `CartApi.cpp:508`):
+`   MCU SRAM:<n>B C64 STK:<m>B FREE`, where MCU SRAM is the AVR free SRAM
+(`SP - __bss_end`, `CartApi.cpp:97`) and C64 STK is the 6502 stack headroom from
+`TSX` (SP+1 bytes, range 0-256). Both are live measurements. Free BASIC RAM is
+not displayed at all, and would not be meaningful while the menu PRG is running
+in place of BASIC.
+
+**Why it truncates at varying lengths.** The menu prints until the first $00.
+The Arduino zeroes the 256-byte buffer and writes only ~30 characters, so
+everything past the text is already zero. A single byte lost or corrupted to $00
+during the NMI page transfer cuts the printed line exactly there — the
+truncation length is simply where the first bad byte landed. That is the
+signature of random byte loss, not of a formatting bug.
+
+**This path is already known to be marginal.** `CartApi.cpp:107` records that
+interleaving `pgm_read_byte` and arithmetic with `TransmitByteFast` "produced
+intermittent byte loss on the C64", which is why `fc4b6a8` moved to building the
+response in RAM and blasting a deterministic 256-byte burst. The menu disables
+the display around the receive because "NMI page receive is only stable with
+display off" — VIC badlines steal the cycles.
+
+**Why it matters beyond cosmetics.** This footer is the only place in the UI that
+exercises a full 256-byte NMI page transfer, the same path WAV and CVD streaming
+use. A machine that truncates the footer has a transfer margin problem that
+would equally corrupt streamed audio and video. Treat it as a lead on the
+WAV/CVD failures, not as a separate cosmetic issue.
+
+**Proposed step: make the footer self-verifying.** The Arduino already sends 256
+deterministic bytes; put a known sentinel or checksum in the tail, have the menu
+verify it and surface a mismatch. That converts "sometimes the line is short"
+into a measurable error rate, per machine, with the display on and off, before
+and after cleaning the edge connector. Capture set C in
+`docs/DEBUG_TOOLING.md` measures the same thing at the wire level.
+
+**Re-test first.** Until `1ffc393` every protocol response was preceded by
+`Serial.flush()`, which could stall the AVR for milliseconds right before the
+burst. That perturbation is gone (polled TX, bounded wait), so a debug build is
+now a fairer place to observe the symptom.
+
+---
+
 ## Backlog, ranked (from the 2026-09-26 audit)
 
 - **B1 — Directory sort key truncation (correctness).** `DirSortSlot.key` holds
