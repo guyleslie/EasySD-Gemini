@@ -10,6 +10,7 @@ Usage Examples:
   # C64 builds
   python build.py release              # Full release bundles (release/upload/sd-content)
   python build.py sd-content           # Rebuild SD content bundle from current artifacts
+  python build.py test                 # Host-side unit tests (no hardware needed)
 
   # Arduino operations
   python build.py arduino-setup        # One-time Arduino-CLI setup
@@ -34,6 +35,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1059,6 +1061,55 @@ def arduino_compile(ctx: Context, debug_mode: bool = False, output_dir: Path = N
     return size
 
 
+def run_host_tests(ctx: Context) -> int:
+    """Compile and run the host-side unit tests in Tests/.
+
+    These cover firmware logic that is pure C++ (no Arduino, no SdFat), so it
+    can be exercised on a PC instead of on a C64 with an SD card. Needs any
+    host C++ compiler on PATH; the firmware build does not depend on this.
+    """
+    tests_dir = ctx.repo_root / "Tests"
+    sources = sorted(tests_dir.glob("*_test.cpp"))
+    if not sources:
+        print(f"No tests found in {tests_dir}")
+        return 0
+
+    compiler = None
+    for candidate in ("g++", "clang++", "c++"):
+        found = shutil.which(candidate)
+        if found:
+            compiler = found
+            break
+    if compiler is None:
+        raise SystemExit(
+            "ERROR: no host C++ compiler found (tried g++, clang++, c++).\n"
+            "Install MSYS2/MinGW-w64 or any g++ and put it on PATH."
+        )
+
+    out_dir = Path(tempfile.gettempdir()) / "easysd_tests"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    print("=" * 70)
+    print("HOST TESTS")
+    print(f"  compiler: {compiler}")
+    print("=" * 70)
+
+    failures = 0
+    for src in sources:
+        exe = out_dir / (src.stem + (".exe" if os.name == "nt" else ""))
+        print(f"\n[TEST] {src.name}")
+        run_cmd([compiler, "-std=c++14", "-O1", "-Wall", "-Wextra",
+                 "-o", str(exe), str(src)], cwd=ctx.repo_root)
+        result = subprocess.run([str(exe)], cwd=ctx.repo_root)
+        if result.returncode != 0:
+            failures += 1
+
+    print("\n" + "=" * 70)
+    print("HOST TESTS FAILED" if failures else "HOST TESTS PASSED")
+    print("=" * 70)
+    return 1 if failures else 0
+
+
 def find_avrdude(ctx: Context) -> tuple[Path, Path]:
     """Find avrdude executable and config in Arduino15 packages"""
     arduino15 = Path.home() / "AppData" / "Local" / "Arduino15"
@@ -1231,6 +1282,8 @@ Examples:
             # C64 builds
             "release",
             "core", "plugins", "clean", "prebuild",
+            # Host-side unit tests (no hardware required)
+            "test",
             # Arduino operations
             "arduino-setup", "arduino-compile", "arduino-upload-isp",
             "arduino-monitor", "arduino-list-ports", "arduino-clean", "arduino-size",
@@ -1393,6 +1446,9 @@ def main(argv: Sequence[str]) -> int:
     print(f"  tools_dir = {ctx.tools_dir}")
     print(f"  BUILD_ARDUINO={1 if build_arduino else 0}")
     print("==============================================================")
+
+    if args.target == "test":
+        return run_host_tests(ctx)
 
     if args.target == "clean":
         clean(ctx)
