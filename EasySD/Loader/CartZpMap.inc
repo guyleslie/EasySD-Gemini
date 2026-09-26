@@ -12,8 +12,15 @@ ZP_LOADFILE_API_SKIP_HI      = $85
 ZP_LOADFILE_API_PAYLOAD_LO   = $86
 ZP_LOADFILE_API_PAYLOAD_HI   = $87
 
-; $8B-$8E  FREE (SafeStream removed — params were ignored by Arduino)
-;           Handler scratch use: $8B/$8C = copy ptr lo/hi, $8D/$8E = end addr temps
+; ---- Menu filename/extension display temporaries ($8B-$8E) ----
+; Owned by PRINTASCIIFILENAME in EasySDMenu.s. Previously documented as FREE
+; (SafeStream removal) plus a "handler scratch" note; neither is true any more —
+; no handler in the current sources touches $8B-$8E, the menu does.
+; Plugins run after the menu is gone, so they may reuse this range.
+ZP_MENU_EXT_DOTPOS = $8B
+ZP_MENU_EXT_CH0    = $8C
+ZP_MENU_EXT_CH1    = $8D
+ZP_MENU_EXT_CH2    = $8E
 
 ; ---- StreamLargeFile (CartLibStream) uses $90-$95 ----
 ZP_STREAM_API_TARGET_LO = $90

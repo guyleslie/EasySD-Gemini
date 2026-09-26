@@ -1003,7 +1003,8 @@ GETCURRENTROW	; Input : None, Output : X (current row)
 ;         COLLOW/HIGH  = pointer to screen memory (col 4 of row)
 ; Output: None
 ; Changes: A, Y
-; ZP temps: $8B (last dot pos, 0=none), $8C/$8D/$8E (ext ASCII, default $20)
+; ZP temps: ZP_MENU_EXT_DOTPOS (last dot pos, 0=none),
+;           ZP_MENU_EXT_CH0/CH1/CH2 (ext ASCII, default $20) — see CartZpMap.inc
 ; ------------------------------------------------------------
 PRINTASCIIFILENAME
 	; --- Check directory/file type flag (byte 31 of entry) ---
@@ -1082,10 +1083,10 @@ _paf_stem
 _paf_sloop
 	CPY #26
 	BCS _paf_stem_done	; 26 chars written, stop
-	LDA $8B
+	LDA ZP_MENU_EXT_DOTPOS
 	BEQ _paf_no_dot_stop
 	TYA
-	CMP $8B			; reached visible extension dot?
+	CMP ZP_MENU_EXT_DOTPOS			; reached visible extension dot?
 	BCS _paf_stem_done
 _paf_no_dot_stop
 	LDA (NAMELOW), Y
@@ -1113,15 +1114,15 @@ _paf_gap
 	STA (COLLOW), Y		; position 27
 	INY			; Y = 28
 	; Extension characters at positions 28, 29, 30
-	LDA $8C
+	LDA ZP_MENU_EXT_CH0
 	JSR _paf_conv
 	STA (COLLOW), Y
 	INY
-	LDA $8D
+	LDA ZP_MENU_EXT_CH1
 	JSR _paf_conv
 	STA (COLLOW), Y
 	INY
-	LDA $8E
+	LDA ZP_MENU_EXT_CH2
 	JSR _paf_conv
 	STA (COLLOW), Y
 	INY			; Y = 31
@@ -1140,54 +1141,54 @@ _paf_tail
 
 _paf_ext_prg
 	LDA #$50		; P
-	STA $8C
+	STA ZP_MENU_EXT_CH0
 	LDA #$52		; R
-	STA $8D
+	STA ZP_MENU_EXT_CH1
 	LDA #$47		; G
 	JMP _paf_ext_done
 _paf_ext_crt
 	LDA #$43		; C
-	STA $8C
+	STA ZP_MENU_EXT_CH0
 	LDA #$52		; R
-	STA $8D
+	STA ZP_MENU_EXT_CH1
 	LDA #$54		; T
 	JMP _paf_ext_done
 _paf_ext_koa
 	LDA #$4B		; K
-	STA $8C
+	STA ZP_MENU_EXT_CH0
 	LDA #$4F		; O
-	STA $8D
+	STA ZP_MENU_EXT_CH1
 	LDA #$41		; A
 	JMP _paf_ext_done
 _paf_ext_wav
 	LDA #$57		; W
-	STA $8C
+	STA ZP_MENU_EXT_CH0
 	LDA #$41		; A
-	STA $8D
+	STA ZP_MENU_EXT_CH1
 	LDA #$56		; V
 	JMP _paf_ext_done
 _paf_ext_cvd
 	LDA #$43		; C
-	STA $8C
+	STA ZP_MENU_EXT_CH0
 	LDA #$56		; V
-	STA $8D
+	STA ZP_MENU_EXT_CH1
 	LDA #$44		; D
 	JMP _paf_ext_done
 _paf_ext_unknown
 	LDA #$3F		; ?
-	STA $8C
-	STA $8D
+	STA ZP_MENU_EXT_CH0
+	STA ZP_MENU_EXT_CH1
 _paf_ext_done
-	STA $8E
+	STA ZP_MENU_EXT_CH2
 	LDA #0
-	STA $8B
+	STA ZP_MENU_EXT_DOTPOS
 	LDY #0
 _paf_dot_scan
 	LDA (NAMELOW), Y
 	BEQ _paf_dot_done
 	CMP #$2E		; '.'
 	BNE _paf_dot_next
-	STY $8B
+	STY ZP_MENU_EXT_DOTPOS
 _paf_dot_next
 	INY
 	CPY #31			; scan visible name bytes only
