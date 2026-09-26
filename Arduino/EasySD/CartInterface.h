@@ -103,7 +103,7 @@ class CartInterface {
   void SoftStartListening();
   void SoftEndListening();
  
-  uint16_t Read();  
+  int16_t Read();  
   uint8_t ReceiveHandler();    
 };
 

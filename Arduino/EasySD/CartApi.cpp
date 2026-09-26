@@ -350,7 +350,7 @@ void CartApi::HandleOpenFile() {
     }
   }
 
-  if (workingFile != NULL) {
+  if (workingFile) {
     LOGI(FILE, "File opened successfully");
     LOG_LOAD_OPEN_OK();
     HandleResponse(SUCCESSFUL, 1);

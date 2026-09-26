@@ -209,11 +209,13 @@ void CartInterface::SetAddressPinsOutput() {
 }
 
 
-uint16_t CartInterface::Read() {
+// Returns the next received byte, or -1 when the queue is empty. The return
+// type must stay signed: callers test `value >= 0` to tell a byte from "nothing
+// available", and 0xFF is a legal data byte.
+int16_t CartInterface::Read() {
   if (readQueue.IsAvailable()) {
     uint8_t val = readQueue.Dequeue();
-    uint16_t intVal = val;
-    return val;    
+    return val;
   } else {      
       return -1;
   }

@@ -10,8 +10,8 @@ Working plan, last updated 2026-09-26. Companion documents: `docs/DEBUG_TOOLING.
 
 | | Flash | RAM |
 |---|---|---|
-| release | 26722 / 30720 B (86%, 3998 B free) | 1568 / 2048 B (480 B free) |
-| debug | 28474 / 30720 B (92%, 2246 B free) | 1572 / 2048 B (476 B free) |
+| release | 26700 / 30720 B (86%, 4020 B free) | 1568 / 2048 B (480 B free) |
+| debug | 28452 / 30720 B (92%, 2268 B free) | 1572 / 2048 B (476 B free) |
 
 `python Tools/build.py release` is green. SD bundle: `EASYSD.PRG` 11 KB plus
 PRG/KOA/WAV/CVD plugins.
@@ -52,7 +52,7 @@ debug profile compiles out (`LOG_ENABLE_RAW=0`). So `Unknown cmd` never shows
 the command byte, `chdir FAILED:` never shows the name, `RD` never shows the
 page index. That is the main reason the log does not help.
 
-Budget: 2246 B free, estimated cost 700-1000 B.
+Budget: 2268 B free, estimated cost 700-1000 B.
 
 - **2.1 Make values first-class.** Typed emitters sharing one backend function,
   for example `LOGS(cat, "msg", str)` and `LOGN(cat, "msg", num)`, so every line
@@ -244,6 +244,26 @@ now a fairer place to observe the symptom.
   Worth extending next: `DirFunction` path handling (the `GoBack` / `ChangeDirectory`
   rollback rules) and the `LFN -> SFN` fallback, both of which are also pure logic
   wrapped around SdFat calls.
+- **B8 — The firmware compiles with every warning suppressed.** `platform.txt`
+  sets `compiler.warning_flags=-w` and the build does not override it. A one-off
+  compile with `--warnings all` (nothing in the repo changed) reports, in our own
+  sources only:
+  - ~10 `passing 'volatile ByteQueue' as 'this' argument discards qualifiers`
+    in `CartInterface.cpp`. The receive queue is written from the IO2 ISR and
+    read from the main loop, and the `volatile` is deliberate; the calls compile
+    only because the AVR core builds with `-fpermissive`. Fixing it properly
+    means volatile-qualified `ByteQueue` methods, which is a real change to a
+    timing-critical path — not a cleanup.
+  - Several `-Wwrite-strings` / `const char*` to `char*` conversions
+    (`HandleKoalaInvoke(char* mediaPath, ...)` and friends): const-correctness,
+    mechanical but touches signatures.
+  - `unused parameter 'selectedFileName'` in `LoadAndLaunchOpenedFile` is a
+    false positive: it is consumed by `LOG_LOAD_LAUNCH`, which compiles to
+    `((void)0)` while the LOAD category is off. If warnings are ever turned on,
+    the no-op logging macros should swallow their arguments with
+    `(void)sizeof(...)` so that genuinely unused parameters stay visible.
+  Enabling `-Wall` in the build only makes sense once these are dealt with,
+  otherwise the noise hides the next real warning.
 - **B5 — Remaining doc drift.** `GEMINI.md` describes ZP `$8B-$8E` as handler
   scratch while `CLAUDE.md` calls it free, and `CartZpMap.inc:15-16` says both.
   Pick one truth. `GEMINI.md` also still carries an older plugin-status
