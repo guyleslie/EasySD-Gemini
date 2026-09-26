@@ -120,7 +120,6 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 | KernalBridge (PRG loader, P2TK) | `.PRG` | ✅ working |
 | WavPlayer | `.WAV` | ❌ needs debug |
 | KoalaDisplayer | `.KOA` | ✅ working (incl. LFN media names) |
-| PetsciiDisplayer | `.PET` | ❌ needs debug |
 | CvdPlayer (CVD video player) | `.CVD` | ❌ needs debug |
 
 **KernalBridge** handles PRGs that load into `$C000+` via a three-phase transfer kernel (P2TK). Trigger: `ENDADDRESS > $C002`. Data tables stored at `$C003`/`$C02A` (KernalBridge gap, always-readable RAM).
@@ -164,6 +163,7 @@ Each plugin is a standalone 6502 program loaded from `/PLUGINS/` on the SD card.
 | `Tools/build.py` | Unified build system |
 | `GEMINI.md` | Detailed AI developer guide (SdFat patterns, error codes, ZP rules) |
 | `docs/DEBUG_TOOLING.md` | Serial-log wiring, USB back-power hazard, logic-analyzer capture plans |
+| `docs/NEXT_STEPS.md` | Working plan: current status, next step, ranked backlog, dead features |
 
 ## Serial Debug
 
