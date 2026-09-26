@@ -173,17 +173,13 @@ void CartApi::Init() {
 }
 
 static inline void FlushSerialBeforeProtocolResponse() {
-#if defined(EASYSD_DEBUG_SERIAL) || defined(EASYSD_RELEASE_LOG)
   // Serial logging is useful only if it does not perturb the IO2 pulse decoder.
-  // Most command handlers log before raising the response byte. If UART TX
-  // interrupts are still draining those logs when the C64 sends the next command,
-  // pulse timing can be mis-measured as a random command byte. Flush only when
-  // global interrupts are enabled; some transfer handlers call HandleResponse()
-  // inside noInterrupts(), where Serial.flush() would wait forever.
-  if (SREG & 0x80) {
-    Serial.flush();
-  }
-#endif
+  // The log backend writes polled, TX-only (EasySDLog.cpp), so no UART interrupt
+  // can compete with pulse decoding; LOG_FLUSH() only waits out the byte still
+  // sitting in the data register. It is bounded (one character time) and safe to
+  // call from handlers that run inside noInterrupts(), unlike the old
+  // interrupt-driven Serial.flush() which would have waited forever there.
+  LOG_FLUSH();
 }
 
 inline void HandleResponse(unsigned char response, uint16_t waitAfterResponse) {
