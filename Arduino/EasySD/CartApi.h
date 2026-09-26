@@ -43,8 +43,8 @@
 #define COMMAND_CHANGE_DIR          11
 #define COMMAND_DELETE_DIR          12
 #define COMMAND_CREATE_DIR          13
-#define COMMAND_SET_PORT            20
-#define COMMAND_SET_IO              21  // defined in protocol; currently no handler
+// 20, 21 retired: SET_PORT / SET_IO are sent by nothing and handled by no case.
+// Numbers kept reserved (see Common/EasySD.inc) so nothing silently reuses them.
 #define COMMAND_INVOKE_WITH_NAME    23
 #define COMMAND_INVOKE_WITH_INDEX   24  // menu-only: launch by current page + row index
 #define COMMAND_STREAM              25

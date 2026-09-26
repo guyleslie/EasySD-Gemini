@@ -47,6 +47,14 @@ void releasePageSelectPins() {
 
 }
 
+// C64 -> AVR bit timing. The C64 encodes each bit as the gap between two /IO2
+// accesses; these are the gap widths in microseconds that the decoder accepts.
+// They must match the delays the C64 side emits in SystemMacros.s.
+#define BIT_GAP_MIN_US   350   // shorter: line noise, resynchronise
+#define BIT_GAP_ZERO_US  450   // below this: bit value 0
+#define BIT_GAP_ONE_US   700   // above this: bit value 1 (between = invalid)
+#define BIT_GAP_MAX_US  1000   // longer: gap between bytes, resynchronise
+
 static void CartInterface::ReceiveInterrupt() {
     lastInterruptTime = interruptTime;
     interruptTime = micros();
@@ -54,14 +62,14 @@ static void CartInterface::ReceiveInterrupt() {
 
     switch(bitState) {
     case BIT_STARTED :
-      if (timeDifference<350 || timeDifference>1000) {
+      if (timeDifference<BIT_GAP_MIN_US || timeDifference>BIT_GAP_MAX_US) {
         bitState = BIT_STARTED;
         currentByte = 0;
         bitMask = 1;
       } else {
-        if (timeDifference<450) {
+        if (timeDifference<BIT_GAP_ZERO_US) {
           bitState = BIT_ZERO_END;
-        } else if (timeDifference>700) {
+        } else if (timeDifference>BIT_GAP_ONE_US) {
           bitState = BIT_ONE_END;
         } else {
           bitState = BIT_STARTED;

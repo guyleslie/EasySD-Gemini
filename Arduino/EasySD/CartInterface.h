@@ -27,13 +27,6 @@
 inline bool selRead() { return analogRead(SEL) >= 512; }
 inline bool phi2Read() { return digitalRead(PHI2) != LOW; }
 
-#define PRE_WAIT 3
-#define INITIAL_WAIT 17
-#define INTER_WAIT 11
-#define FINAL_WAIT 23
-#define SINGLE_WAIT 35
-
-
 #define ONE 1
 #define ZERO 0
 #define BIT_WAITING  0
@@ -72,8 +65,6 @@ class CartInterface {
   static const uint8_t TransferMode = 0;
   void Init();  
   void SetPage(unsigned char value);   
-  uint8_t ReadIO();
-  void SetIO(unsigned char value);    
   void ResetC64();
   void TransmitByteSlow(unsigned char val);
   void TransmitByteBlockEnd(unsigned char val) ;
@@ -89,12 +80,10 @@ class CartInterface {
   void NmiLow();
   void NmiHigh();  
   void TransmitByteFast(unsigned char val);
-  void StreamByteSlow(unsigned char value);
   void TransmitByteFastStd(unsigned char val);
   void TransmitByteFastMK3(unsigned char val);  // 35µs delay: 22133 Hz > C64 21894 Hz
   void StreamByte(unsigned char value);
   void InitTransfer();
-  void HandleReceive();
   void ResetReceive();
   void ResetReceiveNoStateChange();
   void StartListening();

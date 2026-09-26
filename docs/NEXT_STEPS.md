@@ -264,6 +264,11 @@ now a fairer place to observe the symptom.
     `(void)sizeof(...)` so that genuinely unused parameters stay visible.
   Enabling `-Wall` in the build only makes sense once these are dealt with,
   otherwise the noise hides the next real warning.
+- **B9 — `COMMAND_CREATE_DIR` has a handler nobody calls.** The Arduino
+  implements `HandleCreateDirectory()` and dispatches command 13, but no C64
+  source ever sends it — the menu has no "create directory" function. That is
+  flash spent on an unreachable feature. Either wire it up or delete the
+  handler; deciding is a product call, not a cleanup, so it was left alone.
 - **B5 — Remaining doc drift.** `GEMINI.md` describes ZP `$8B-$8E` as handler
   scratch while `CLAUDE.md` calls it free, and `CartZpMap.inc:15-16` says both.
   Pick one truth. `GEMINI.md` also still carries an older plugin-status

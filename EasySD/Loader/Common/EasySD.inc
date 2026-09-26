@@ -15,9 +15,9 @@ COMMAND_READ_DIR 	  = 10
 COMMAND_CHANGE_DIR 	  = 11
 COMMAND_DELETE_DIR 	  = 12
 COMMAND_CREATE_DIR 	  = 13
-COMMAND_SET_PORT  	  = 20
-COMMAND_SET_IO  	  = 21
-COMMAND_SET_SOURCE  	  = 22
+; 20, 21, 22 retired: SET_PORT / SET_IO / SET_SOURCE were never sent by the
+; C64 and are handled by no Arduino command case. Numbers kept reserved so a
+; future command does not silently reuse them.
 COMMAND_INVOKE_WITH_NAME  = 23
 COMMAND_INVOKE_WITH_INDEX = 24   ; Menu-only PRG launch by page + row index
 COMMAND_STREAM		  = 25

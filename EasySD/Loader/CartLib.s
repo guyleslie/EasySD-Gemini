@@ -86,7 +86,7 @@ PROT_StartTalking
 ;Registers Used : A
 ;-----------------------------------------
 PROT_EndTalking
-	LDA #30							;End Talking command
+	LDA #COMMAND_END_TALKING			; = 30, see Common/EasySD.inc
 	JSR PROT_Send
 	SEI
 	JSR PROT_DisableCIAInterrupts
